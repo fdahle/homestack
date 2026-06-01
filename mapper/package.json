@@ -1,0 +1,11 @@
+{
+  "name": "mapper",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,client -c blue,green \"npm --prefix api run dev\" \"npm --prefix client run dev\"",
+    "reset": "rm -f data/mapper.db data/mapper.db-wal data/mapper.db-shm && echo 'Database reset. Run npm run dev to set up again.'"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
