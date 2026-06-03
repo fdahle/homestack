@@ -62,9 +62,15 @@
           </div>
 
           <!-- Inline hint while Overpass is still resolving -->
-          <div v-if="poiLoading && !isPoi" class="poi-checking">
-            <span class="spinner-sm" />
+          <div v-if="(poiLoading || progressVisible) && !isPoi" class="poi-checking">
             Checking for nearby places…
+            <div class="poi-progress-track">
+              <div
+                class="poi-progress-bar"
+                :class="{ running: progressRunning }"
+                :style="{ width: progressWidth }"
+              />
+            </div>
           </div>
 
           <!-- Alternative POI picker -->
@@ -118,7 +124,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -134,6 +140,33 @@ const emit = defineEmits(['close', 'save-as-marker', 'select-poi'])
 
 const showAlternatives = ref(false)
 watch(() => props.poiAlternatives, () => { showAlternatives.value = false })
+
+// POI progress bar
+const progressVisible = ref(false)
+const progressRunning = ref(false)
+const progressWidth = ref('0%')
+let progressHideTimer = null
+
+watch(() => props.poiLoading, (loading) => {
+  clearTimeout(progressHideTimer)
+  if (loading) {
+    progressVisible.value = true
+    progressRunning.value = false
+    progressWidth.value = '0%'
+    setTimeout(() => {
+      if (props.poiLoading) {
+        progressRunning.value = true
+        progressWidth.value = '85%'
+      }
+    }, 30)
+  } else {
+    progressRunning.value = false
+    progressWidth.value = '100%'
+    progressHideTimer = setTimeout(() => { progressVisible.value = false }, 350)
+  }
+})
+
+onUnmounted(() => clearTimeout(progressHideTimer))
 
 function poiLabel(alt) {
   return alt.name || alt.categoryValue?.replace(/_/g, ' ') || alt.categoryKey || 'Unknown place'
@@ -412,24 +445,32 @@ h2 {
   flex-shrink: 0;
 }
 
-.spinner-sm {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--border);
-  border-top-color: var(--text-2);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  flex-shrink: 0;
-}
-
 .poi-checking {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 5px;
   font-size: 11px;
   color: var(--text-2);
   margin-top: 2px;
+}
+
+.poi-progress-track {
+  height: 3px;
+  background: var(--border);
+  border-radius: 1.5px;
+  overflow: hidden;
+}
+
+.poi-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 1.5px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.poi-progress-bar.running {
+  transition: width 8s cubic-bezier(0.05, 0.5, 0.4, 1);
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }

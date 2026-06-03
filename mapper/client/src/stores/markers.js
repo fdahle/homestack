@@ -92,6 +92,34 @@ export const useMarkersStore = defineStore('markers', {
       }
     },
 
+    // Called by categories/collections stores after update or delete.
+    // Pass patch=null to remove the embedded entry (on delete).
+    patchEmbeddedCategory(categoryId, patch) {
+      for (let i = 0; i < this.items.length; i++) {
+        const m = this.items[i]
+        if (!m.categories?.some(c => c.id === categoryId)) continue
+        this.items[i] = {
+          ...m,
+          categories: patch
+            ? m.categories.map(c => c.id === categoryId ? { ...c, ...patch } : c)
+            : m.categories.filter(c => c.id !== categoryId),
+        }
+      }
+    },
+
+    patchEmbeddedCollection(collectionId, patch) {
+      for (let i = 0; i < this.items.length; i++) {
+        const m = this.items[i]
+        if (!m.collections?.some(c => c.id === collectionId)) continue
+        this.items[i] = {
+          ...m,
+          collections: patch
+            ? m.collections.map(c => c.id === collectionId ? { ...c, ...patch } : c)
+            : m.collections.filter(c => c.id !== collectionId),
+        }
+      }
+    },
+
     setGroupFilter(filter) { this.activeGroupFilter = filter },
     clearGroupFilter() { this.activeGroupFilter = null },
     setVisitedFilter(value) { this.visitedFilter = value },

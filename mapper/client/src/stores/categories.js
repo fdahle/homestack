@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { useMarkersStore } from './markers.js'
 
 export const useCategoriesStore = defineStore('categories', {
   state: () => ({
@@ -33,6 +34,7 @@ export const useCategoriesStore = defineStore('categories', {
       const updated = await res.json()
       const idx = this.items.findIndex((c) => c.id === id)
       if (idx !== -1) this.items[idx] = updated
+      useMarkersStore().patchEmbeddedCategory(id, { name: updated.name, color: updated.color })
       return updated
     },
 
@@ -40,6 +42,7 @@ export const useCategoriesStore = defineStore('categories', {
       const res = await fetch(`/api/categories/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error((await res.json()).error)
       this.items = this.items.filter((c) => c.id !== id)
+      useMarkersStore().patchEmbeddedCategory(id, null)
     },
   },
 })

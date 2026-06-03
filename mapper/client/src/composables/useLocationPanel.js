@@ -67,6 +67,10 @@ async function fetchOverpassPoi(lat, lon, signal) {
   relation(pivot.a)["tourism"];
   relation(pivot.a)["leisure"];
   relation(pivot.a)["amenity"];
+  relation(pivot.a)["historic"];
+);
+out tags center;
+(
   node["amenity"](around:${r},${lat},${lon});
   node["shop"](around:${r},${lat},${lon});
   node["tourism"](around:${r},${lat},${lon});
@@ -78,7 +82,7 @@ async function fetchOverpassPoi(lat, lon, signal) {
   way["leisure"](around:${r},${lat},${lon});
   way["historic"](around:${r},${lat},${lon});
 );
-out tags center 20;`
+out tags center 30;`
 
   const res = await fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST',

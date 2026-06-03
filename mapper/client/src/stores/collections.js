@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { useMarkersStore } from './markers.js'
 
 export const useCollectionsStore = defineStore('collections', {
   state: () => ({
@@ -33,6 +34,7 @@ export const useCollectionsStore = defineStore('collections', {
       const updated = await res.json()
       const idx = this.items.findIndex((c) => c.id === id)
       if (idx !== -1) this.items[idx] = updated
+      useMarkersStore().patchEmbeddedCollection(id, { name: updated.name, color: updated.color, is_trip: updated.is_trip })
       return updated
     },
 
@@ -40,6 +42,7 @@ export const useCollectionsStore = defineStore('collections', {
       const res = await fetch(`/api/collections/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error((await res.json()).error)
       this.items = this.items.filter((c) => c.id !== id)
+      useMarkersStore().patchEmbeddedCollection(id, null)
     },
   },
 })

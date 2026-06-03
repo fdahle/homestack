@@ -111,6 +111,8 @@ export function useMarkerLayer(getMap, onMarkerClick) {
         marker.setLatLng([m.lat, m.lng])
         marker.setIcon(makePinIcon(markerColors(m)))
         marker.setTooltipContent(m.label || `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})`)
+        marker.off('click')
+        marker.on('click', (e) => { L.DomEvent.stopPropagation(e); onMarkerClick(m) })
       } else {
         const marker = makeLeafletMarker(m)
         if (clusterGroup) clusterGroup.addLayer(marker)

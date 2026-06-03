@@ -294,11 +294,25 @@ function onDragEnd() {
 
 // ── Navigation state ────────────────────────────────────────────────────────
 const pane = ref('overview')      // 'overview' | 'detail'
-const detailGroup = ref(null)     // { type, id, name, color, item }
 const activeTab = ref('collection') // 'category' | 'collection'
 
+// Store only the type+id; derive everything else live from the store so renames
+// and recolors are reflected immediately without navigating back.
+const detailFilter = ref(null)  // { type, id } | null
+
+const detailGroup = computed(() => {
+  if (!detailFilter.value) return null
+  const { type, id } = detailFilter.value
+  if (id === '__none__') {
+    return { type, id, name: type === 'category' ? 'Uncategorized' : 'No collection', color: '#9ca3af', item: null }
+  }
+  const item = (type === 'category' ? categoriesStore : collectionsStore).items.find(c => c.id === id)
+  if (!item) return null   // item was deleted
+  return { type, id, name: item.name, color: item.color, item }
+})
+
 function drillInto(group) {
-  detailGroup.value = group
+  detailFilter.value = { type: group.type, id: group.id }
   pane.value = 'detail'
   detailQuery.value = ''
   if (group.type === 'collection') markersStore.setVisitedFilter('all')
@@ -307,7 +321,7 @@ function drillInto(group) {
 
 function goBack() {
   pane.value = 'overview'
-  detailGroup.value = null
+  detailFilter.value = null
   markersStore.clearGroupFilter()
 }
 
@@ -481,6 +495,7 @@ const detailMarkers = computed(() => {
 })
 
 watch(detailGroup, (group) => {
+  if (!group && pane.value === 'detail') { goBack(); return }
   if (sortBy.value === 'stop' && !group?.item?.is_trip) sortBy.value = 'added'
 })
 
