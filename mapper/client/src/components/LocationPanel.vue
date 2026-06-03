@@ -29,13 +29,13 @@
               <span class="info-label">Hours</span>
               <span class="info-value">{{ openingHours }}</span>
             </div>
-            <div v-if="phone" class="info-row">
+            <div v-if="safePhone" class="info-row">
               <span class="info-label">Phone</span>
-              <a class="info-value info-link" :href="`tel:${phone}`">{{ phone }}</a>
+              <a class="info-value info-link" :href="`tel:${safePhone}`">{{ safePhone }}</a>
             </div>
-            <div v-if="website" class="info-row">
+            <div v-if="safeWebsite" class="info-row">
               <span class="info-label">Website</span>
-              <a class="info-value info-link" :href="website" target="_blank" rel="noopener">{{ websiteDisplay }}</a>
+              <a class="info-value info-link" :href="safeWebsite" target="_blank" rel="noopener noreferrer">{{ websiteDisplay }}</a>
             </div>
           </template>
 
@@ -65,6 +65,26 @@
           <div v-if="poiLoading && !isPoi" class="poi-checking">
             <span class="spinner-sm" />
             Checking for nearby places…
+          </div>
+
+          <!-- Alternative POI picker -->
+          <div v-if="isPoi && poiAlternatives.length > 1" class="alt-section">
+            <button class="wrong-place-btn" type="button" @click="showAlternatives = !showAlternatives">
+              Got the wrong place?
+            </button>
+            <div v-if="showAlternatives" class="alt-list">
+              <button
+                v-for="alt in poiAlternatives"
+                :key="alt.id"
+                type="button"
+                class="alt-item"
+                :class="{ 'alt-item--active': alt.id === poiData?.id }"
+                @click="emit('select-poi', alt); showAlternatives = false"
+              >
+                <span class="alt-name">{{ poiLabel(alt) }}</span>
+                <span v-if="poiSubLabel(alt)" class="alt-sub">{{ poiSubLabel(alt) }}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -98,7 +118,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -107,9 +127,25 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   poiData: { type: Object, default: null },
   poiLoading: { type: Boolean, default: false },
+  poiAlternatives: { type: Array, default: () => [] },
 })
 
-defineEmits(['close', 'save-as-marker'])
+const emit = defineEmits(['close', 'save-as-marker', 'select-poi'])
+
+const showAlternatives = ref(false)
+watch(() => props.poiAlternatives, () => { showAlternatives.value = false })
+
+function poiLabel(alt) {
+  return alt.name || alt.categoryValue?.replace(/_/g, ' ') || alt.categoryKey || 'Unknown place'
+}
+
+function poiSubLabel(alt) {
+  const type = alt.categoryValue?.replace(/_/g, ' ')
+  const key = alt.categoryKey
+  if (alt.name && type && type !== alt.name.toLowerCase()) return `${key} · ${type}`
+  if (!alt.name && type) return null
+  return key || null
+}
 
 const TYPE_ICONS = {
   restaurant: '🍽', cafe: '☕', bar: '🍺', pub: '🍺', fast_food: '🍔',
@@ -176,19 +212,35 @@ const phone = computed(() => {
   return t?.phone || t?.['contact:phone'] || null
 })
 
+const safePhone = computed(() => {
+  if (!phone.value) return null
+  const stripped = phone.value.replace(/[^+\d\s\-() ]/g, '')
+  return stripped || null
+})
+
 const website = computed(() => {
   const t = props.poiData?.tags
   return t?.website || t?.['contact:website'] || null
 })
 
-const websiteDisplay = computed(() => {
+const safeWebsite = computed(() => {
   if (!website.value) return null
   try {
     const url = new URL(website.value)
+    return (url.protocol === 'http:' || url.protocol === 'https:') ? website.value : null
+  } catch {
+    return null
+  }
+})
+
+const websiteDisplay = computed(() => {
+  if (!safeWebsite.value) return null
+  try {
+    const url = new URL(safeWebsite.value)
     const host = url.hostname.replace(/^www\./, '')
     return host.length > 30 ? host.slice(0, 30) + '…' : host
   } catch {
-    return website.value.slice(0, 30)
+    return safeWebsite.value.slice(0, 30)
   }
 })
 
@@ -257,7 +309,13 @@ const suggestedLabel = computed(() => {
 }
 
 @media (max-width: 640px) {
-  .location-panel { width: 100vw; }
+  .location-panel {
+    width: 100vw;
+    padding-top: var(--sat, 0px);
+  }
+  .panel-footer {
+    padding-bottom: calc(16px + var(--sab, 0px));
+  }
 }
 
 /* Slide-in transition */
@@ -327,6 +385,7 @@ h2 {
   flex-shrink: 0;
 }
 .close-btn:hover { background: var(--surface-2); color: var(--text); }
+.close-btn:active { background: var(--border); }
 
 .panel-body {
   flex: 1;
@@ -439,6 +498,7 @@ h2 {
   border: none;
 }
 .btn-save:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-save:active:not(:disabled) { opacity: 0.85; }
 .btn-save:disabled { opacity: 0.5; cursor: default; }
 
 .footer-links {
@@ -459,4 +519,63 @@ h2 {
   text-decoration: none;
 }
 .btn-link:hover { color: var(--text); background: var(--surface); }
+
+/* ── Alternative POI picker ── */
+.alt-section {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.wrong-place-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wrong-place-btn:hover { color: var(--text); }
+
+.alt-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.alt-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: none;
+  border: 1px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alt-item:hover { background: var(--surface-2); }
+.alt-item--active {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.alt-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.alt-sub {
+  font-size: 11px;
+  color: var(--text-2);
+  text-transform: capitalize;
+}
 </style>

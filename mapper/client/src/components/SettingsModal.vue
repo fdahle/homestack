@@ -9,7 +9,9 @@
       <div class="tabs">
         <button class="tab-btn" :class="{ active: tab === 'general' }"    @click="tab = 'general'">General</button>
         <button class="tab-btn" :class="{ active: tab === 'appearance' }" @click="tab = 'appearance'">Appearance</button>
-        <button class="tab-btn" :class="{ active: tab === 'data' }"       @click="tab = 'data'">Import / Export</button>
+        <button class="tab-btn" :class="{ active: tab === 'advanced' }"   @click="tab = 'advanced'">Advanced</button>
+        <button class="tab-btn" :class="{ active: tab === 'account' }"    @click="tab = 'account'">Account</button>
+        <button class="tab-btn" :class="{ active: tab === 'data' }"       @click="tab = 'data'">Data</button>
       </div>
 
       <div class="tab-body">
@@ -32,18 +34,21 @@
               <label>Zoom level (1–19)</label>
               <input v-model.number="form.zoom" type="number" min="1" max="19" step="1" />
             </div>
-            <button type="button" class="btn-ghost full" @click="useCurrentView">
-              Use current map view
-            </button>
+            <div class="btn-pair">
+              <button type="button" class="btn-ghost" @click="useCurrentLocation" :disabled="gpsLoading">
+                {{ gpsLoading ? 'Getting location…' : '⊕ My location' }}
+              </button>
+              <button type="button" class="btn-ghost" @click="useCurrentView">
+                Use current view
+              </button>
+            </div>
+            <p v-if="gpsError" class="msg error">{{ gpsError }}</p>
             <div class="actions">
               <div class="spacer" />
               <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
               <button type="submit" class="btn-primary">Save</button>
             </div>
           </form>
-          <div class="logout-section">
-            <button type="button" class="btn-logout" @click="logout">Sign out</button>
-          </div>
         </template>
 
         <!-- ── Appearance ── -->
@@ -69,7 +74,7 @@
           </div>
 
           <div class="setting-section">
-            <div class="group-label" style="margin-top:16px">Map style</div>
+            <div class="group-label" style="margin-top:20px">Map style</div>
             <div class="tile-grid">
               <button
                 v-for="t in TILE_OPTIONS"
@@ -79,13 +84,88 @@
                 :class="{ selected: tileKey === t.key }"
                 @click="setTile(t.key)"
               >
-                {{ t.label }}
+                <img :src="t.thumb" :alt="t.label" class="tile-thumb" @error="(e) => e.target.style.display='none'" />
+                <span class="tile-label">{{ t.label }}</span>
               </button>
             </div>
           </div>
         </template>
 
-        <!-- ── Import / Export ── -->
+        <!-- ── Advanced ── -->
+        <template v-if="tab === 'advanced'">
+          <div class="group-label">Routing API key (OpenRouteService)</div>
+          <p class="hint">Optional. Enables hiking-trail routing. Get a free key at openrouteservice.org. Without a key, roads-only routing (OSRM) is used.</p>
+          <div class="field">
+            <input v-model="orsApiKey" type="text" placeholder="Paste your ORS key here…" @change="saveOrsKey" />
+          </div>
+
+          <div class="group-label" style="margin-top:16px">Nearby POI search radius</div>
+          <p class="hint">How far from a clicked point to search for places.</p>
+          <div class="segment">
+            <button
+              v-for="r in [25, 50, 100, 200]"
+              :key="r"
+              type="button"
+              class="seg-btn"
+              :class="{ active: poiRadius === r }"
+              @click="setPoiRadius(r)"
+            >{{ r }}m</button>
+          </div>
+
+          <div class="poi-section">
+            <div class="group-label">Excluded POI types</div>
+            <p class="hint">Amenity tags hidden from "nearby places" results.</p>
+            <div class="exclude-tags">
+              <span v-for="tag in excludedAmenities" :key="tag" class="exclude-tag">
+                {{ tag }}
+                <button type="button" class="tag-remove" @click="removeExcluded(tag)">✕</button>
+              </span>
+              <span v-if="!excludedAmenities.length" class="hint" style="margin:0">None</span>
+            </div>
+            <div class="exclude-add-row">
+              <input
+                v-model="newExclude"
+                type="text"
+                placeholder="e.g. vending_machine"
+                @keydown.enter.prevent="addExcluded"
+              />
+              <button type="button" class="btn-ghost" @click="addExcluded" :disabled="!newExclude.trim()">Add</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── Account ── -->
+        <template v-if="tab === 'account'">
+          <form @submit.prevent="doChangePassword">
+            <div class="group-label">Change password</div>
+            <div class="field">
+              <label>Current password</label>
+              <input v-model="pwForm.current" type="password" autocomplete="current-password" />
+            </div>
+            <div class="field">
+              <label>New password <span class="hint-inline">(min 12 chars)</span></label>
+              <input v-model="pwForm.newPass" type="password" autocomplete="new-password" />
+            </div>
+            <div class="field">
+              <label>Confirm new password</label>
+              <input v-model="pwForm.confirm" type="password" autocomplete="new-password" />
+            </div>
+            <p v-if="pwError"  class="msg error">{{ pwError }}</p>
+            <p v-if="pwStatus" class="msg ok">{{ pwStatus }}</p>
+            <div class="actions">
+              <div class="spacer" />
+              <button type="submit" class="btn-primary" :disabled="pwLoading">
+                {{ pwLoading ? 'Saving…' : 'Change password' }}
+              </button>
+            </div>
+          </form>
+
+          <div class="logout-section">
+            <button type="button" class="btn-logout" @click="logout">Sign out</button>
+          </div>
+        </template>
+
+        <!-- ── Data ── -->
         <template v-if="tab === 'data'">
           <div class="data-group">
             <div class="group-label">Export</div>
@@ -186,14 +266,15 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMarkersStore } from '../stores/markers.js'
 import { useAuthStore } from '../stores/auth.js'
+import { useImportExport } from '../composables/useImportExport.js'
 
 const SETTINGS_KEY = 'mapper_settings'
 
 const TILE_OPTIONS = [
-  { key: 'osm',         label: 'Street' },
-  { key: 'carto-light', label: 'Light' },
-  { key: 'carto-dark',  label: 'Dark' },
-  { key: 'topo',        label: 'Topo' },
+  { key: 'osm',         label: 'Street',    thumb: 'https://tile.openstreetmap.org/12/2074/1410.png' },
+  { key: 'carto-light', label: 'Light',     thumb: 'https://a.basemaps.cartocdn.com/light_all/12/2074/1410.png' },
+  { key: 'topo',        label: 'Topo',      thumb: 'https://a.tile.opentopomap.org/12/2074/1410.png' },
+  { key: 'satellite',   label: 'Satellite', thumb: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/12/1410/2074' },
 ]
 
 const props = defineProps({
@@ -203,9 +284,9 @@ const props = defineProps({
 const emit = defineEmits(['save', 'close', 'tile-change', 'cluster-change'])
 
 const markersStore = useMarkersStore()
-const authStore = useAuthStore()
-const router = useRouter()
-const tab = ref('general')
+const authStore    = useAuthStore()
+const router       = useRouter()
+const tab          = ref('general')
 
 async function logout() {
   await authStore.logout()
@@ -213,376 +294,165 @@ async function logout() {
 }
 
 // ── General ──────────────────────────────────────────────
-const form = ref({ lat: 20, lng: 0, zoom: 2 })
-
-const tileKey = ref('osm')
-const cluster = ref(true)
+const form       = ref({ lat: 20, lng: 0, zoom: 2 })
+const gpsLoading = ref(false)
+const gpsError   = ref('')
 
 onMounted(() => {
-  if (props.saved) {
-    form.value = { lat: props.saved.lat ?? 20, lng: props.saved.lng ?? 0, zoom: props.saved.zoom ?? 2 }
-    tileKey.value = props.saved.tile ?? 'osm'
-    cluster.value = props.saved.cluster !== false
-  }
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    form.value              = { lat: s.lat ?? 20, lng: s.lng ?? 0, zoom: s.zoom ?? 2 }
+    tileKey.value           = s.tile ?? 'osm'
+    cluster.value           = s.cluster !== false
+    excludedAmenities.value = s.excludedAmenities ?? ['waste_basket', 'bench']
+    poiRadius.value         = s.poiRadius ?? 25
+    orsApiKey.value         = s.orsApiKey ?? ''
+  } catch {}
 })
-
-function setTile(key) {
-  tileKey.value = key
-  try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-    s.tile = key
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
-  } catch {}
-  emit('tile-change', key)
-}
-
-function toggleCluster() {
-  cluster.value = !cluster.value
-  try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-    s.cluster = cluster.value
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
-  } catch {}
-  emit('cluster-change', cluster.value)
-}
 
 function useCurrentView() {
   if (props.current) form.value = { ...props.current }
 }
 
+function useCurrentLocation() {
+  if (!navigator.geolocation) {
+    gpsError.value = 'Geolocation is not supported by this browser'
+    return
+  }
+  gpsLoading.value = true
+  gpsError.value = ''
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      form.value.lat  = +pos.coords.latitude.toFixed(5)
+      form.value.lng  = +pos.coords.longitude.toFixed(5)
+      form.value.zoom = 13
+      gpsLoading.value = false
+    },
+    (err) => {
+      gpsError.value = err.code === 1 ? 'Location permission denied' : 'Could not get location'
+      gpsLoading.value = false
+    },
+    { timeout: 10000 },
+  )
+}
+
 function saveGeneral() {
-  emit('save', { ...form.value, theme: isDark.value ? 'dark' : 'light', tile: tileKey.value, cluster: cluster.value })
+  emit('save', {
+    ...form.value,
+    theme: isDark.value ? 'dark' : 'light',
+    tile: tileKey.value,
+    cluster: cluster.value,
+    excludedAmenities: excludedAmenities.value,
+    poiRadius: poiRadius.value,
+  })
 }
 
 // ── Appearance ────────────────────────────────────────────
-const isDark = ref(document.documentElement.getAttribute('data-theme') === 'dark')
+const tileKey = ref('osm')
+const cluster = ref(true)
+const isDark  = ref(document.documentElement.getAttribute('data-theme') === 'dark')
 
 function toggleDark() {
   isDark.value = !isDark.value
-  if (isDark.value) {
-    document.documentElement.setAttribute('data-theme', 'dark')
-  } else {
-    document.documentElement.removeAttribute('data-theme')
-  }
-  // persist immediately without closing
+  isDark.value
+    ? document.documentElement.setAttribute('data-theme', 'dark')
+    : document.documentElement.removeAttribute('data-theme')
+  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.theme = isDark.value ? 'dark' : 'light'; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+}
+
+function setTile(key) {
+  tileKey.value = key
+  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.tile = key; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+  emit('tile-change', key)
+}
+
+function toggleCluster() {
+  cluster.value = !cluster.value
+  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.cluster = cluster.value; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+  emit('cluster-change', cluster.value)
+}
+
+// ── Advanced ──────────────────────────────────────────────
+const orsApiKey = ref('')
+
+function saveOrsKey() {
+  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.orsApiKey = orsApiKey.value.trim(); localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+}
+
+const excludedAmenities = ref(['waste_basket', 'bench'])
+const newExclude        = ref('')
+const poiRadius         = ref(25)
+
+function saveExcludedToStorage() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-    s.theme = isDark.value ? 'dark' : 'light'
+    s.excludedAmenities = excludedAmenities.value
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
   } catch {}
 }
 
-// ── Import / Export ───────────────────────────────────────
-const exporting = ref(false)
+function addExcluded() {
+  const tag = newExclude.value.trim().toLowerCase().replace(/\s+/g, '_')
+  if (tag && !excludedAmenities.value.includes(tag)) {
+    excludedAmenities.value = [...excludedAmenities.value, tag]
+    saveExcludedToStorage()
+  }
+  newExclude.value = ''
+}
 
-async function doExport() {
-  exporting.value = true
+function removeExcluded(tag) {
+  excludedAmenities.value = excludedAmenities.value.filter(t => t !== tag)
+  saveExcludedToStorage()
+}
+
+function setPoiRadius(r) {
+  poiRadius.value = r
+  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.poiRadius = r; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+}
+
+// ── Account ───────────────────────────────────────────────
+const pwForm    = ref({ current: '', newPass: '', confirm: '' })
+const pwError   = ref('')
+const pwStatus  = ref('')
+const pwLoading = ref(false)
+
+async function doChangePassword() {
+  pwError.value = ''
+  pwStatus.value = ''
+  if (!pwForm.value.current || !pwForm.value.newPass || !pwForm.value.confirm) {
+    pwError.value = 'All fields are required'
+    return
+  }
+  if (pwForm.value.newPass !== pwForm.value.confirm) {
+    pwError.value = 'New passwords do not match'
+    return
+  }
+  if (pwForm.value.newPass.length < 12) {
+    pwError.value = 'New password must be at least 12 characters'
+    return
+  }
+  pwLoading.value = true
   try {
-    const res = await fetch('/api/markers')
-    const markers = await res.json()
-    const payload = {
-      version: 1,
-      exported_at: new Date().toISOString(),
-      markers: markers.map((m) => ({
-        lat: m.lat,
-        lng: m.lng,
-        label: m.label,
-        description: m.description,
-        visited_at: m.visited_at,
-        categories: m.categories?.map((c) => c.name) ?? [],
-        collections: m.collections?.map((c) => c.name) ?? [],
-      })),
-    }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'markers.json'
-    a.click()
-    URL.revokeObjectURL(url)
-  } finally {
-    exporting.value = false
-  }
-}
-
-const fileInput    = ref(null)
-const importFile   = ref(null)
-const importMarkers = ref(null)
-const importError  = ref(null)
-const importStatus = ref(null)
-const importing    = ref(false)
-const importProgress = ref(0)
-const importFailed = ref([])
-
-function onFileSelected(e) {
-  importError.value  = null
-  importStatus.value = null
-  importMarkers.value = null
-  const file = e.target.files[0]
-  if (!file) return
-  importFile.value = file
-  const reader = new FileReader()
-  reader.onload = (ev) => {
-    try {
-      const data = JSON.parse(ev.target.result)
-      const list = Array.isArray(data) ? data : data.markers
-      if (!Array.isArray(list)) throw new Error('Expected an array of markers')
-      importMarkers.value = list
-    } catch (err) {
-      importError.value = 'Invalid file: ' + err.message
-    }
-  }
-  reader.readAsText(file)
-}
-
-async function doImport() {
-  importing.value = true
-  importProgress.value = 0
-  importError.value  = null
-  importStatus.value = null
-  importFailed.value = []
-  let ok = 0
-  for (let i = 0; i < importMarkers.value.length; i++) {
-    const m = importMarkers.value[i]
-    try {
-      await markersStore.create({
-        lat:         m.lat,
-        lng:         m.lng,
-        label:       m.label       || null,
-        description: m.description || null,
-        visited_at:  m.visited_at  || null,
-        category_ids: [],
-        collection_ids: [],
-      })
-      ok++
-    } catch {
-      importFailed.value.push({ label: m.label || `Line ${i + 1}` })
-    }
-    importProgress.value++
-  }
-  importing.value = false
-  const fail = importFailed.value.length
-  importStatus.value = `Done — ${ok} imported${fail ? `, ${fail} failed` : ''}.`
-  importMarkers.value = null
-  importFile.value = null
-  if (fileInput.value) fileInput.value.value = ''
-}
-
-// ── Google Maps CSV Import ────────────────────────────────
-const csvInput          = ref(null)
-const csvFiles          = ref(null)
-const csvRows           = ref(null)
-const csvError          = ref(null)
-const csvStatus         = ref(null)
-const geocoding         = ref(false)
-const geocodeProgress   = ref(0)
-const geocodedMarkers   = ref(null)
-const csvImporting      = ref(false)
-const csvImportProgress = ref(0)
-const csvFailed         = ref([])
-
-// RFC 4180 CSV parser — handles multi-line quoted fields correctly
-function parseCsvRecords(text) {
-  const records = []
-  let i = 0
-  while (i < text.length) {
-    while (i < text.length && (text[i] === '\r' || text[i] === '\n')) i++
-    if (i >= text.length) break
-    const fields = []
-    for (;;) {
-      let field = ''
-      if (text[i] === '"') {
-        i++
-        while (i < text.length) {
-          if (text[i] === '"') {
-            if (text[i + 1] === '"') { field += '"'; i += 2 }
-            else { i++; break }
-          } else field += text[i++]
-        }
-      } else {
-        while (i < text.length && text[i] !== ',' && text[i] !== '\r' && text[i] !== '\n') field += text[i++]
-      }
-      fields.push(field)
-      if (i < text.length && text[i] === ',') { i++; continue }
-      break
-    }
-    while (i < text.length && (text[i] === '\r' || text[i] === '\n')) i++
-    if (fields.length > 0) records.push(fields)
-  }
-  return records
-}
-
-function extractCoordsFromUrl(url) {
-  const m = url.match(/\/maps\/search\/([-\d.]+),([-\d.]+)/)
-  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) }
-  return null
-}
-
-function isCoordTitle(title) {
-  return /[0-9]+°/.test(title) || title === 'Gesetzte Markierung' || title === 'Dropped pin'
-}
-
-function parseGoogleCsv(text) {
-  const records = parseCsvRecords(text)
-
-  // Find the actual header row — some files have a list title before it
-  const headerIdx = records.findIndex(r => r[0]?.trim() === 'Title')
-  if (headerIdx === -1) throw new Error('Could not find header row (expected Title,Note,URL,…)')
-
-  const rows = []
-  for (let i = headerIdx + 1; i < records.length; i++) {
-    const fields = records[i]
-    if (fields.every(f => !f.trim())) continue // blank separator row
-
-    const title = fields[0]?.trim() || ''
-    // collapse multi-line notes (e.g. "mit Lydia,\nNovember 2022") to single line
-    const note  = (fields[1]?.trim() || '').replace(/\s*\n\s*/g, ' ')
-    const url   = fields[2]?.trim() || ''
-
-    const coords = extractCoordsFromUrl(url)
-
-    if (!coords && !title) continue
-
-    let label, description
-    if (coords) {
-      label       = note || (isCoordTitle(title) ? null : title) || null
-      description = null
-    } else {
-      label       = title
-      description = note || null
-    }
-
-    rows.push({ title, note, url, coords, label, description })
-  }
-  // Drop anything with no label and no coords (empty place URLs, etc.)
-  return rows.filter(r => r.label || r.coords)
-}
-
-function resetCsv() {
-  csvFiles.value = null
-  csvRows.value = null
-  csvError.value = null
-  csvStatus.value = null
-  geocoding.value = false
-  geocodedMarkers.value = null
-  csvImporting.value = false
-  csvFailed.value = []
-  if (csvInput.value) csvInput.value.value = ''
-}
-
-async function onCsvSelected(e) {
-  csvError.value = null
-  csvStatus.value = null
-  csvRows.value = null
-  geocodedMarkers.value = null
-  const files = [...e.target.files]
-  if (!files.length) return
-  csvFiles.value = files
-
-  const readFile = (f) => new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = (ev) => resolve({ name: f.name, text: ev.target.result })
-    r.onerror = () => reject(new Error(`Could not read ${f.name}`))
-    r.readAsText(f, 'UTF-8')
-  })
-
-  try {
-    const results = await Promise.all(files.map(readFile))
-    const allRows = []
-    const errors = []
-    for (const { name, text } of results) {
-      try {
-        allRows.push(...parseGoogleCsv(text))
-      } catch (err) {
-        errors.push(`${name}: ${err.message}`)
-      }
-    }
-    if (errors.length) csvError.value = errors.join(' | ')
-    if (!allRows.length) throw new Error('No valid rows found in any file')
-    csvRows.value = allRows
+    await authStore.changePassword(pwForm.value.current, pwForm.value.newPass)
+    pwStatus.value = 'Password changed successfully'
+    pwForm.value = { current: '', newPass: '', confirm: '' }
   } catch (err) {
-    csvError.value = err.message
+    pwError.value = err.message
+  } finally {
+    pwLoading.value = false
   }
 }
 
-async function doGeocode() {
-  geocoding.value = true
-  geocodeProgress.value = 0
-  geocodedMarkers.value = null
-  csvStatus.value = null
-  csvError.value = null
-  const results = []
-  let failed = 0
-
-  for (const row of csvRows.value) {
-    if (row.coords) {
-      // Coordinates already in the URL — no network call needed
-      results.push({ lat: row.coords.lat, lng: row.coords.lng, label: row.label, description: row.description })
-      geocodeProgress.value++
-      continue
-    }
-
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(row.title)}&format=json&limit=1`
-      )
-      const data = await res.json()
-      if (data.length) {
-        results.push({
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon),
-          label: row.label,
-          description: row.description,
-        })
-      } else {
-        failed++
-      }
-    } catch {
-      failed++
-    }
-    geocodeProgress.value++
-    await new Promise((r) => setTimeout(r, 1100))
-  }
-
-  geocoding.value = false
-  geocodedMarkers.value = results
-  const pinned = csvRows.value.filter(r => r.coords).length
-  const geocoded = results.length - pinned
-  const parts = []
-  if (pinned)   parts.push(`${pinned} pinned`)
-  if (geocoded) parts.push(`${geocoded} geocoded`)
-  const summary = `${results.length} markers ready (${parts.join(', ')}).`
-  csvStatus.value = failed ? `${summary} ${failed} not found — skipped.` : summary
-}
-
-async function doCsvImport() {
-  csvImporting.value = true
-  csvImportProgress.value = 0
-  csvError.value = null
-  csvFailed.value = []
-  let ok = 0
-  for (let i = 0; i < geocodedMarkers.value.length; i++) {
-    const m = geocodedMarkers.value[i]
-    try {
-      await markersStore.create({
-        lat: m.lat, lng: m.lng,
-        label: m.label, description: m.description,
-        visited_at: null, category_ids: [], collection_ids: [],
-      })
-      ok++
-    } catch {
-      csvFailed.value.push({ label: m.label || `Line ${i + 1}` })
-    }
-    csvImportProgress.value++
-  }
-  csvImporting.value = false
-  const fail = csvFailed.value.length
-  csvStatus.value = `Done — ${ok} imported${fail ? `, ${fail} failed` : ''}.`
-  geocodedMarkers.value = null
-  csvRows.value = null
-  csvFiles.value = null
-  if (csvInput.value) csvInput.value.value = ''
-}
+// ── Import / Export ───────────────────────────────────────
+const {
+  exporting, doExport,
+  fileInput, importFile, importMarkers, importError, importStatus,
+  importing, importProgress, importFailed, onFileSelected, doImport,
+  csvInput, csvFiles, csvRows, csvError, csvStatus,
+  geocoding, geocodeProgress, geocodedMarkers,
+  csvImporting, csvImportProgress, csvFailed,
+  resetCsv, onCsvSelected, doGeocode, doCsvImport,
+} = useImportExport(markersStore)
 </script>
 
 <style scoped>
@@ -640,13 +510,14 @@ h2 { font-size: 16px; font-weight: 700; }
   background: none;
   border: none;
   border-radius: 0;
-  padding: 10px 4px;
-  font-size: 13px;
+  padding: 10px 2px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -674,14 +545,28 @@ h2 { font-size: 16px; font-weight: 700; }
 
 .field { margin-bottom: 14px; }
 
+.hint-inline {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+/* Two-button row for "My location" / "Current view" */
+.btn-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
 .btn-ghost {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   font-size: 13px;
-  margin-bottom: 20px;
 }
-.btn-ghost:hover { background: var(--border); }
+.btn-ghost:hover:not(:disabled) { background: var(--border); }
+.btn-ghost:disabled { opacity: 0.5; cursor: default; }
 
 .full { width: 100%; }
 
@@ -694,6 +579,7 @@ h2 { font-size: 16px; font-weight: 700; }
 
 .btn-primary    { background: var(--accent); color: #fff; font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: default; }
 .btn-secondary  { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .btn-secondary:hover:not(:disabled) { background: var(--border); }
 
@@ -741,28 +627,136 @@ h2 { font-size: 16px; font-weight: 700; }
 }
 .toggle.on .knob { transform: translateX(20px); }
 
-/* ── Tile selector ── */
+/* ── Tile selector with thumbnails ── */
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-bottom: 8px;
 }
 
 .tile-btn {
-  padding: 8px 12px;
-  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  font-size: 12px;
   font-weight: 500;
   background: var(--surface-2);
   color: var(--text);
   border: 2px solid var(--border);
   border-radius: var(--radius);
   transition: border-color 0.15s, background 0.15s;
+  overflow: hidden;
 }
 .tile-btn:hover { background: var(--border); }
 .tile-btn.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 
-/* ── Import / Export ── */
+.tile-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 2px;
+  display: block;
+}
+
+.tile-label {
+  padding-bottom: 2px;
+}
+
+/* ── Advanced: POI radius segmented control ── */
+.segment {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.seg-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border);
+  padding: 7px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.seg-btn:last-child { border-right: none; }
+.seg-btn:hover { background: var(--surface-2); color: var(--text); }
+.seg-btn.active { background: var(--accent); color: #fff; }
+
+/* ── Advanced: POI exclusions ── */
+.poi-section {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.exclude-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  min-height: 28px;
+}
+
+.exclude-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 6px 2px 9px;
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text);
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 10px;
+  color: var(--text-2);
+  cursor: pointer;
+  line-height: 1;
+  border-radius: 2px;
+}
+.tag-remove:hover { color: var(--danger); }
+
+.exclude-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.exclude-add-row input { flex: 1; }
+.exclude-add-row .btn-ghost { flex-shrink: 0; white-space: nowrap; }
+
+/* ── Account ── */
+.logout-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-logout {
+  width: 100%;
+  padding: 9px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  background: none;
+  border-radius: var(--radius);
+}
+.btn-logout:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+
+/* ── Data / Import / Export ── */
 .data-group {
   margin-bottom: 24px;
 }
@@ -846,21 +840,23 @@ h2 { font-size: 16px; font-weight: 700; }
   word-break: break-word;
 }
 
-.logout-section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+@media (max-width: 640px) {
+  .overlay { align-items: stretch; padding: 0; }
+  .modal {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-btn { flex: 0 0 auto; padding: 10px 14px; }
+  .tab-body { padding-bottom: calc(20px + var(--sab, 0px)); }
 }
-
-.btn-logout {
-  width: 100%;
-  padding: 9px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  background: none;
-  border-radius: var(--radius);
-}
-.btn-logout:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 </style>

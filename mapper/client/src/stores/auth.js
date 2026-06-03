@@ -61,5 +61,21 @@ export const useAuthStore = defineStore('auth', {
       this.isAuthenticated = false
       this._sessionChecked = false
     },
+
+    async changePassword(currentPassword, newPassword) {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Password change failed')
+      }
+    },
+
+    invalidateSession() {
+      this._sessionChecked = false
+    },
   },
 })

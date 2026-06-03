@@ -77,6 +77,9 @@ async function submit() {
   align-items: center;
   justify-content: center;
   background: var(--bg);
+  padding: 16px;
+  padding-top: calc(16px + var(--sat, 0px));
+  padding-bottom: calc(16px + var(--sab, 0px));
 }
 
 .login-card {
@@ -84,8 +87,14 @@ async function submit() {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 40px;
-  width: 340px;
+  width: min(340px, 100%);
   box-shadow: var(--shadow-lg);
+}
+
+@media (max-width: 400px) {
+  .login-card {
+    padding: 28px 20px;
+  }
 }
 
 h1 {

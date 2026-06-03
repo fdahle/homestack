@@ -3,13 +3,33 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
+import { useAuthStore } from './stores/auth.js'
+
+const authStore = useAuthStore()
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) authStore.invalidateSession()
+  })
+})
 </script>
 
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Disable tap flash on touch devices */
+* { -webkit-tap-highlight-color: transparent; }
+
+/* Remove 300ms click delay on touch devices */
+button, a, [role="button"] { touch-action: manipulation; }
+
 :root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
   --bg: #f8f9fa;
   --surface: #ffffff;
   --surface-2: #f1f3f5;

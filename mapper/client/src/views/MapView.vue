@@ -40,8 +40,10 @@
         :loading="locationLoading"
         :poi-data="poiData"
         :poi-loading="poiLoading"
+        :poi-alternatives="poiAlternatives"
         @close="closeLocationPanel"
         @save-as-marker="handleSaveAsMarker"
+        @select-poi="selectAlternativePoi"
       />
 
       <!-- Sidebar toggle (shown when sidebar is collapsed) -->
@@ -63,10 +65,18 @@
           :key="m.value"
           class="cm-btn"
           :class="{ active: styleStore.colorMode === m.value }"
-          @click="styleStore.colorMode = m.value"
+          @click="styleStore.setColorMode(m.value)"
           :title="'Color by ' + m.label"
         >{{ m.label }}</button>
       </div>
+
+<!-- Undo route edit -->
+      <button
+        v-if="undoStack.length > 0"
+        class="undo-btn"
+        @click="undoRouteEdit"
+        title="Undo (Ctrl+Z)"
+      >↩ Undo</button>
 
 <!-- Add marker FAB -->
       <button
@@ -80,20 +90,25 @@
       </button>
     </div>
 
-    <!-- Right sidebar -->
-    <FilterPanel
-      v-show="sidebarOpen"
-      @new-category="openManageModal('category', null)"
-      @edit-category="openManageModal('category', $event)"
-      @new-collection="openManageModal('collection', null)"
-      @edit-collection="openManageModal('collection', $event)"
-      @fly-to="(m) => map && map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 14))"
-      @open-marker="openMarkerModal"
-      @open-settings="handleOpenSettings"
-      @open-stats="statsOpen = true"
-      @new-marker="toggleAddMode"
-      @close="closeSidebar"
-    />
+    <!-- Mobile: tap outside sheet to close -->
+    <div class="mobile-overlay" v-if="sidebarOpen" @click="closeSidebar" />
+
+    <!-- Right sidebar / bottom sheet -->
+    <Transition name="panel">
+      <FilterPanel
+        v-show="sidebarOpen"
+        @new-category="openManageModal('category', null)"
+        @edit-category="openManageModal('category', $event)"
+        @new-collection="openManageModal('collection', null)"
+        @edit-collection="openManageModal('collection', $event)"
+        @fly-to="(m) => map && map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 14))"
+        @open-marker="openMarkerModal"
+        @open-settings="handleOpenSettings"
+        @open-stats="statsOpen = true"
+        @new-marker="toggleAddMode"
+        @close="closeSidebar"
+      />
+    </Transition>
 
     <!-- Modals (outside both panes — they're fixed-position overlays) -->
     <MarkerModal
@@ -149,13 +164,14 @@ import { useLocationPanel } from '../composables/useLocationPanel.js'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
 import { useModals } from '../composables/useModals.js'
 import { useStyleStore } from '../stores/style.js'
+import { loadSegments, saveSegment, fetchSegmentRoute } from '../composables/useTripRouting.js'
 
 const SETTINGS_KEY = 'mapper_settings'
 
 const COLOR_MODES = [
   { value: 'marker', label: 'Marker' },
-  { value: 'category', label: 'Category' },
   { value: 'collection', label: 'Collection' },
+  { value: 'category', label: 'Category' },
 ]
 
 const styleStore = useStyleStore()
@@ -166,6 +182,10 @@ const collectionsStore = useCollectionsStore()
 const mapEl = ref(null)
 let map = null
 const getMap = () => map
+let routePolylines = []
+let routeHandles = []
+let renderToken = 0
+const undoStack = ref([])
 
 // Settings state (stays in MapView — it needs direct map access)
 const savedSettings = ref(null)
@@ -182,6 +202,162 @@ const statsOpen = ref(false)
 const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 640 : true)
 
 const displayMarkers = computed(() => markersStore.filtered)
+
+const tripRouteMarkers = computed(() => {
+  const filter = markersStore.activeGroupFilter
+  if (!filter || filter.type !== 'collection' || filter.id === '__none__') return null
+  const col = collectionsStore.items.find((c) => c.id === filter.id)
+  if (!col?.is_trip || (!col?.show_route_line && !col?.show_exact_route)) return null
+  return markersStore.filtered
+    .map((m) => ({ m, pos: m.collections.find((c) => c.id === filter.id)?.position ?? null }))
+    .filter(({ pos }) => pos !== null)
+    .sort((a, b) => a.pos - b.pos)
+    .map(({ m }) => m)
+})
+
+function clearRouteLayer() {
+  routePolylines.forEach(p => p.remove())
+  routeHandles.forEach(h => h.remove())
+  routePolylines = []
+  routeHandles = []
+}
+
+function pushUndo(colId, fromId, toId, viaPoints) {
+  undoStack.value = [...undoStack.value, { colId, fromId, toId, via_points: [...viaPoints] }]
+}
+
+async function undoRouteEdit() {
+  if (!undoStack.value.length) return
+  const entry = undoStack.value[undoStack.value.length - 1]
+  undoStack.value = undoStack.value.slice(0, -1)
+  try {
+    let segMap = {}
+    try { segMap = await loadSegments(entry.colId) } catch {}
+    const seg = segMap[`${entry.fromId}-${entry.toId}`]
+    await saveSegment(entry.colId, entry.fromId, entry.toId, seg?.mode || 'walk', entry.via_points)
+  } catch {}
+  await renderTripRoute()
+}
+
+async function renderTripRoute() {
+  const token = ++renderToken
+  clearRouteLayer()
+  if (!map) return
+  const markers = tripRouteMarkers.value
+  if (!markers || markers.length < 2) return
+
+  const colId = markersStore.activeGroupFilter?.id
+  const col = collectionsStore.items.find((c) => c.id === colId)
+  const color = col?.color || '#3b82f6'
+  const showStraight = !!col?.show_route_line
+  const showExact = !!col?.show_exact_route
+
+  let segmentMap = {}
+  try { segmentMap = await loadSegments(colId) } catch {}
+  if (token !== renderToken) return
+
+  for (let i = 0; i < markers.length - 1; i++) {
+    const from = markers[i]
+    const to   = markers[i + 1]
+    const seg  = segmentMap[`${from.id}-${to.id}`]
+    const viaPoints = seg?.via_points || []
+
+    // Straight reference line
+    if (showStraight) {
+      const straight = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+        color, weight: showExact ? 2 : 3, opacity: showExact ? 0.4 : 0.8, dashArray: showExact ? '6,5' : null,
+      }).addTo(map)
+      routePolylines.push(straight)
+    }
+
+    if (showExact) {
+      let routedPath = [[from.lat, from.lng], [to.lat, to.lng]]
+      try { routedPath = await fetchSegmentRoute(from, to, viaPoints, seg?.mode || 'walk') } catch {}
+      if (token !== renderToken) return
+      if (!map) return
+
+      const routedPoly = L.polyline(routedPath, { color, weight: 4, opacity: 0.88 }).addTo(map)
+      routePolylines.push(routedPoly)
+
+      // Click on the routed line to insert a via-point
+      routedPoly.on('click', async (e) => {
+        L.DomEvent.stopPropagation(e)
+        const clickLat = e.latlng.lat
+        const clickLng = e.latlng.lng
+        const allWps = [{ lat: from.lat, lng: from.lng }, ...viaPoints, { lat: to.lat, lng: to.lng }]
+        let bestIdx = 0, bestDist = Infinity
+        for (let k = 0; k < allWps.length - 1; k++) {
+          const d = (clickLat - (allWps[k].lat + allWps[k+1].lat)/2)**2 + (clickLng - (allWps[k].lng + allWps[k+1].lng)/2)**2
+          if (d < bestDist) { bestDist = d; bestIdx = k }
+        }
+        pushUndo(colId, from.id, to.id, viaPoints)
+        const newVia = [...viaPoints]
+        newVia.splice(bestIdx, 0, { lat: +clickLat.toFixed(6), lng: +clickLng.toFixed(6) })
+        try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
+        await renderTripRoute()
+      })
+
+      // Existing via-point handles: drag to move, click to delete
+      for (let j = 0; j < viaPoints.length; j++) {
+        const vp = viaPoints[j]
+        const capturedJ = j
+        const vpHandle = L.marker([vp.lat, vp.lng], {
+          draggable: true,
+          title: 'Drag to move · Click to delete',
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;cursor:grab;box-shadow:0 1px 5px rgba(0,0,0,0.45)"></div>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7],
+          }),
+        }).addTo(map)
+        vpHandle.on('dragend', async (e) => {
+          const p = e.target.getLatLng()
+          pushUndo(colId, from.id, to.id, viaPoints)
+          const newVia = viaPoints.map((v, k) => k === capturedJ ? { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) } : v)
+          try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
+          await renderTripRoute()
+        })
+        vpHandle.on('click', async (ev) => {
+          L.DomEvent.stopPropagation(ev)
+          pushUndo(colId, from.id, to.id, viaPoints)
+          const newVia = viaPoints.filter((_, k) => k !== capturedJ)
+          try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
+          await renderTripRoute()
+        })
+        routeHandles.push(vpHandle)
+      }
+
+      // Ghost "add" handles at midpoints between consecutive waypoints
+      const allWps = [{ lat: from.lat, lng: from.lng }, ...viaPoints, { lat: to.lat, lng: to.lng }]
+      for (let j = 0; j < allWps.length - 1; j++) {
+        const midLat = (allWps[j].lat + allWps[j+1].lat) / 2
+        const midLng = (allWps[j].lng + allWps[j+1].lng) / 2
+        const capturedJ = j
+        const addHandle = L.marker([midLat, midLng], {
+          draggable: true,
+          title: 'Drag to add a waypoint here',
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid ${color};opacity:0.75;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>`,
+            iconSize: [10, 10],
+            iconAnchor: [5, 5],
+          }),
+          zIndexOffset: -100,
+        }).addTo(map)
+        addHandle.on('dragend', async (e) => {
+          const p = e.target.getLatLng()
+          pushUndo(colId, from.id, to.id, viaPoints)
+          const newVia = [...viaPoints]
+          newVia.splice(capturedJ, 0, { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) })
+          try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
+          await renderTripRoute()
+        })
+        routeHandles.push(addHandle)
+      }
+    }
+  }
+}
 
 async function openSidebar() {
   sidebarOpen.value = true
@@ -202,7 +378,7 @@ function handleSearchSelect(r) {
   const latlng = selectResult(r)
   openLocationPanel(latlng)
 }
-const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, poiData, poiLoading, openLocationPanel, closeLocationPanel } = useLocationPanel(getMap)
+const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, poiData, poiLoading, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
 const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLayer(getMap, (marker) => {
   closeLocationPanel()
   addMode.value = false
@@ -221,14 +397,18 @@ function loadSettings() {
 
 function applyTileLayer(key) {
   const tiles = {
-    osm:         { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
+    osm:           { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
     'carto-light': { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://carto.com/">CARTO</a>' },
-    'carto-dark':  { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://carto.com/">CARTO</a>' },
     topo:          { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>' },
+    satellite:     { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community' },
   }
   const t = tiles[key] ?? tiles.osm
+  const maxZoom = key === 'topo' ? 17 : 21
+  const maxNative = key === 'topo' ? 17 : 19
   if (tileLayer) tileLayer.remove()
-  tileLayer = L.tileLayer(t.url, { attribution: t.attribution, maxNativeZoom: 19, maxZoom: 21 }).addTo(map)
+  tileLayer = L.tileLayer(t.url, { attribution: t.attribution, maxNativeZoom: maxNative, maxZoom }).addTo(map)
+  map.options.maxZoom = maxZoom
+  if (map.getZoom() > maxZoom) map.setZoom(maxZoom)
 }
 
 onMounted(async () => {
@@ -242,7 +422,7 @@ onMounted(async () => {
     s?.zoom ?? 2
   )
 
-  L.control.zoom({ position: 'bottomright' }).addTo(map)
+  if (window.innerWidth > 640) L.control.zoom({ position: 'bottomright' }).addTo(map)
   applyTileLayer(s?.tile ?? 'osm')
   initClusterGroup(s?.cluster !== false)
 
@@ -265,6 +445,8 @@ let clickTimer = null
 })
 
 onUnmounted(() => {
+  clearTimeout(clickTimer)
+  clearRouteLayer()
   if (map) map.remove()
   window.removeEventListener('keydown', onKeyDown)
   cleanupSearch()
@@ -274,6 +456,10 @@ function onKeyDown(e) {
   if (e.key === 'Escape') {
     if (addMode.value) addMode.value = false
     else if (locationPanelOpen.value) closeLocationPanel()
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    e.preventDefault()
+    undoRouteEdit()
   }
 }
 
@@ -297,18 +483,24 @@ function handleOpenSettings() {
 }
 
 function onSettingsSave(settings) {
-  savedSettings.value = settings
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+  const merged = { ...(loadSettings() ?? {}), ...settings }
+  savedSettings.value = merged
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged))
   if (settings.tile) applyTileLayer(settings.tile)
   settingsOpen.value = false
 }
 
 watch(displayMarkers, (markers) => {
   if (map) renderMarkers(markers)
-}, { deep: true })
+})
 
 watch(() => styleStore.colorMode, () => {
   if (map) renderMarkers(displayMarkers.value)
+})
+
+watch(tripRouteMarkers, () => {
+  undoStack.value = []
+  renderTripRoute()
 })
 </script>
 
@@ -317,8 +509,11 @@ watch(() => styleStore.colorMode, () => {
   display: flex;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
+
+.mobile-overlay { display: none; }
 
 /* Map pane: fills all space left of the sidebar */
 .map-area {
@@ -399,18 +594,27 @@ watch(() => styleStore.colorMode, () => {
 .settings-btn { display: none; }
 
 @media (max-width: 640px) {
-  .color-mode-control {
-    top: 106px;
+  /* Full-width search bar — no buttons at top on mobile */
+  .top-bar {
+    padding-left: 10px;
+    padding-right: 10px;
+    top: calc(10px + var(--sat, 0px));
+  }
+  .search-wrapper {
+    width: 100%;
+    max-width: 100%;
   }
 
+  /* Hamburger moves to bottom-right (thumb zone), mirroring the Add Marker button */
   .sidebar-open-btn {
     display: flex;
     position: absolute;
-    top: 10px;
+    bottom: calc(36px + var(--sab, 0px));
     right: 10px;
+    top: auto;
     z-index: 1000;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -422,26 +626,10 @@ watch(() => styleStore.colorMode, () => {
     transition: background 0.12s, color 0.12s;
   }
   .sidebar-open-btn:hover { background: var(--surface-2); color: var(--text); }
+  .sidebar-open-btn:active { background: var(--border); }
 
-  .settings-btn {
-    display: flex;
-    position: absolute;
-    top: 58px;
-    right: 10px;
-    z-index: 1000;
-    width: 40px;
-    height: 40px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-lg);
-    font-size: 18px;
-    color: var(--text-2);
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-  }
-  .settings-btn:hover { background: var(--surface-2); color: var(--text); }
+  /* Settings accessible via the sheet footer — hide the floating button */
+  .settings-btn { display: none; }
 }
 
 
@@ -452,9 +640,8 @@ watch(() => styleStore.colorMode, () => {
   z-index: 1000;
   display: flex;
   background: var(--surface);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
   overflow: hidden;
 }
 
@@ -464,7 +651,7 @@ watch(() => styleStore.colorMode, () => {
   font-weight: 500;
   color: var(--text-2);
   background: none;
-  border: none;
+  border: none !important;
   border-right: 1px solid var(--border);
   cursor: pointer;
   white-space: nowrap;
@@ -472,11 +659,34 @@ watch(() => styleStore.colorMode, () => {
 }
 .cm-btn:last-child { border-right: none; }
 .cm-btn:hover { background: var(--surface-2); color: var(--text); }
-.cm-btn.active { background: var(--accent); color: #fff; }
+.cm-btn.active { background: var(--accent); color: #fff; border-right-color: transparent; }
+.cm-btn:has(+ .active) { border-right-color: transparent; }
+
+.undo-btn {
+  position: absolute;
+  bottom: calc(90px + var(--sab, 0px));
+  left: 10px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.undo-btn:hover { background: var(--surface-2); }
+.undo-btn:active { background: var(--border); }
 
 .add-marker-btn {
   position: absolute;
-  bottom: 36px;
+  bottom: calc(36px + var(--sab, 0px));
   left: 10px;
   z-index: 1000;
   display: flex;
@@ -493,6 +703,7 @@ watch(() => styleStore.colorMode, () => {
   transition: background 0.15s;
 }
 .add-marker-btn:hover { background: var(--accent-hover); }
+.add-marker-btn:active { opacity: 0.85; }
 .add-marker-btn.active { background: var(--danger); }
 .add-marker-btn.active:hover { background: var(--danger-hover); }
 
@@ -500,5 +711,31 @@ watch(() => styleStore.colorMode, () => {
   font-size: 18px;
   line-height: 1;
   font-weight: 400;
+}
+
+@media (max-width: 640px) {
+  .mobile-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1999;
+  }
+}
+
+/* Bottom-sheet slide-up transition (mobile only) */
+@media (max-width: 640px) {
+  .panel-enter-active,
+  .panel-leave-active {
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .panel-enter-from,
+  .panel-leave-to {
+    transform: translateY(100%);
+  }
+
+  /* Must come after the base .color-mode-control { display: flex } rule above */
+  .color-mode-control {
+    display: none;
+  }
 }
 </style>

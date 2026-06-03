@@ -5,6 +5,11 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { useStyleStore } from '../stores/style.js'
 
 const PIN_PATH = 'M11 0C4.9 0 0 4.9 0 11c0 8.25 11 21 11 21S22 19.25 22 11C22 4.9 17.1 0 11 0z'
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+const FALLBACK_COLOR = '#6c757d'
+function safeHex(color) {
+  return HEX_COLOR_RE.test(color) ? color : FALLBACK_COLOR
+}
 
 let _pinId = 0
 
@@ -29,8 +34,9 @@ export function useMarkerLayer(getMap, onMarkerClick) {
   }
 
   function makePinIcon(colors) {
-    const [c1, c2] = colors
-    const id = ++_pinId
+    const [c1, c2] = colors.map(safeHex)
+    _pinId = (_pinId + 1) % 1000000
+    const id = _pinId
     const body = c2
       ? `<defs>
           <clipPath id="pl${id}"><rect x="0" y="0" width="11" height="32"/></clipPath>

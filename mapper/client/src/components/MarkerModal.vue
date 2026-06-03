@@ -11,22 +11,26 @@
         <div class="view-label">{{ form.label || '(unnamed)' }}</div>
         <p v-if="form.description" class="view-desc">{{ form.description }}</p>
         <div class="view-meta">
+          <div v-if="selectedCollections.length" class="view-row">
+            <span v-for="col in selectedCollections" :key="col.id" class="dot" :style="{ background: col.color }" />
+            <span>{{ selectedCollections.map(c => {
+              const pos = props.marker?.collections?.find(mc => mc.id === c.id)?.position
+              return c.is_trip && pos != null ? `${c.name} (#${pos})` : c.name
+            }).join(', ') }}</span>
+          </div>
           <div v-if="selectedCategories.length" class="view-row">
             <span v-for="cat in selectedCategories" :key="cat.id" class="dot" :style="{ background: cat.color }" />
             <span>{{ selectedCategories.map(c => c.name).join(', ') }}</span>
           </div>
-          <div v-if="selectedCollections.length" class="view-row">
-            <span v-for="col in selectedCollections" :key="col.id" class="dot" :style="{ background: col.color }" />
-            <span>{{ selectedCollections.map(c => c.name).join(', ') }}</span>
-          </div>
-          <div v-if="form.visited_at" class="view-row">Visited {{ form.visited_at }}</div>
+          <div v-if="form.visited_at" class="view-row">Visited<template v-if="form.visited_at !== 'yes'"> {{ form.visited_at }}</template></div>
+          <div v-if="addressLoading" class="view-row view-coords">Fetching address…</div>
+          <div v-else-if="addressLine" class="view-row view-address">{{ addressLine }}</div>
           <div class="view-row view-coords">{{ latStr }}, {{ lngStr }}</div>
         </div>
         <div class="modal-actions">
-          <button type="button" class="btn-danger" @click="del" :disabled="saving">Delete</button>
           <div class="spacer" />
-<button type="button" class="btn-secondary" @click="$emit('close')">Close</button>
-          <button type="button" class="btn-primary" @click="viewing = false">Edit</button>
+          <button type="button" class="btn-secondary" @click="$emit('close')">Close</button>
+          <button type="button" class="btn-primary" @click="viewing = false; confirmDelete = false">Edit</button>
         </div>
       </div>
 
@@ -39,6 +43,37 @@
         <div class="field">
           <label>Description</label>
           <textarea v-model="form.description" rows="3" placeholder="Notes about this place…" />
+        </div>
+
+        <div class="field">
+          <label>Collections</label>
+          <div class="checkbox-list">
+            <div v-for="col in collectionsStore.items" :key="col.id" class="collection-row">
+              <label class="checkbox-item">
+                <input
+                  type="checkbox"
+                  :value="col.id"
+                  v-model="form.collection_ids"
+                  style="width:auto"
+                />
+                <span class="dot" :style="{ background: col.color }" />
+                {{ col.name }}
+              </label>
+              <div v-if="col.is_trip && form.collection_ids.includes(col.id)" class="stop-field">
+                <span class="stop-label">Stop #</span>
+                <input
+                  type="number"
+                  min="1"
+                  class="stop-input"
+                  :value="form.collection_positions[col.id] ?? ''"
+                  @input="setPosition(col.id, $event.target.value)"
+                  placeholder="–"
+                />
+                <span v-if="hasDuplicate(col.id)" class="stop-warning" title="This stop number is already used in this trip">⚠</span>
+              </div>
+            </div>
+            <span v-if="collectionsStore.items.length === 0" class="empty-hint">No collections yet</span>
+          </div>
         </div>
 
         <div class="field">
@@ -83,29 +118,12 @@
         </div>
 
         <div class="field">
-          <label>Collections</label>
-          <div class="checkbox-list">
-            <label v-for="col in collectionsStore.items" :key="col.id" class="checkbox-item">
-              <input
-                type="checkbox"
-                :value="col.id"
-                v-model="form.collection_ids"
-                style="width:auto"
-              />
-              <span class="dot" :style="{ background: col.color }" />
-              {{ col.name }}
-            </label>
-            <span v-if="collectionsStore.items.length === 0" class="empty-hint">No collections yet</span>
-          </div>
-        </div>
-
-        <div class="field">
           <div class="visited-row">
             <label class="checkbox-item" style="margin:0">
               <input type="checkbox" v-model="visitedChecked" style="width:auto" />
               Visited
             </label>
-            <input v-if="visitedChecked" v-model="form.visited_at" type="date" class="visited-date" />
+            <input v-model="visitedDate" type="date" class="visited-date" :style="{ visibility: visitedChecked ? 'visible' : 'hidden' }" />
           </div>
         </div>
 
@@ -116,9 +134,13 @@
         <p v-if="error" class="error">{{ error }}</p>
 
         <div class="modal-actions">
-          <button v-if="isEdit" type="button" class="btn-danger" @click="del" :disabled="saving">
-            Delete
-          </button>
+          <template v-if="isEdit">
+            <button v-if="!confirmDelete" type="button" class="btn-danger" @click="confirmDelete = true" :disabled="saving">Delete</button>
+            <template v-else>
+              <button type="button" class="btn-danger" @click="del" :disabled="saving">Yes, delete</button>
+              <button type="button" class="btn-ghost" @click="confirmDelete = false">✕</button>
+            </template>
+          </template>
           <div class="spacer" />
           <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
           <button type="submit" class="btn-primary" :disabled="saving">
@@ -153,13 +175,18 @@ const isEdit = computed(() => !!props.marker)
 const viewing = ref(!!props.marker)
 const saving = ref(false)
 const error = ref(null)
+const confirmDelete = ref(false)
 const visitedChecked = ref(false)
+const visitedDate = ref('')
+const addressLine = ref(null)
+const addressLoading = ref(false)
 
 const form = ref({
   label: '',
   description: '',
   category_ids: [],
   collection_ids: [],
+  collection_positions: {},
   visited_at: '',
   color: '',
   lat: 0,
@@ -177,22 +204,51 @@ const selectedCollections = computed(() =>
 )
 
 watch(visitedChecked, (val) => {
-  if (!val) form.value.visited_at = ''
+  if (!val) {
+    form.value.visited_at = ''
+    visitedDate.value = ''
+  } else {
+    form.value.visited_at = visitedDate.value || 'yes'
+  }
 })
 
-onMounted(() => {
+watch(visitedDate, (val) => {
+  if (visitedChecked.value) form.value.visited_at = val || 'yes'
+})
+
+onMounted(async () => {
   if (props.marker) {
     form.value = {
       label: props.marker.label || '',
       description: props.marker.description || '',
       category_ids: props.marker.categories?.map((c) => c.id) ?? [],
       collection_ids: props.marker.collections?.map((c) => c.id) ?? [],
+      collection_positions: Object.fromEntries(
+        (props.marker.collections ?? []).map((c) => [c.id, c.position ?? null])
+      ),
       visited_at: props.marker.visited_at?.slice(0, 10) || '',
       color: props.marker.color || '',
       lat: props.marker.lat,
       lng: props.marker.lng,
     }
     visitedChecked.value = !!props.marker.visited_at
+    visitedDate.value = (props.marker.visited_at && props.marker.visited_at !== 'yes') ? props.marker.visited_at.slice(0, 10) : ''
+
+    addressLoading.value = true
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${props.marker.lat}&lon=${props.marker.lng}&format=json&addressdetails=1`
+      )
+      const data = await res.json()
+      const a = data.address
+      if (a) {
+        const street = [a.house_number, a.road].filter(Boolean).join(' ')
+        const city = a.city || a.town || a.village || a.hamlet || a.municipality
+        const parts = [street, [a.postcode, city].filter(Boolean).join(' '), a.country].filter(Boolean)
+        addressLine.value = parts.join(', ') || null
+      }
+    } catch { /* silent */ }
+    finally { addressLoading.value = false }
   } else if (props.latlng) {
     form.value.lat = props.latlng.lat
     form.value.lng = props.latlng.lng
@@ -209,8 +265,35 @@ onMounted(() => {
 const latStr = computed(() => Number(form.value.lat).toFixed(5))
 const lngStr = computed(() => Number(form.value.lng).toFixed(5))
 
+function setPosition(collectionId, value) {
+  const num = value === '' ? null : parseInt(value, 10)
+  form.value.collection_positions = {
+    ...form.value.collection_positions,
+    [collectionId]: (value === '' || isNaN(num)) ? null : num,
+  }
+}
+
+function hasDuplicate(collectionId) {
+  const pos = form.value.collection_positions[collectionId]
+  if (!pos) return false
+  return markersStore.items.some(
+    (m) => m.id !== props.marker?.id &&
+      m.collections.some((c) => c.id === collectionId && c.position === pos)
+  )
+}
+
 async function save() {
   error.value = null
+  const tripCollections = collectionsStore.items.filter(
+    (c) => c.is_trip && form.value.collection_ids.includes(c.id)
+  )
+  for (const col of tripCollections) {
+    if (hasDuplicate(col.id)) {
+      const pos = form.value.collection_positions[col.id]
+      error.value = `Stop #${pos} is already used in "${col.name}"`
+      return
+    }
+  }
   saving.value = true
   try {
     await emit('save', { ...form.value, color: form.value.color || null })
@@ -291,23 +374,24 @@ textarea { resize: vertical; }
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: none;
+  box-shadow: none;
   padding: 0;
   cursor: pointer;
-  transition: transform 0.1s, border-color 0.1s;
+  transition: transform 0.1s;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .color-swatch:hover { transform: scale(1.15); }
-.color-swatch.selected { border-color: var(--text); transform: scale(1.1); }
+.color-swatch.selected { outline: 2px solid var(--text); outline-offset: 2px; transform: scale(1.1); }
 .color-swatch.inherit {
   background: var(--surface-2);
-  border-color: var(--border);
+  border: 1px solid var(--border);
   color: var(--text-2);
 }
-.color-swatch.inherit.selected { border-color: var(--text); }
+.color-swatch.inherit.selected { outline: 2px solid var(--text); }
 
 .effective-color {
   margin-left: 4px;
@@ -348,6 +432,45 @@ textarea { resize: vertical; }
 .empty-hint {
   font-size: 12px;
   color: var(--text-2);
+}
+
+.collection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.stop-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.stop-label {
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.stop-input {
+  width: 48px;
+  padding: 2px 5px;
+  font-size: 12px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.stop-input::-webkit-inner-spin-button,
+.stop-input::-webkit-outer-spin-button { opacity: 0.5; }
+
+.stop-warning {
+  font-size: 13px;
+  color: #f59e0b;
+  cursor: default;
 }
 
 .coords {
@@ -396,6 +519,11 @@ textarea { resize: vertical; }
   color: var(--text-2);
 }
 
+.view-address {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
 .visited-row {
   display: flex;
   align-items: center;
@@ -431,4 +559,20 @@ textarea { resize: vertical; }
 
 .btn-danger { background: none; color: var(--danger); border: 1px solid var(--danger); }
 .btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+
+.btn-ghost { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--border); color: var(--text); }
+
+@media (max-width: 640px) {
+  .overlay { align-items: stretch; padding: 0; }
+  .modal {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
+  form { padding-bottom: calc(20px + var(--sab, 0px)); }
+}
 </style>

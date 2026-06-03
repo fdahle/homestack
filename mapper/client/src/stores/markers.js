@@ -65,6 +65,33 @@ export const useMarkersStore = defineStore('markers', {
       this.items = this.items.filter((m) => m.id !== id)
     },
 
+    async patchCountry(id, country) {
+      await fetch(`/api/markers/${id}/country`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ country }),
+      })
+      const idx = this.items.findIndex((m) => m.id === id)
+      if (idx !== -1) this.items[idx] = { ...this.items[idx], country }
+    },
+
+    async updateTripPositions(collectionId, positions) {
+      const res = await fetch(`/api/collections/${collectionId}/positions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positions }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      for (const { marker_id, position } of positions) {
+        const idx = this.items.findIndex((m) => m.id === marker_id)
+        if (idx === -1) continue
+        const cols = this.items[idx].collections.map((c) =>
+          c.id === collectionId ? { ...c, position: position ?? null } : c
+        )
+        this.items[idx] = { ...this.items[idx], collections: cols }
+      }
+    },
+
     setGroupFilter(filter) { this.activeGroupFilter = filter },
     clearGroupFilter() { this.activeGroupFilter = null },
     setVisitedFilter(value) { this.visitedFilter = value },

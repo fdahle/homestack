@@ -56,20 +56,38 @@ db.exec(`
     category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     PRIMARY KEY (marker_id, category_id)
   );
+
+  CREATE TABLE IF NOT EXISTS trip_waypoints (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    collection_id  INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    from_marker_id INTEGER NOT NULL REFERENCES markers(id)     ON DELETE CASCADE,
+    to_marker_id   INTEGER NOT NULL REFERENCES markers(id)     ON DELETE CASCADE,
+    mode           TEXT    NOT NULL DEFAULT 'walk',
+    via_points     TEXT    NOT NULL DEFAULT '[]',
+    UNIQUE(collection_id, from_marker_id, to_marker_id)
+  );
 `)
 
-// Idempotent migrations
-try { db.exec('ALTER TABLE markers ADD COLUMN color TEXT') } catch {}
-try { db.exec('ALTER TABLE trips RENAME TO collections') } catch {}
-try { db.exec('ALTER TABLE marker_trips RENAME TO marker_collections') } catch {}
-try { db.exec('ALTER TABLE marker_collections RENAME COLUMN trip_id TO collection_id') } catch {}
-try { db.exec('ALTER TABLE collections ADD COLUMN is_trip INTEGER NOT NULL DEFAULT 0') } catch {}
-// Migrate single category_id → marker_categories junction table
-try {
-  db.exec(`
-    INSERT OR IGNORE INTO marker_categories (marker_id, category_id)
-    SELECT id, category_id FROM markers WHERE category_id IS NOT NULL
-  `)
-} catch {}
+// Idempotent migrations — errors are expected when a migration was already applied
+function migrate(sql) {
+  try { db.exec(sql) } catch (err) {
+    if (!err.message.includes('duplicate column') && !err.message.includes('already exists') && !err.message.includes('no such table') && !err.message.includes('no such column')) {
+      console.error('Migration failed:', err.message, '\nSQL:', sql)
+    }
+  }
+}
+migrate('ALTER TABLE markers ADD COLUMN color TEXT')
+migrate('ALTER TABLE markers ADD COLUMN country TEXT')
+migrate('ALTER TABLE trips RENAME TO collections')
+migrate('ALTER TABLE marker_trips RENAME TO marker_collections')
+migrate('ALTER TABLE marker_collections RENAME COLUMN trip_id TO collection_id')
+migrate('ALTER TABLE collections ADD COLUMN is_trip INTEGER NOT NULL DEFAULT 0')
+migrate('ALTER TABLE collections ADD COLUMN show_route_line INTEGER NOT NULL DEFAULT 0')
+migrate('ALTER TABLE collections ADD COLUMN show_exact_route INTEGER NOT NULL DEFAULT 0')
+migrate('ALTER TABLE marker_collections ADD COLUMN position INTEGER')
+migrate(`
+  INSERT OR IGNORE INTO marker_categories (marker_id, category_id)
+  SELECT id, category_id FROM markers WHERE category_id IS NOT NULL
+`)
 
 export default db

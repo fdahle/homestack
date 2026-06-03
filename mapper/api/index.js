@@ -3,6 +3,11 @@ import { fileURLToPath } from 'url'
 import { join, dirname } from 'path'
 config({ path: join(dirname(fileURLToPath(import.meta.url)), '..', '.env') })
 
+const SESSION_SECRET = process.env.SESSION_SECRET
+if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
+  throw new Error('SESSION_SECRET must be set and at least 32 characters long')
+}
+
 import express from 'express'
 import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
@@ -29,6 +34,16 @@ app.use('/api/categories', categoryRoutes)
 app.use('/api/collections', collectionRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  console.error(err)
+  res.status(500).json({ error: 'Internal server error' })
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason)
+})
 
 app.listen(PORT, () => {
   console.log(`Mapper API running on http://localhost:${PORT}`)

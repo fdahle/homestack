@@ -11,6 +11,24 @@ const PIN_ICON = L.divIcon({
   iconAnchor: [11, 32],
 })
 
+const SETTINGS_KEY = 'mapper_settings'
+const DEFAULT_EXCLUDED = ['waste_basket', 'bench']
+
+function getExcludedAmenities() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    return new Set(s.excludedAmenities ?? DEFAULT_EXCLUDED)
+  } catch {
+    return new Set(DEFAULT_EXCLUDED)
+  }
+}
+
+function getPoiRadius() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}').poiRadius ?? 25
+  } catch { return 25 }
+}
+
 const POI_KEYS = ['amenity', 'shop', 'tourism', 'leisure', 'historic']
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -22,18 +40,45 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+function elementToPoiShape(el) {
+  const t = el.tags || {}
+  const categoryKey = POI_KEYS.find(k => t[k])
+  return {
+    id: el.id,
+    osmType: el.type,
+    name: t.name || null,
+    categoryKey,
+    categoryValue: categoryKey ? t[categoryKey] : null,
+    tags: t,
+    lat: el.lat ?? el.center?.lat,
+    lon: el.lon ?? el.center?.lon,
+  }
+}
+
 async function fetchOverpassPoi(lat, lon, signal) {
-  const query = `[out:json][timeout:5];
+  const r = getPoiRadius()
+  const query = `[out:json][timeout:8];
 (
-  node["amenity"](around:25,${lat},${lon});
-  node["shop"](around:25,${lat},${lon});
-  node["tourism"](around:25,${lat},${lon});
-  node["leisure"](around:25,${lat},${lon});
-  node["historic"](around:25,${lat},${lon});
-  way["amenity"](around:25,${lat},${lon});
-  way["shop"](around:25,${lat},${lon});
+  is_in(${lat},${lon})->.a;
+  way(pivot.a)["tourism"];
+  way(pivot.a)["leisure"];
+  way(pivot.a)["amenity"];
+  way(pivot.a)["shop"];
+  relation(pivot.a)["tourism"];
+  relation(pivot.a)["leisure"];
+  relation(pivot.a)["amenity"];
+  node["amenity"](around:${r},${lat},${lon});
+  node["shop"](around:${r},${lat},${lon});
+  node["tourism"](around:${r},${lat},${lon});
+  node["leisure"](around:${r},${lat},${lon});
+  node["historic"](around:${r},${lat},${lon});
+  way["amenity"](around:${r},${lat},${lon});
+  way["shop"](around:${r},${lat},${lon});
+  way["tourism"](around:${r},${lat},${lon});
+  way["leisure"](around:${r},${lat},${lon});
+  way["historic"](around:${r},${lat},${lon});
 );
-out tags center 5;`
+out tags center 20;`
 
   const res = await fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST',
@@ -43,29 +88,29 @@ out tags center 5;`
   const data = await res.json()
   if (!data.elements?.length) return null
 
-  let best = null
-  let bestDist = Infinity
-  for (const el of data.elements) {
-    const elLat = el.lat ?? el.center?.lat
-    const elLon = el.lon ?? el.center?.lon
-    if (elLat == null) continue
-    const dist = haversineMeters(lat, lon, elLat, elLon)
-    if (dist < bestDist) { bestDist = dist; best = el }
-  }
-  if (!best || bestDist > 25) return null
+  const excluded = getExcludedAmenities()
 
-  const t = best.tags || {}
-  const categoryKey = POI_KEYS.find(k => t[k])
-  return {
-    id: best.id,
-    osmType: best.type,
-    name: t.name || null,
-    categoryKey,
-    categoryValue: categoryKey ? t[categoryKey] : null,
-    tags: t,
-    lat: best.lat ?? best.center?.lat,
-    lon: best.lon ?? best.center?.lon,
-  }
+  const candidates = data.elements
+    .map(el => {
+      const elLat = el.lat ?? el.center?.lat
+      const elLon = el.lon ?? el.center?.lon
+      if (elLat == null || !el.tags) return null
+      if (!POI_KEYS.some(k => el.tags[k])) return null
+      if (excluded.has(el.tags.amenity)) return null
+      const dist = haversineMeters(lat, lon, elLat, elLon)
+      // Elements from is_in have their center far from the click (click is inside them)
+      const isContaining = dist > r
+      return { el, dist, isContaining }
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.isContaining !== b.isContaining) return a.isContaining ? -1 : 1
+      return a.dist - b.dist
+    })
+
+  if (!candidates.length) return null
+  const all = candidates.map(({ el }) => elementToPoiShape(el))
+  return { best: all[0], all }
 }
 
 export function useLocationPanel(getMap) {
@@ -75,6 +120,7 @@ export function useLocationPanel(getMap) {
   const locationLoading = ref(false)
   const poiData = ref(null)
   const poiLoading = ref(false)
+  const poiAlternatives = ref([])
 
   let locationLayer = null
   let clickPin = null
@@ -106,6 +152,7 @@ export function useLocationPanel(getMap) {
     locationLatLng.value = latlng
     locationInfo.value = null
     poiData.value = null
+    poiAlternatives.value = []
     locationLoading.value = true
     poiLoading.value = true
     locationPanelOpen.value = true
@@ -141,8 +188,13 @@ export function useLocationPanel(getMap) {
     overpassTimer = setTimeout(() => {
       if (signal.aborted) return
       fetchOverpassPoi(latlng.lat, latlng.lng, signal)
-        .then(data => { if (!signal.aborted) poiData.value = data })
-        .catch(err => { if (err.name !== 'AbortError') poiData.value = null })
+        .then(result => {
+          if (!signal.aborted) {
+            poiData.value = result?.best ?? null
+            poiAlternatives.value = result?.all ?? []
+          }
+        })
+        .catch(err => { if (err.name !== 'AbortError') { poiData.value = null; poiAlternatives.value = [] } })
         .finally(() => { if (!signal.aborted) poiLoading.value = false })
     }, 500)
   }
@@ -151,7 +203,12 @@ export function useLocationPanel(getMap) {
     if (activeAbort) { activeAbort.abort(); activeAbort = null }
     clearTimeout(overpassTimer)
     locationPanelOpen.value = false
+    poiAlternatives.value = []
     clearTempLayers()
+  }
+
+  function selectAlternativePoi(poi) {
+    poiData.value = poi
   }
 
   return {
@@ -161,8 +218,10 @@ export function useLocationPanel(getMap) {
     locationLoading,
     poiData,
     poiLoading,
+    poiAlternatives,
     openLocationPanel,
     closeLocationPanel,
     clearTempLayers,
+    selectAlternativePoi,
   }
 }
