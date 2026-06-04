@@ -17,7 +17,11 @@ function getMarkerWithRelations(id) {
     .prepare('SELECT c.*, mc.position FROM collections c JOIN marker_collections mc ON c.id = mc.collection_id WHERE mc.marker_id = ?')
     .all(id)
 
-  return { ...marker, categories, collections }
+  const persons = db
+    .prepare('SELECT p.* FROM persons p JOIN marker_persons mp ON p.id = mp.person_id WHERE mp.marker_id = ?')
+    .all(id)
+
+  return { ...marker, categories, collections, persons }
 }
 
 router.get('/', (_req, res) => {
@@ -29,6 +33,10 @@ router.get('/', (_req, res) => {
 
   const allMarkerCategories = db
     .prepare('SELECT mc.marker_id, c.* FROM categories c JOIN marker_categories mc ON c.id = mc.category_id')
+    .all()
+
+  const allMarkerPersons = db
+    .prepare('SELECT mp.marker_id, p.* FROM persons p JOIN marker_persons mp ON p.id = mp.person_id')
     .all()
 
   const collectionsByMarkerId = {}
@@ -45,10 +53,18 @@ router.get('/', (_req, res) => {
     categoriesByMarkerId[marker_id].push(category)
   }
 
+  const personsByMarkerId = {}
+  for (const row of allMarkerPersons) {
+    const { marker_id, ...person } = row
+    if (!personsByMarkerId[marker_id]) personsByMarkerId[marker_id] = []
+    personsByMarkerId[marker_id].push(person)
+  }
+
   const result = markers.map((m) => ({
     ...m,
     categories: categoriesByMarkerId[m.id] ?? [],
     collections: collectionsByMarkerId[m.id] ?? [],
+    persons: personsByMarkerId[m.id] ?? [],
   }))
 
   res.json(result)
@@ -76,7 +92,7 @@ function checkDuplicatePositions(collection_ids, collection_positions, excludeMa
 }
 
 router.post('/', (req, res) => {
-  const { lat, lng, label, description, visited_at, color, image_url, category_ids, collection_ids, collection_positions } = req.body
+  const { lat, lng, label, description, visited_at, color, image_url, category_ids, collection_ids, collection_positions, person_ids } = req.body
 
   if (lat == null || lng == null) {
     return res.status(400).json({ error: 'lat and lng are required' })
@@ -104,6 +120,11 @@ router.post('/', (req, res) => {
     for (const cid of collection_ids) insert.run(lastInsertRowid, cid, collection_positions?.[cid] ?? null)
   }
 
+  if (Array.isArray(person_ids)) {
+    const insert = db.prepare('INSERT OR IGNORE INTO marker_persons (marker_id, person_id) VALUES (?, ?)')
+    for (const pid of person_ids) insert.run(lastInsertRowid, pid)
+  }
+
   res.status(201).json(getMarkerWithRelations(lastInsertRowid))
 })
 
@@ -112,7 +133,7 @@ router.put('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM markers WHERE id = ?').get(id)
   if (!existing) return res.status(404).json({ error: 'Not found' })
 
-  const { label, description, visited_at, color, image_url, category_ids, collection_ids, collection_positions } = req.body
+  const { label, description, visited_at, color, image_url, category_ids, collection_ids, collection_positions, person_ids } = req.body
   const lat = req.body.lat ?? existing.lat
   const lng = req.body.lng ?? existing.lng
 
@@ -139,6 +160,12 @@ router.put('/:id', (req, res) => {
     db.prepare('DELETE FROM marker_collections WHERE marker_id = ?').run(id)
     const insert = db.prepare('INSERT OR IGNORE INTO marker_collections (marker_id, collection_id, position) VALUES (?, ?, ?)')
     for (const cid of collection_ids) insert.run(id, cid, collection_positions?.[cid] ?? null)
+  }
+
+  if (Array.isArray(person_ids)) {
+    db.prepare('DELETE FROM marker_persons WHERE marker_id = ?').run(id)
+    const insert = db.prepare('INSERT OR IGNORE INTO marker_persons (marker_id, person_id) VALUES (?, ?)')
+    for (const pid of person_ids) insert.run(id, pid)
   }
 
   res.json(getMarkerWithRelations(id))

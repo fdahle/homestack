@@ -56,16 +56,26 @@
         <AppIcon name="settings" />
       </button>
 
-      <!-- Color mode floating control -->
-      <div class="color-mode-control">
-        <button
-          v-for="m in COLOR_MODES"
-          :key="m.value"
-          class="cm-btn"
-          :class="{ active: styleStore.colorMode === m.value }"
-          @click="styleStore.setColorMode(m.value)"
-          :title="'Color by ' + m.label"
-        >{{ m.label }}</button>
+      <!-- Share -->
+      <button class="share-btn" @click="shareOpen = true" title="Share">
+        <AppIcon name="share" />
+      </button>
+
+      <!-- Color mode dropdown -->
+      <div class="color-mode-control" ref="colorModeRef">
+        <button class="cm-trigger" @click.stop="colorMenuOpen = !colorMenuOpen" :title="'Color by: ' + currentColorMode.label">
+          <span class="cm-trigger-label">{{ currentColorMode.label }}</span>
+          <AppIcon name="chevronDown" class="cm-chevron" :class="{ open: colorMenuOpen }" />
+        </button>
+        <div v-if="colorMenuOpen" class="cm-dropdown">
+          <button
+            v-for="m in COLOR_MODES"
+            :key="m.value"
+            class="cm-option"
+            :class="{ active: styleStore.colorMode === m.value }"
+            @click="styleStore.setColorMode(m.value); colorMenuOpen = false"
+          >{{ m.label }}</button>
+        </div>
       </div>
 
 <!-- Undo route edit -->
@@ -99,6 +109,8 @@
         @edit-category="openManageModal('category', $event)"
         @new-collection="openManageModal('collection', null)"
         @edit-collection="openManageModal('collection', $event)"
+        @new-person="openManageModal('person', null)"
+        @edit-person="openManageModal('person', $event)"
         @fly-to="(m) => map && map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 14))"
         @open-marker="openMarkerModal"
         @open-settings="handleOpenSettings"
@@ -141,6 +153,11 @@
       @cluster-change="(v) => reconfigureClustering(v, markersStore.filtered)"
     />
 
+    <ShareManageModal
+      v-if="shareOpen"
+      @close="shareOpen = false"
+    />
+
   </div>
 </template>
 
@@ -152,12 +169,14 @@ import 'leaflet/dist/leaflet.css'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
+import { usePersonsStore } from '../stores/persons.js'
 import MarkerModal from '../components/MarkerModal.vue'
 import ManageModal from '../components/ManageModal.vue'
 import SettingsModal from '../components/SettingsModal.vue'
 import StatsModal from '../components/StatsModal.vue'
 import LocationPanel from '../components/LocationPanel.vue'
 import FilterPanel from '../components/FilterPanel.vue'
+import ShareManageModal from '../components/ShareManageModal.vue'
 import { useSearch } from '../composables/useSearch.js'
 import { useLocationPanel } from '../composables/useLocationPanel.js'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
@@ -170,6 +189,7 @@ const SETTINGS_KEY = 'mapper_settings'
 const COLOR_MODES = [
   { value: 'marker', label: 'Marker' },
   { value: 'collection', label: 'Collection' },
+  { value: 'person', label: 'Person' },
   { value: 'category', label: 'Category' },
 ]
 
@@ -177,6 +197,7 @@ const styleStore = useStyleStore()
 const markersStore = useMarkersStore()
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
+const personsStore = usePersonsStore()
 
 const mapEl = ref(null)
 let map = null
@@ -191,11 +212,23 @@ const savedSettings = ref(null)
 const currentMapView = ref({ lat: 20, lng: 0, zoom: 2 })
 let tileLayer = null
 
+// Color mode dropdown
+const colorMenuOpen = ref(false)
+const colorModeRef = ref(null)
+const currentColorMode = computed(() => COLOR_MODES.find(m => m.value === styleStore.colorMode) ?? COLOR_MODES[0])
+watch(colorMenuOpen, (open) => {
+  const handler = (e) => { if (colorModeRef.value && !colorModeRef.value.contains(e.target)) colorMenuOpen.value = false }
+  if (open) document.addEventListener('click', handler, { once: true })
+})
+
 // Add mode
 const addMode = ref(false)
 
 // Stats modal
 const statsOpen = ref(false)
+
+// Share modal
+const shareOpen = ref(false)
 
 // Sidebar — always open on desktop, collapsed by default on mobile
 const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 640 : true)
@@ -414,7 +447,7 @@ onMounted(async () => {
   savedSettings.value = loadSettings()
   const s = savedSettings.value
 
-  await Promise.all([markersStore.fetch(), categoriesStore.fetch(), collectionsStore.fetch()])
+  await Promise.all([markersStore.fetch(), categoriesStore.fetch(), collectionsStore.fetch(), personsStore.fetch()])
 
   map = L.map(mapEl.value, { zoomControl: false, maxZoom: 21 }).setView(
     [s?.lat ?? 20, s?.lng ?? 0],
@@ -637,34 +670,86 @@ watch(tripRouteMarkers, () => {
 }
 
 
+.share-btn {
+  position: absolute;
+  top: 52px;
+  right: 10px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.share-btn:hover { background: var(--surface-2); color: var(--text); }
+
 .color-mode-control {
   position: absolute;
   top: 10px;
   right: 10px;
   z-index: 1000;
-  display: flex;
-  background: var(--surface);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
-  overflow: hidden;
 }
 
-.cm-btn {
+.cm-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   padding: 6px 10px;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
-  background: none;
-  border: none !important;
-  border-right: 1px solid var(--border);
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.1s, color 0.1s;
 }
-.cm-btn:last-child { border-right: none; }
-.cm-btn:hover { background: var(--surface-2); color: var(--text); }
-.cm-btn.active { background: var(--accent); color: #fff; border-right-color: transparent; }
-.cm-btn:has(+ .active) { border-right-color: transparent; }
+.cm-trigger:hover { background: var(--surface-2); color: var(--text); }
+
+.cm-trigger-label { color: var(--accent); font-weight: 600; }
+
+.cm-chevron { transition: transform 0.15s; flex-shrink: 0; }
+.cm-chevron.open { transform: rotate(180deg); }
+
+.cm-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  min-width: 110px;
+}
+
+.cm-option {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.cm-option:last-child { border-bottom: none; }
+.cm-option:hover { background: var(--surface-2); color: var(--text); }
+.cm-option.active { color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 
 .undo-btn {
   position: absolute;
@@ -737,9 +822,11 @@ watch(tripRouteMarkers, () => {
     transform: translateY(100%);
   }
 
-  /* Must come after the base .color-mode-control { display: flex } rule above */
+  /* On mobile the color mode dropdown floats over the map — keep it visible
+     but shift it left slightly so it doesn't overlap the sidebar-open button */
   .color-mode-control {
-    display: none;
+    right: 10px;
+    top: 10px;
   }
 }
 </style>

@@ -12,13 +12,21 @@
       @touchend="onDragEnd"
     ></div>
     <div class="mobile-mode-row">
-      <button
-        v-for="m in COLOR_MODES"
-        :key="m.value"
-        class="mobile-mode-btn"
-        :class="{ active: styleStore.colorMode === m.value }"
-        @click="styleStore.setColorMode(m.value)"
-      >{{ m.label }}</button>
+      <div class="mobile-cm-wrap" ref="mobileCmRef">
+        <button class="mobile-cm-trigger" @click.stop="mobileCmOpen = !mobileCmOpen">
+          Color: <span class="mobile-cm-label">{{ currentColorLabel }}</span>
+          <AppIcon name="chevronDown" class="mobile-cm-chevron" :class="{ open: mobileCmOpen }" />
+        </button>
+        <div v-if="mobileCmOpen" class="mobile-cm-dropdown">
+          <button
+            v-for="m in COLOR_MODES"
+            :key="m.value"
+            class="mobile-cm-option"
+            :class="{ active: styleStore.colorMode === m.value }"
+            @click="styleStore.setColorMode(m.value); mobileCmOpen = false"
+          >{{ m.label }}</button>
+        </div>
+      </div>
     </div>
     <div class="pane-track" :class="{ 'is-detail': pane === 'detail' }">
 
@@ -31,7 +39,7 @@
               <input
                 v-model="overviewQuery"
                 type="search"
-                :placeholder="activeTab === 'category' ? 'Filter categories…' : 'Filter collections…'"
+                :placeholder="activeTab === 'category' ? 'Filter categories…' : activeTab === 'collection' ? 'Filter collections…' : 'Filter persons…'"
                 class="search-input"
                 autocomplete="off"
               />
@@ -62,6 +70,7 @@
           </div>
           <div class="tab-row">
             <button class="tab-btn" :class="{ active: activeTab === 'collection' }" @click="activeTab = 'collection'; overviewQuery = ''">Collections</button>
+            <button class="tab-btn" :class="{ active: activeTab === 'person' }" @click="activeTab = 'person'; overviewQuery = ''">Persons</button>
             <button class="tab-btn" :class="{ active: activeTab === 'category' }" @click="activeTab = 'category'; overviewQuery = ''">Categories</button>
           </div>
         </div>
@@ -97,7 +106,7 @@
           </template>
 
           <!-- Collections tab -->
-          <template v-else>
+          <template v-else-if="activeTab === 'collection'">
             <div
               v-for="col in filteredCollections"
               :key="col.id"
@@ -126,18 +135,46 @@
             <p v-else-if="collectionsStore.items.length === 0" class="empty-hint">No collections yet</p>
           </template>
 
+          <!-- Persons tab -->
+          <template v-else>
+            <div
+              v-for="person in filteredPersons"
+              :key="person.id"
+              class="group-row"
+              @click="drillInto({ type: 'person', id: person.id, name: person.name, color: person.color, item: person })"
+            >
+              <span class="group-dot" :style="{ background: person.color }" />
+              <span class="group-name">{{ person.name }}</span>
+              <span class="group-count">{{ personCount(person.id) }}</span>
+              <span class="group-arrow">›</span>
+            </div>
+            <!-- No person -->
+            <div
+              v-if="noPersonCount > 0"
+              class="group-row group-row-muted"
+              @click="drillInto({ type: 'person', id: '__none__', name: 'No person', color: '#9ca3af', item: null })"
+            >
+              <span class="group-dot" style="background: #9ca3af" />
+              <span class="group-name">No person</span>
+              <span class="group-count">{{ noPersonCount }}</span>
+              <span class="group-arrow">›</span>
+            </div>
+            <p v-if="filteredPersons.length === 0 && overviewQuery" class="empty-hint">No persons match</p>
+            <p v-else-if="personsStore.items.length === 0" class="empty-hint">No persons yet</p>
+          </template>
+
         </div>
 
         <div class="sidebar-footer">
-          <button class="add-group-btn footer-add-btn" @click="activeTab === 'category' ? $emit('new-category') : $emit('new-collection')">
-            {{ activeTab === 'category' ? '+ New category' : '+ New collection' }}
+          <button v-if="!props.readOnly" class="add-group-btn footer-add-btn" @click="activeTab === 'category' ? $emit('new-category') : activeTab === 'collection' ? $emit('new-collection') : $emit('new-person')">
+            {{ activeTab === 'category' ? '+ New category' : activeTab === 'collection' ? '+ New collection' : '+ New person' }}
           </button>
           <div class="footer-actions">
-            <button class="footer-action-btn" @click="$emit('open-stats')" title="Statistics">
+            <button v-if="!props.readOnly" class="footer-action-btn" @click="$emit('open-stats')" title="Statistics">
               <AppIcon name="barChart" />
               Stats
             </button>
-            <button class="footer-action-btn" @click="$emit('open-settings')" title="Settings">
+            <button v-if="!props.readOnly" class="footer-action-btn" @click="$emit('open-settings')" title="Settings">
               <AppIcon name="settings" />
               Settings
             </button>
@@ -170,7 +207,7 @@
                 >{{ opt.label }}</button>
               </div>
             </div>
-            <button v-if="detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit">
+            <button v-if="!props.readOnly && detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit">
               <AppIcon name="edit" />
             </button>
             <button class="icon-btn collapse-btn" @click="$emit('close')" title="Collapse">
@@ -215,16 +252,17 @@
               </span>
               <span
                 class="row-meta"
-                v-if="m.categories.filter(c => !(detailGroup?.type === 'category' && c.id === detailGroup.id)).length || m.collections.filter(c => !(detailGroup?.type === 'collection' && c.id === detailGroup.id)).length"
+                v-if="m.categories.filter(c => !(detailGroup?.type === 'category' && c.id === detailGroup.id)).length || m.collections.filter(c => !(detailGroup?.type === 'collection' && c.id === detailGroup.id)).length || (m.persons || []).filter(p => !(detailGroup?.type === 'person' && p.id === detailGroup.id)).length"
               >
                 <span v-for="c in m.categories.filter(c => !(detailGroup?.type === 'category' && c.id === detailGroup.id))" :key="'cat-'+c.id" class="tag" :style="{ background: c.color + '22', color: c.color }">{{ c.name }}</span>
                 <span v-for="c in m.collections.filter(c => !(detailGroup?.type === 'collection' && c.id === detailGroup.id))" :key="'col-'+c.id" class="tag" :style="{ background: c.color + '22', color: c.color }">{{ c.name }}</span>
+                <span v-for="p in (m.persons || []).filter(p => !(detailGroup?.type === 'person' && p.id === detailGroup.id))" :key="'per-'+p.id" class="tag" :style="{ background: p.color + '22', color: p.color }">{{ p.name }}</span>
               </span>
             </div>
           </button>
           <p v-if="detailMarkers.length === 0" class="empty">No markers here.</p>
 
-          <button class="add-group-btn" @click="$emit('new-marker')">+ Add marker here</button>
+          <button v-if="!props.readOnly" class="add-group-btn" @click="$emit('new-marker')">+ Add marker here</button>
         </div>
 
       </div>
@@ -238,11 +276,17 @@ import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
+import { usePersonsStore } from '../stores/persons.js'
 import { useStyleStore } from '../stores/style.js'
+
+const props = defineProps({
+  readOnly: { type: Boolean, default: false },
+})
 
 const emit = defineEmits([
   'new-category', 'edit-category',
   'new-collection', 'edit-collection',
+  'new-person', 'edit-person',
   'fly-to', 'open-marker',
   'open-settings', 'open-stats', 'close',
   'new-marker',
@@ -251,13 +295,22 @@ const emit = defineEmits([
 const markersStore = useMarkersStore()
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
+const personsStore = usePersonsStore()
 const styleStore = useStyleStore()
 
 const COLOR_MODES = [
   { value: 'marker', label: 'Marker' },
   { value: 'collection', label: 'Collection' },
+  { value: 'person', label: 'Person' },
   { value: 'category', label: 'Category' },
 ]
+const currentColorLabel = computed(() => COLOR_MODES.find(m => m.value === styleStore.colorMode)?.label ?? 'Marker')
+const mobileCmOpen = ref(false)
+const mobileCmRef = ref(null)
+watch(mobileCmOpen, (open) => {
+  const handler = (e) => { if (mobileCmRef.value && !mobileCmRef.value.contains(e.target)) mobileCmOpen.value = false }
+  if (open) document.addEventListener('click', handler, { once: true })
+})
 
 // ── Drag-to-close ───────────────────────────────────────────────────────────
 const sidebarEl = ref(null)
@@ -287,7 +340,7 @@ function onDragEnd() {
 
 // ── Navigation state ────────────────────────────────────────────────────────
 const pane = ref('overview')      // 'overview' | 'detail'
-const activeTab = ref('collection') // 'category' | 'collection'
+const activeTab = ref('collection') // 'category' | 'collection' | 'person'
 
 // Store only the type+id; derive everything else live from the store so renames
 // and recolors are reflected immediately without navigating back.
@@ -297,9 +350,11 @@ const detailGroup = computed(() => {
   if (!detailFilter.value) return null
   const { type, id } = detailFilter.value
   if (id === '__none__') {
-    return { type, id, name: type === 'category' ? 'Uncategorized' : 'No collection', color: '#9ca3af', item: null }
+    const noneNames = { category: 'Uncategorized', collection: 'No collection', person: 'No person' }
+    return { type, id, name: noneNames[type], color: '#9ca3af', item: null }
   }
-  const item = (type === 'category' ? categoriesStore : collectionsStore).items.find(c => c.id === id)
+  const store = type === 'category' ? categoriesStore : type === 'collection' ? collectionsStore : personsStore
+  const item = store.items.find(c => c.id === id)
   if (!item) return null   // item was deleted
   return { type, id, name: item.name, color: item.color, item }
 })
@@ -334,7 +389,8 @@ watch(() => markersStore.activeGroupFilter, (filter) => {
 function editDetailGroup() {
   if (!detailGroup.value) return
   if (detailGroup.value.type === 'category') emit('edit-category', detailGroup.value.item)
-  else emit('edit-collection', detailGroup.value.item)
+  else if (detailGroup.value.type === 'collection') emit('edit-collection', detailGroup.value.item)
+  else emit('edit-person', detailGroup.value.item)
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
@@ -351,6 +407,20 @@ const COLLECTION_SORT_OPTIONS = [
   { value: 'end',   label: 'End date' },
 ]
 const sortOptions = computed(() => activeTab.value === 'collection' ? COLLECTION_SORT_OPTIONS : BASE_SORT_OPTIONS)
+
+const filteredPersons = computed(() => {
+  const q = overviewQuery.value.trim().toLowerCase()
+  const items = q ? personsStore.items.filter((p) => p.name.toLowerCase().includes(q)) : personsStore.items
+  return applySortOverview(items, personCount)
+})
+
+function personCount(id) {
+  return markersStore.items.filter((m) => m.persons?.some((p) => p.id === id)).length
+}
+
+const noPersonCount = computed(() =>
+  markersStore.items.filter((m) => !m.persons?.length).length
+)
 
 const SORT_STORAGE_KEY = 'mapper_sort'
 const sortOverview = ref(localStorage.getItem(SORT_STORAGE_KEY) || 'default')
@@ -380,7 +450,7 @@ watch(sortMenuOpen, (open) => {
   else document.removeEventListener('click', onDocClick)
 })
 watch(activeTab, (tab) => {
-  if (tab === 'category' && (sortOverview.value.startsWith('start-') || sortOverview.value.startsWith('end-'))) {
+  if (tab !== 'collection' && (sortOverview.value.startsWith('start-') || sortOverview.value.startsWith('end-'))) {
     sortOverview.value = 'default'
   }
 })
@@ -993,27 +1063,65 @@ function formatDateRange(item) {
   .mobile-mode-row {
     display: flex;
     flex-shrink: 0;
+    align-items: center;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border);
   }
-  .mobile-mode-btn {
-    flex: 1;
-    padding: 8px 4px;
+
+  .mobile-cm-wrap {
+    position: relative;
+  }
+
+  .mobile-cm-trigger {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
     font-size: 12px;
     font-weight: 500;
     color: var(--text-2);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .mobile-cm-label { color: var(--accent); font-weight: 700; }
+
+  .mobile-cm-chevron { transition: transform 0.15s; flex-shrink: 0; }
+  .mobile-cm-chevron.open { transform: rotate(180deg); }
+
+  .mobile-cm-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    min-width: 120px;
+    z-index: 50;
+  }
+
+  .mobile-cm-option {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
     background: none;
     border: none;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    min-height: unset;
-    transition: color 0.12s, border-color 0.12s;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
   }
-  .mobile-mode-btn:hover { color: var(--text); }
-  .mobile-mode-btn.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
+  .mobile-cm-option:last-child { border-bottom: none; }
+  .mobile-cm-option:hover { background: var(--surface-2); color: var(--text); }
+  .mobile-cm-option.active { color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 
   /* Fix flex chain so sidebar-body scrolls within max-height */
   .pane-track {

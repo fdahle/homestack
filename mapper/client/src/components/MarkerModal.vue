@@ -25,7 +25,7 @@
         <p v-if="form.description" class="view-desc">{{ form.description }}</p>
 
         <!-- Tag chips -->
-        <div v-if="selectedCollections.length || selectedCategories.length" class="view-tags">
+        <div v-if="selectedCollections.length || selectedCategories.length || selectedPersons.length" class="view-tags">
           <div v-if="selectedCollections.length" class="tag-group">
             <span class="tag-group-label">Collections</span>
             <div class="tag-chips">
@@ -59,6 +59,22 @@
               </button>
             </div>
           </div>
+          <div v-if="selectedPersons.length" class="tag-group">
+            <span class="tag-group-label">With</span>
+            <div class="tag-chips">
+              <button
+                v-for="person in selectedPersons"
+                :key="person.id"
+                type="button"
+                class="chip chip-person"
+                :style="{ background: person.color + '22', borderColor: person.color + '77' }"
+                @click="filterBy('person', person.id)"
+              >
+                <span class="chip-dot" :style="{ background: person.color }" />
+                {{ person.name }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Meta: address, coords -->
@@ -82,7 +98,7 @@
         <div class="modal-actions">
           <div class="spacer" />
           <button type="button" class="btn-secondary" @click="$emit('close')">Close</button>
-          <button type="button" class="btn-primary" @click="viewing = false; confirmDelete = false">Edit</button>
+          <button v-if="!props.readOnly" type="button" class="btn-primary" @click="viewing = false; confirmDelete = false">Edit</button>
         </div>
       </div>
 
@@ -130,6 +146,13 @@
               </button>
             </div>
           </div>
+          <a
+            v-if="imageSearchQuery.trim()"
+            :href="`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(imageSearchQuery.trim())}`"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-ghost btn-sm img-google-link"
+          >Search Google Images <AppIcon name="externalLink" /></a>
           <input v-model="form.image_url" type="url" placeholder="Or paste image URL…" style="margin-top:6px" />
           <div v-if="form.image_url" class="image-preview-wrap">
             <img :src="form.image_url" class="image-preview-thumb" @error="$event.target.style.display='none'" />
@@ -181,6 +204,18 @@
               {{ cat.name }}
             </label>
             <span v-if="categoriesStore.items.length === 0" class="empty-hint">No categories yet</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>With</label>
+          <div class="checkbox-list">
+            <label v-for="person in personsStore.items" :key="person.id" class="checkbox-item">
+              <input type="checkbox" :value="person.id" v-model="form.person_ids" style="width:auto" />
+              <span class="dot" :style="{ background: person.color }" />
+              {{ person.name }}
+            </label>
+            <span v-if="personsStore.items.length === 0" class="empty-hint">No persons yet</span>
           </div>
         </div>
 
@@ -251,6 +286,7 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
+import { usePersonsStore } from '../stores/persons.js'
 import { useMarkersStore } from '../stores/markers.js'
 
 const COLOR_PRESETS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
@@ -259,11 +295,13 @@ const props = defineProps({
   marker: { type: Object, default: null },
   latlng: { type: Object, default: null },
   suggestedLabel: { type: String, default: '' },
+  readOnly: { type: Boolean, default: false },
 })
 const emit = defineEmits(['save', 'delete', 'close'])
 
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
+const personsStore = usePersonsStore()
 const markersStore = useMarkersStore()
 
 const isEdit = computed(() => !!props.marker)
@@ -292,6 +330,7 @@ const form = ref({
   category_ids: [],
   collection_ids: [],
   collection_positions: {},
+  person_ids: [],
   visited_at: '',
   color: '',
   lat: 0,
@@ -300,6 +339,9 @@ const form = ref({
 
 const selectedCategories = computed(() =>
   categoriesStore.items.filter((c) => form.value.category_ids.includes(c.id))
+)
+const selectedPersons = computed(() =>
+  personsStore.items.filter((p) => form.value.person_ids.includes(p.id))
 )
 const effectiveColor = computed(() =>
   form.value.color || selectedCategories.value[0]?.color || '#6c757d'
@@ -348,6 +390,7 @@ onMounted(async () => {
       collection_positions: Object.fromEntries(
         (props.marker.collections ?? []).map((c) => [c.id, c.position ?? null])
       ),
+      person_ids: props.marker.persons?.map((p) => p.id) ?? [],
       visited_at: props.marker.visited_at?.slice(0, 10) || '',
       color: props.marker.color || '',
       lat: props.marker.lat,
@@ -384,6 +427,8 @@ onMounted(async () => {
       form.value.category_ids = [gf.id]
     } else if (gf?.type === 'collection' && gf.id !== '__none__') {
       form.value.collection_ids = [gf.id]
+    } else if (gf?.type === 'person' && gf.id !== '__none__') {
+      form.value.person_ids = [gf.id]
     }
   }
 })
@@ -684,6 +729,15 @@ textarea { resize: vertical; }
   color: var(--text-2);
   font-style: italic;
   padding: 4px 0;
+}
+
+.img-google-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  text-decoration: none;
+  font-size: 12px;
 }
 
 .img-url-row {

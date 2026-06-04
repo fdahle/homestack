@@ -28,6 +28,10 @@ export function useMarkerLayer(getMap, onMarkerClick) {
       const colors = (m.categories || []).map((c) => c.color).filter(Boolean)
       return colors.length ? colors.slice(0, 2) : [fallback]
     }
+    if (mode === 'person') {
+      const colors = (m.persons || []).map((p) => p.color).filter(Boolean)
+      return colors.length ? colors.slice(0, 2) : [fallback]
+    }
     // collection
     const colors = (m.collections || []).map((c) => c.color).filter(Boolean)
     return colors.length ? colors.slice(0, 2) : [fallback]

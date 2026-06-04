@@ -6,6 +6,7 @@ const router = createRouter({
   routes: [
     { path: '/login', component: () => import('../views/LoginView.vue') },
     { path: '/', component: () => import('../views/MapView.vue'), meta: { requiresAuth: true } },
+    { path: '/share/:token', component: () => import('../views/ShareView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

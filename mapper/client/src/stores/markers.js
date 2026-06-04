@@ -20,6 +20,10 @@ export const useMarkersStore = defineStore('markers', {
             if (id === '__none__') { if (m.collections?.length) return false }
             else if (!m.collections?.some((c) => c.id === id)) return false
           }
+          if (type === 'person') {
+            if (id === '__none__') { if (m.persons?.length) return false }
+            else if (!m.persons?.some((p) => p.id === id)) return false
+          }
         }
         if (state.visitedFilter === 'visited' && !m.visited_at) return false
         if (state.visitedFilter === 'unvisited' && m.visited_at) return false
@@ -116,6 +120,19 @@ export const useMarkersStore = defineStore('markers', {
           collections: patch
             ? m.collections.map(c => c.id === collectionId ? { ...c, ...patch } : c)
             : m.collections.filter(c => c.id !== collectionId),
+        }
+      }
+    },
+
+    patchEmbeddedPerson(personId, patch) {
+      for (let i = 0; i < this.items.length; i++) {
+        const m = this.items[i]
+        if (!m.persons?.some(p => p.id === personId)) continue
+        this.items[i] = {
+          ...m,
+          persons: patch
+            ? m.persons.map(p => p.id === personId ? { ...p, ...patch } : p)
+            : m.persons.filter(p => p.id !== personId),
         }
       }
     },

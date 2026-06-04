@@ -101,19 +101,21 @@ import { ref, computed, onMounted } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
+import { usePersonsStore } from '../stores/persons.js'
 import TripOrderModal from './TripOrderModal.vue'
 
 const props = defineProps({
-  type: { type: String, required: true }, // 'category' | 'collection'
+  type: { type: String, required: true }, // 'category' | 'collection' | 'person'
   item: { type: Object, default: null },
 })
 const emit = defineEmits(['close'])
 
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
+const personsStore = usePersonsStore()
 
 const isEdit = computed(() => !!props.item)
-const label = computed(() => props.type === 'category' ? 'Category' : 'Collection')
+const label = computed(() => props.type === 'category' ? 'Category' : props.type === 'collection' ? 'Collection' : 'Person')
 const saving = ref(false)
 const error = ref(null)
 const tripOrderOpen = ref(false)
@@ -131,7 +133,7 @@ function hslToHex(h, s, l) {
 }
 
 function generateAutoColor() {
-  const items = props.type === 'category' ? categoriesStore.items : collectionsStore.items
+  const items = props.type === 'category' ? categoriesStore.items : props.type === 'collection' ? collectionsStore.items : personsStore.items
   const hue = Math.round((items.length * 137.508) % 360)
   return hslToHex(hue, 65, 50)
 }
@@ -164,7 +166,7 @@ onMounted(() => {
   }
 })
 
-const store = computed(() => props.type === 'category' ? categoriesStore : collectionsStore)
+const store = computed(() => props.type === 'category' ? categoriesStore : props.type === 'collection' ? collectionsStore : personsStore)
 
 function parseDate(input) {
   if (!input) return ''

@@ -17,6 +17,9 @@ import authRoutes from './routes/auth.js'
 import markerRoutes from './routes/markers.js'
 import categoryRoutes from './routes/categories.js'
 import collectionRoutes from './routes/collections.js'
+import personRoutes from './routes/persons.js'
+import shareLinksRoutes from './routes/shareLinks.js'
+import publicShareRoutes from './routes/publicShare.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -32,6 +35,9 @@ app.use('/api/auth', authRoutes)
 app.use('/api/markers', markerRoutes)
 app.use('/api/categories', categoryRoutes)
 app.use('/api/collections', collectionRoutes)
+app.use('/api/persons', personRoutes)
+app.use('/api/share-links', shareLinksRoutes)
+app.use('/api/public/share', publicShareRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 

@@ -66,6 +66,18 @@ db.exec(`
     via_points     TEXT    NOT NULL DEFAULT '[]',
     UNIQUE(collection_id, from_marker_id, to_marker_id)
   );
+
+  CREATE TABLE IF NOT EXISTS persons (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name  TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#8b5cf6'
+  );
+
+  CREATE TABLE IF NOT EXISTS marker_persons (
+    marker_id INTEGER NOT NULL REFERENCES markers(id)  ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES persons(id)  ON DELETE CASCADE,
+    PRIMARY KEY (marker_id, person_id)
+  );
 `)
 
 // Idempotent migrations — errors are expected when a migration was already applied
@@ -89,6 +101,17 @@ migrate('ALTER TABLE markers ADD COLUMN image_url TEXT')
 migrate(`
   INSERT OR IGNORE INTO marker_categories (marker_id, category_id)
   SELECT id, category_id FROM markers WHERE category_id IS NOT NULL
+`)
+migrate(`
+  CREATE TABLE IF NOT EXISTS share_links (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    token         TEXT NOT NULL UNIQUE,
+    name          TEXT,
+    password_hash TEXT,
+    filter_json   TEXT NOT NULL DEFAULT '{"all":false,"categories":[],"collections":[],"persons":[],"markers":[]}',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at    TEXT
+  )
 `)
 
 export default db
