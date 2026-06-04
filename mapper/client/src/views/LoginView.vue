@@ -6,7 +6,7 @@
       <form @submit.prevent="submit">
         <div class="field">
           <label>{{ authStore.setupRequired ? 'Create Password' : 'Password' }}</label>
-          <div class="input-row">
+          <div class="input-wrap">
             <input
               :type="showPassword ? 'text' : 'password'"
               v-model="password"
@@ -14,8 +14,15 @@
               :autocomplete="authStore.setupRequired ? 'new-password' : 'current-password'"
               required
             />
-            <button type="button" class="toggle-pw" @click="showPassword = !showPassword">
-              {{ showPassword ? '🙈' : '👁' }}
+            <button
+              type="button"
+              class="toggle-pw"
+              @mousedown.prevent
+              @touchstart.prevent="showPassword = !showPassword"
+              @click="showPassword = !showPassword"
+              :aria-label="showPassword ? 'Hide password' : 'Show password'"
+            >
+              <AppIcon :name="showPassword ? 'eyeOff' : 'eye'" />
             </button>
           </div>
         </div>
@@ -38,6 +45,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
+import AppIcon from '../components/AppIcon.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -108,26 +116,38 @@ h1 {
   margin-bottom: 16px;
 }
 
-.input-row {
-  display: flex;
-  gap: 6px;
+.input-wrap {
+  position: relative;
 }
 
-.input-row input {
-  flex: 1;
+.input-wrap input {
+  width: 100%;
+  padding-right: 40px;
+  box-sizing: border-box;
 }
 
 .toggle-pw {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  font-size: 16px;
-  line-height: 1;
-  width: auto;
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 38px;
+  background: none;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
 
-.toggle-pw:hover { background: var(--border); }
+.toggle-pw svg {
+  pointer-events: none;
+}
+
+.toggle-pw:hover { color: var(--text); background: none; }
 
 .error {
   color: var(--danger);

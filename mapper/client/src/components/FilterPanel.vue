@@ -39,9 +39,7 @@
             </div>
             <div class="sort-wrap" ref="sortBtnRef">
               <button class="icon-btn sort-btn" :class="{ active: sortOverview !== 'default' }" @click.stop="toggleSortMenu" title="Sort">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M1 3h12M3 7h8M5 11h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
+                <AppIcon name="sort" />
               </button>
               <div v-if="sortMenuOpen" class="sort-menu">
                 <button
@@ -58,7 +56,9 @@
                 </button>
               </div>
             </div>
-            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Close">✕</button>
+            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Close">
+              <AppIcon name="close" />
+            </button>
           </div>
           <div class="tab-row">
             <button class="tab-btn" :class="{ active: activeTab === 'collection' }" @click="activeTab = 'collection'; overviewQuery = ''">Collections</button>
@@ -106,11 +106,7 @@
             >
               <span class="group-dot" :style="{ background: col.color }" />
               <span class="group-name">{{ col.name }}</span>
-              <svg v-if="col.is_trip" class="trip-icon" width="10" height="14" viewBox="0 0 10 14" fill="none" title="Trip">
-                <circle cx="5" cy="2" r="2" fill="currentColor"/>
-                <line x1="5" y1="4.5" x2="5" y2="9.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 1.5" stroke-linecap="round"/>
-                <rect x="3" y="10" width="4" height="4" rx="1" fill="currentColor"/>
-              </svg>
+              <AppIcon v-if="col.is_trip" name="trip" class="trip-icon" />
               <span v-if="formatDateRange(col)" class="group-dates">{{ formatDateRange(col) }}</span>
               <span class="group-count">{{ collectionCount(col.id) }}</span>
               <span class="group-arrow">›</span>
@@ -138,15 +134,11 @@
           </button>
           <div class="footer-actions">
             <button class="footer-action-btn" @click="$emit('open-stats')" title="Statistics">
-              <svg width="15" height="15" viewBox="0 0 14 14" fill="none">
-                <rect x="1" y="7" width="3" height="6" rx="1" fill="currentColor"/>
-                <rect x="5.5" y="4" width="3" height="9" rx="1" fill="currentColor"/>
-                <rect x="10" y="1" width="3" height="12" rx="1" fill="currentColor"/>
-              </svg>
+              <AppIcon name="barChart" />
               Stats
             </button>
             <button class="footer-action-btn" @click="$emit('open-settings')" title="Settings">
-              <span>⚙</span>
+              <AppIcon name="settings" />
               Settings
             </button>
           </div>
@@ -159,18 +151,14 @@
         <div class="sidebar-header">
           <div class="header-row1">
             <button class="back-btn" @click="goBack" title="Back">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
+              <AppIcon name="chevronLeft" />
             </button>
             <span v-if="detailGroup" class="group-dot" :style="{ background: detailGroup.color }" />
             <span class="detail-title">{{ detailGroup?.name ?? '' }}</span>
             <span class="detail-count">({{ markersStore.filtered.length }})</span>
             <div class="sort-wrap" ref="detailSortBtnRef">
               <button class="icon-btn sort-btn" :class="{ active: sortBy !== 'added' }" @click.stop="toggleDetailSortMenu" title="Sort">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M1 3h12M3 7h8M5 11h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
+                <AppIcon name="sort" />
               </button>
               <div v-if="detailSortMenuOpen" class="sort-menu">
                 <button
@@ -182,8 +170,12 @@
                 >{{ opt.label }}</button>
               </div>
             </div>
-            <button v-if="detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit">✎</button>
-            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Collapse">◀</button>
+            <button v-if="detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit">
+              <AppIcon name="edit" />
+            </button>
+            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Collapse">
+              <AppIcon name="close" />
+            </button>
           </div>
           <div v-if="detailGroup?.type === 'category'" class="header-row2">
             <div class="segmented">
@@ -242,6 +234,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
+import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -324,6 +317,19 @@ function goBack() {
   detailFilter.value = null
   markersStore.clearGroupFilter()
 }
+
+// React to filter changes made from outside this panel (e.g. clicking a chip in MarkerModal).
+// drillInto sets detailFilter *before* setGroupFilter, so by the time this watcher fires the
+// IDs already match when the change originated here — no double-navigation occurs.
+watch(() => markersStore.activeGroupFilter, (filter) => {
+  if (!filter) return
+  if (detailFilter.value?.type !== filter.type || detailFilter.value?.id !== filter.id) {
+    detailFilter.value = { type: filter.type, id: filter.id }
+    pane.value = 'detail'
+    detailQuery.value = ''
+    if (filter.type === 'collection') markersStore.setVisitedFilter('all')
+  }
+})
 
 function editDetailGroup() {
   if (!detailGroup.value) return

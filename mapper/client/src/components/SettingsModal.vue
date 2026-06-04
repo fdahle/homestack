@@ -3,7 +3,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Settings</h2>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
       </div>
 
       <div class="tabs">
@@ -36,7 +36,8 @@
             </div>
             <div class="btn-pair">
               <button type="button" class="btn-ghost" @click="useCurrentLocation" :disabled="gpsLoading">
-                {{ gpsLoading ? 'Getting location…' : '⊕ My location' }}
+                <template v-if="gpsLoading">Getting location…</template>
+                <template v-else><AppIcon name="location" /> My location</template>
               </button>
               <button type="button" class="btn-ghost" @click="useCurrentView">
                 Use current view
@@ -264,6 +265,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useImportExport } from '../composables/useImportExport.js'
@@ -564,6 +566,9 @@ h2 { font-size: 16px; font-weight: 700; }
   color: var(--text);
   border: 1px solid var(--border);
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .btn-ghost:hover:not(:disabled) { background: var(--border); }
 .btn-ghost:disabled { opacity: 0.5; cursor: default; }

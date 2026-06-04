@@ -8,7 +8,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>{{ isEdit ? `Edit ${label}` : `New ${label}` }}</h2>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
       </div>
 
       <form @submit.prevent="save">
@@ -57,7 +57,7 @@
 
         <div v-if="type === 'collection' && form.is_trip && isEdit" class="field">
           <button type="button" class="btn-order" @click="tripOrderOpen = true">
-            ⇅ Manage stop order
+            <AppIcon name="reorder" /> Manage stop order
           </button>
         </div>
 
@@ -98,6 +98,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import TripOrderModal from './TripOrderModal.vue'
@@ -332,6 +333,9 @@ textarea { resize: vertical; }
   border: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
   border-radius: var(--radius);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   text-align: left;
   transition: background 0.1s;
 }

@@ -3,7 +3,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Statistics</h2>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
       </div>
 
       <div class="modal-body">
@@ -72,6 +72,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useMarkersStore } from '../stores/markers.js'
+import AppIcon from './AppIcon.vue'
 
 defineEmits(['close'])
 

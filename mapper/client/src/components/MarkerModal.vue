@@ -3,30 +3,82 @@
     <div class="modal">
       <div class="modal-header">
         <h2>{{ viewing ? 'Marker' : isEdit ? 'Edit Marker' : 'Add Marker' }}</h2>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
       </div>
 
-      <!-- View mode for existing markers -->
+      <!-- View mode -->
       <div v-if="viewing" class="view-body">
-        <div class="view-label">{{ form.label || '(unnamed)' }}</div>
-        <p v-if="form.description" class="view-desc">{{ form.description }}</p>
-        <div class="view-meta">
-          <div v-if="selectedCollections.length" class="view-row">
-            <span v-for="col in selectedCollections" :key="col.id" class="dot" :style="{ background: col.color }" />
-            <span>{{ selectedCollections.map(c => {
-              const pos = props.marker?.collections?.find(mc => mc.id === c.id)?.position
-              return c.is_trip && pos != null ? `${c.name} (#${pos})` : c.name
-            }).join(', ') }}</span>
-          </div>
-          <div v-if="selectedCategories.length" class="view-row">
-            <span v-for="cat in selectedCategories" :key="cat.id" class="dot" :style="{ background: cat.color }" />
-            <span>{{ selectedCategories.map(c => c.name).join(', ') }}</span>
-          </div>
-          <div v-if="form.visited_at" class="view-row">Visited<template v-if="form.visited_at !== 'yes'"> {{ form.visited_at }}</template></div>
-          <div v-if="addressLoading" class="view-row view-coords">Fetching address…</div>
-          <div v-else-if="addressLine" class="view-row view-address">{{ addressLine }}</div>
-          <div class="view-row view-coords">{{ latStr }}, {{ lngStr }}</div>
+
+        <!-- Hero image -->
+        <div v-if="displayImage && !imageError" class="view-hero-wrap">
+          <img :src="displayImage" class="view-hero" @error="imageError = true" />
         </div>
+
+        <!-- Title & description -->
+        <div class="view-title-row">
+          <div class="view-title">{{ form.label || '(unnamed)' }}</div>
+          <div v-if="form.visited_at" class="visited-badge">
+            <AppIcon name="check" />
+            Visited<template v-if="form.visited_at !== 'yes'"> · {{ form.visited_at }}</template>
+          </div>
+        </div>
+        <p v-if="form.description" class="view-desc">{{ form.description }}</p>
+
+        <!-- Tag chips -->
+        <div v-if="selectedCollections.length || selectedCategories.length" class="view-tags">
+          <div v-if="selectedCollections.length" class="tag-group">
+            <span class="tag-group-label">Collections</span>
+            <div class="tag-chips">
+              <button
+                v-for="col in selectedCollections"
+                :key="col.id"
+                type="button"
+                class="chip chip-collection"
+                :style="{ background: col.color + '22', borderColor: col.color + '77' }"
+                @click="filterBy('collection', col.id)"
+              >
+                <span class="chip-dot" :style="{ background: col.color }" />
+                {{ col.name }}
+                <span v-if="col.is_trip && tripPosition(col.id) != null" class="chip-pos">#{{ tripPosition(col.id) }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="selectedCategories.length" class="tag-group">
+            <span class="tag-group-label">Categories</span>
+            <div class="tag-chips">
+              <button
+                v-for="cat in selectedCategories"
+                :key="cat.id"
+                type="button"
+                class="chip chip-category"
+                :style="{ borderColor: cat.color + 'aa' }"
+                @click="filterBy('category', cat.id)"
+              >
+                <span class="chip-dot" :style="{ background: cat.color }" />
+                {{ cat.name }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Meta: address, coords -->
+        <div class="view-meta">
+          <template v-if="addressLoading || addressLine">
+            <span class="meta-label">Address</span>
+            <div v-if="addressLoading" class="meta-row">Fetching address…</div>
+            <div v-else-if="addressLine" class="meta-row address-row">{{ addressLine }}</div>
+          </template>
+          <div class="meta-row coords-text">{{ latStr }}, {{ lngStr }}</div>
+          <div class="meta-row">
+            <a
+              :href="`https://www.google.com/maps?q=${latStr},${lngStr}`"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="open-maps-link"
+            >Open in Maps <AppIcon name="externalLink" /></a>
+          </div>
+        </div>
+
         <div class="modal-actions">
           <div class="spacer" />
           <button type="button" class="btn-secondary" @click="$emit('close')">Close</button>
@@ -34,6 +86,7 @@
         </div>
       </div>
 
+      <!-- Edit / create form -->
       <form v-else @submit.prevent="save">
         <div class="field">
           <label>Label</label>
@@ -43,6 +96,49 @@
         <div class="field">
           <label>Description</label>
           <textarea v-model="form.description" rows="3" placeholder="Notes about this place…" />
+        </div>
+
+        <div class="field">
+          <label>Image</label>
+          <div class="img-search-row">
+            <input
+              v-model="imageSearchQuery"
+              type="text"
+              class="img-search-input"
+              placeholder="Search name…"
+              @keydown.enter.prevent="searchWiki"
+            />
+            <button type="button" class="btn-ghost btn-sm" :disabled="imageSearchLoading !== false" @click="searchWiki">
+              {{ imageSearchLoading === 'wiki' ? '…' : 'Wiki' }}
+            </button>
+            <button type="button" class="btn-ghost btn-sm" :disabled="imageSearchLoading !== false" @click="searchCommons">
+              {{ imageSearchLoading === 'commons' ? '…' : 'Commons' }}
+            </button>
+          </div>
+          <div v-if="imageResults !== null" class="img-results">
+            <div v-if="imageResults.length === 0" class="img-no-result">No images found</div>
+            <div v-else class="img-results-grid">
+              <button
+                v-for="r in imageResults"
+                :key="r.url"
+                type="button"
+                class="img-result-card"
+                @click="selectImage(r.url)"
+              >
+                <img :src="r.url" class="img-result-thumb" @error="imageResults = imageResults.filter(x => x.url !== r.url)" />
+                <span class="img-result-title">{{ r.title }}</span>
+              </button>
+            </div>
+          </div>
+          <input v-model="form.image_url" type="url" placeholder="Or paste image URL…" style="margin-top:6px" />
+          <div v-if="form.image_url" class="image-preview-wrap">
+            <img :src="form.image_url" class="image-preview-thumb" @error="$event.target.style.display='none'" />
+            <div class="image-preview-overlay">
+              <button type="button" class="hero-btn danger" @click="form.image_url = ''" title="Remove image">
+                <AppIcon name="close" />
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="field">
@@ -98,9 +194,7 @@
               @click="form.color = ''"
               title="Inherit from category"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <line x1="1" y1="13" x2="13" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
+              <AppIcon name="colorInherit" />
             </button>
             <button
               v-for="c in COLOR_PRESETS"
@@ -138,7 +232,7 @@
             <button v-if="!confirmDelete" type="button" class="btn-danger" @click="confirmDelete = true" :disabled="saving">Delete</button>
             <template v-else>
               <button type="button" class="btn-danger" @click="del" :disabled="saving">Yes, delete</button>
-              <button type="button" class="btn-ghost" @click="confirmDelete = false">✕</button>
+              <button type="button" class="btn-ghost" @click="confirmDelete = false"><AppIcon name="close" /></button>
             </template>
           </template>
           <div class="spacer" />
@@ -153,7 +247,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { useMarkersStore } from '../stores/markers.js'
@@ -181,9 +276,19 @@ const visitedDate = ref('')
 const addressLine = ref(null)
 const addressLoading = ref(false)
 
+// Image state
+const imageError = ref(false)
+const imageEditMode = ref(false)
+const imageUrlDraft = ref('')
+const imageUrlInputRef = ref(null)
+const imageSearchQuery = ref('')
+const imageSearchLoading = ref(false) // false | 'wiki' | 'commons'
+const imageResults = ref(null) // null | [{ url, title }]
+
 const form = ref({
   label: '',
   description: '',
+  image_url: '',
   category_ids: [],
   collection_ids: [],
   collection_positions: {},
@@ -203,6 +308,22 @@ const selectedCollections = computed(() =>
   collectionsStore.items.filter((c) => form.value.collection_ids.includes(c.id))
 )
 
+const displayImage = computed(() => form.value.image_url || null)
+
+// Reset image error when source changes
+watch(displayImage, () => { imageError.value = false })
+
+function tripPosition(colId) {
+  return props.marker?.collections?.find((mc) => mc.id === colId)?.position ?? null
+}
+
+// Keep image search pre-filled with label when user hasn't typed a custom search yet
+watch(() => form.value.label, (label, oldLabel) => {
+  if (!imageSearchQuery.value || imageSearchQuery.value === (oldLabel || '')) {
+    imageSearchQuery.value = label || ''
+  }
+})
+
 watch(visitedChecked, (val) => {
   if (!val) {
     form.value.visited_at = ''
@@ -221,6 +342,7 @@ onMounted(async () => {
     form.value = {
       label: props.marker.label || '',
       description: props.marker.description || '',
+      image_url: props.marker.image_url || '',
       category_ids: props.marker.categories?.map((c) => c.id) ?? [],
       collection_ids: props.marker.collections?.map((c) => c.id) ?? [],
       collection_positions: Object.fromEntries(
@@ -237,7 +359,7 @@ onMounted(async () => {
     addressLoading.value = true
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${props.marker.lat}&lon=${props.marker.lng}&format=json&addressdetails=1`
+        `https://nominatim.openstreetmap.org/reverse?lat=${props.marker.lat}&lon=${props.marker.lng}&format=json&addressdetails=1&namedetails=1&extratags=1`
       )
       const data = await res.json()
       const a = data.address
@@ -247,17 +369,21 @@ onMounted(async () => {
         const parts = [street, [a.postcode, city].filter(Boolean).join(' '), a.country].filter(Boolean)
         addressLine.value = parts.join(', ') || null
       }
+
+      // Pre-fill the image search query with the place name for later use
+      imageSearchQuery.value = data.namedetails?.['name:en'] || data.namedetails?.name || data.name || form.value.label || ''
     } catch { /* silent */ }
     finally { addressLoading.value = false }
   } else if (props.latlng) {
     form.value.lat = props.latlng.lat
     form.value.lng = props.latlng.lng
     form.value.label = props.suggestedLabel || ''
-    // Pre-fill category/collection from active group drill-down
-    if (markersStore.activeGroupFilter?.type === 'category') {
-      form.value.category_ids = [markersStore.activeGroupFilter.id]
-    } else if (markersStore.activeGroupFilter?.type === 'collection') {
-      form.value.collection_ids = [markersStore.activeGroupFilter.id]
+    imageSearchQuery.value = props.suggestedLabel || ''
+    const gf = markersStore.activeGroupFilter
+    if (gf?.type === 'category' && gf.id !== '__none__') {
+      form.value.category_ids = [gf.id]
+    } else if (gf?.type === 'collection' && gf.id !== '__none__') {
+      form.value.collection_ids = [gf.id]
     }
   }
 })
@@ -282,6 +408,102 @@ function hasDuplicate(collectionId) {
   )
 }
 
+function filterBy(type, id) {
+  markersStore.setGroupFilter({ type, id })
+  emit('close')
+}
+
+function startImageEdit() {
+  imageUrlDraft.value = form.value.image_url || ''
+  if (!imageSearchQuery.value) imageSearchQuery.value = form.value.label || ''
+  imageResults.value = null
+  imageEditMode.value = true
+  nextTick(() => imageUrlInputRef.value?.focus())
+}
+
+async function searchWiki() {
+  const q = imageSearchQuery.value.trim()
+  if (!q) return
+  imageSearchLoading.value = 'wiki'
+  imageResults.value = null
+  try {
+    const searchRes = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srlimit=3&format=json&origin=*`
+    )
+    const searchData = await searchRes.json()
+    const titles = (searchData.query?.search ?? []).map(r => r.title)
+    if (!titles.length) { imageResults.value = []; return }
+    const imgRes = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&titles=${titles.map(encodeURIComponent).join('|')}&prop=pageimages&pithumbsize=400&format=json&origin=*`
+    )
+    const imgData = await imgRes.json()
+    const pages = Object.values(imgData.query?.pages ?? {})
+    imageResults.value = pages
+      .map(p => ({ url: p.thumbnail?.source ?? null, title: p.title }))
+      .filter(r => r.url)
+  } catch { imageResults.value = [] }
+  finally { imageSearchLoading.value = false }
+}
+
+async function searchCommons() {
+  const q = imageSearchQuery.value.trim()
+  if (!q) return
+  imageSearchLoading.value = 'commons'
+  imageResults.value = null
+  try {
+    const searchRes = await fetch(
+      `https://commons.wikimedia.org/w/api.php?action=query&list=search&srnamespace=6&srsearch=${encodeURIComponent(q)}&srlimit=5&format=json&origin=*`
+    )
+    const searchData = await searchRes.json()
+    const titles = (searchData.query?.search ?? []).map(r => r.title)
+    if (!titles.length) { imageResults.value = []; return }
+    const imgRes = await fetch(
+      `https://commons.wikimedia.org/w/api.php?action=query&titles=${titles.map(encodeURIComponent).join('|')}&prop=imageinfo&iiprop=url&iiurlwidth=400&format=json&origin=*`
+    )
+    const imgData = await imgRes.json()
+    const pages = Object.values(imgData.query?.pages ?? {})
+    const results = pages
+      .map(p => ({
+        url: p.imageinfo?.[0]?.thumburl || p.imageinfo?.[0]?.url || null,
+        title: (p.title ?? '').replace(/^File:/, '').replace(/\.[^.]+$/, ''),
+      }))
+      .filter(r => r.url)
+    imageResults.value = results.slice(0, 3)
+  } catch { imageResults.value = [] }
+  finally { imageSearchLoading.value = false }
+}
+
+async function selectImage(url) {
+  form.value.image_url = url
+  imageUrlDraft.value = url
+  imageResults.value = null
+  if (viewing.value) await saveImage()
+}
+
+async function saveImage() {
+  const newUrl = imageUrlDraft.value.trim() || null
+  form.value.image_url = newUrl || ''
+  imageEditMode.value = false
+  if (props.marker) {
+    await markersStore.update(props.marker.id, {
+      ...form.value,
+      image_url: newUrl,
+      color: form.value.color || null,
+    })
+  }
+}
+
+async function clearImage() {
+  form.value.image_url = ''
+  if (props.marker) {
+    await markersStore.update(props.marker.id, {
+      ...form.value,
+      image_url: null,
+      color: form.value.color || null,
+    })
+  }
+}
+
 async function save() {
   error.value = null
   const tripCollections = collectionsStore.items.filter(
@@ -296,7 +518,11 @@ async function save() {
   }
   saving.value = true
   try {
-    await emit('save', { ...form.value, color: form.value.color || null })
+    await emit('save', {
+      ...form.value,
+      color: form.value.color || null,
+      image_url: form.value.image_url || null,
+    })
   } catch (err) {
     error.value = err.message
     saving.value = false
@@ -338,6 +564,7 @@ async function del() {
   justify-content: space-between;
   padding: 16px 20px 12px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 h2 {
@@ -360,9 +587,326 @@ form {
 }
 
 .field { margin-bottom: 14px; }
-
 textarea { resize: vertical; }
 
+/* ── View body ───────────────────────────────────────────── */
+.view-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hero image */
+.view-hero-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.view-hero {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  display: block;
+}
+
+/* Image editor panel */
+.image-editor {
+  padding: 10px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.img-search-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.img-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.img-results {
+  margin-top: 2px;
+}
+
+.img-results-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.img-result-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  overflow: hidden;
+  text-align: left;
+}
+.img-result-card:hover { border-color: var(--accent); background: var(--border); }
+
+.img-result-thumb {
+  width: 100%;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+}
+
+.img-result-title {
+  font-size: 10px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 2px 1px;
+}
+
+.img-no-result {
+  font-size: 12px;
+  color: var(--text-2);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.img-url-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.img-url-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.image-url-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.img-url-preview .img-preview-thumb {
+  max-height: 60px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.img-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Title & description */
+.view-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px 0;
+}
+
+.view-title-row .visited-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.view-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.view-desc {
+  font-size: 14px;
+  color: var(--text-2);
+  padding: 6px 20px 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.meta-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+/* Tag chips */
+.view-tags {
+  padding: 12px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tag-group { display: flex; flex-direction: column; gap: 5px; }
+
+.tag-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  transition: opacity 0.12s, transform 0.1s;
+  line-height: 1.4;
+}
+.chip:hover { opacity: 0.75; transform: scale(1.04); }
+.chip:active { transform: scale(0.97); }
+
+.chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.chip-pos {
+  font-size: 10px;
+  color: var(--text-2);
+  margin-left: 1px;
+}
+
+/* Meta section */
+.view-meta {
+  padding: 12px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.visited-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  align-self: flex-start;
+}
+
+.meta-row {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+
+.coords-text {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.open-maps-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.open-maps-link:hover { text-decoration: underline; }
+
+/* Image field in edit mode */
+.image-preview-wrap {
+  margin-top: 6px;
+  position: relative;
+  display: inline-block;
+}
+
+.image-preview-thumb {
+  max-height: 80px;
+  max-width: 100%;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
+}
+
+.image-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  background: rgba(0, 0, 0, 0.3);
+}
+.image-preview-wrap:hover .image-preview-overlay { opacity: 1; }
+
+.hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.hero-btn:hover { background: rgba(0, 0, 0, 0.8); }
+.hero-btn.danger { color: #fca5a5; }
+.hero-btn.danger:hover { background: rgba(180, 30, 30, 0.75); color: #fff; }
+
+/* Shared form styles */
 .color-row {
   display: flex;
   align-items: center;
@@ -479,51 +1023,6 @@ textarea { resize: vertical; }
   font-family: monospace;
 }
 
-.view-body {
-  padding: 16px 20px 20px;
-}
-
-.view-label {
-  font-size: 17px;
-  font-weight: 700;
-  margin-bottom: 6px;
-  color: var(--text);
-}
-
-.view-desc {
-  font-size: 14px;
-  color: var(--text-2);
-  margin-bottom: 12px;
-  white-space: pre-wrap;
-  line-height: 1.5;
-}
-
-.view-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 16px;
-}
-
-.view-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text);
-}
-
-.view-coords {
-  font-family: monospace;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.view-address {
-  font-size: 13px;
-  color: var(--text-2);
-}
-
 .visited-row {
   display: flex;
   align-items: center;
@@ -547,6 +1046,28 @@ textarea { resize: vertical; }
   gap: 8px;
   align-items: center;
   margin-top: 4px;
+  padding: 12px 20px 20px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* In view mode actions are inside .view-body which already has padding */
+.view-body .modal-actions {
+  padding: 12px 20px 20px;
+  margin-top: 8px;
+}
+
+/* In form mode the actions sit inside the scrollable form */
+form .modal-actions {
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
 }
 
 .spacer { flex: 1; }

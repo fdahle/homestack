@@ -85,6 +85,7 @@ migrate('ALTER TABLE collections ADD COLUMN is_trip INTEGER NOT NULL DEFAULT 0')
 migrate('ALTER TABLE collections ADD COLUMN show_route_line INTEGER NOT NULL DEFAULT 0')
 migrate('ALTER TABLE collections ADD COLUMN show_exact_route INTEGER NOT NULL DEFAULT 0')
 migrate('ALTER TABLE marker_collections ADD COLUMN position INTEGER')
+migrate('ALTER TABLE markers ADD COLUMN image_url TEXT')
 migrate(`
   INSERT OR IGNORE INTO marker_categories (marker_id, category_id)
   SELECT id, category_id FROM markers WHERE category_id IS NOT NULL

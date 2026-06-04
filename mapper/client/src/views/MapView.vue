@@ -48,15 +48,13 @@
 
       <!-- Sidebar toggle (shown when sidebar is collapsed) -->
       <button v-show="!sidebarOpen" class="sidebar-open-btn" @click="openSidebar" title="Open panel">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-          <rect x="1" y="3" width="16" height="2" rx="1" fill="currentColor"/>
-          <rect x="1" y="8" width="16" height="2" rx="1" fill="currentColor"/>
-          <rect x="1" y="13" width="16" height="2" rx="1" fill="currentColor"/>
-        </svg>
+        <AppIcon name="hamburger" />
       </button>
 
       <!-- Settings (only when sidebar is hidden, otherwise use the one in the sidebar) -->
-      <button v-show="!sidebarOpen" class="settings-btn" @click="handleOpenSettings" title="Settings">⚙</button>
+      <button v-show="!sidebarOpen" class="settings-btn" @click="handleOpenSettings" title="Settings">
+        <AppIcon name="settings" />
+      </button>
 
       <!-- Color mode floating control -->
       <div class="color-mode-control">
@@ -76,7 +74,7 @@
         class="undo-btn"
         @click="undoRouteEdit"
         title="Undo (Ctrl+Z)"
-      >↩ Undo</button>
+      ><AppIcon name="undo" /> Undo</button>
 
 <!-- Add marker FAB -->
       <button
@@ -148,6 +146,7 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import AppIcon from '../components/AppIcon.vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useMarkersStore } from '../stores/markers.js'
@@ -492,6 +491,11 @@ function onSettingsSave(settings) {
 
 watch(displayMarkers, (markers) => {
   if (map) renderMarkers(markers)
+})
+
+// On mobile, open the sidebar when a filter is applied from outside (e.g. chip click in modal)
+watch(() => markersStore.activeGroupFilter, (filter) => {
+  if (filter && window.innerWidth <= 640) sidebarOpen.value = true
 })
 
 watch(() => styleStore.colorMode, () => {

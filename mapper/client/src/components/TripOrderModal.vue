@@ -3,17 +3,17 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Stop order — {{ collection.name }}</h2>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
       </div>
 
-      <p class="hint">Drag markers to reorder. Set the transport mode between each pair of stops.</p>
+      <p class="hint">Drag to reorder. Set transport mode between stops. Click ⊘ to exclude a marker from the route.</p>
 
       <div class="modal-body">
         <p v-if="localItems.length === 0" class="empty">No markers in this trip yet.</p>
         <template v-for="(item, index) in localItems" :key="item.markerId">
           <div
             class="order-row"
-            :class="{ 'is-drag-over': dragOverIndex === index }"
+            :class="{ 'is-drag-over': dragOverIndex === index, 'is-excluded': item.excluded }"
             draggable="true"
             @dragstart="onDragStart(index, $event)"
             @dragover.prevent="onDragOver(index)"
@@ -21,11 +21,12 @@
             @dragend="onDragEnd"
           >
             <span class="drag-handle">⠿</span>
-            <span class="stop-num">{{ index + 1 }}</span>
+            <span class="stop-num">{{ item.excluded ? '–' : stopNum(item) }}</span>
             <span class="dot" :style="{ background: effectiveColor(item.marker) }" />
             <span class="marker-name">{{ item.marker.label || coords(item.marker) }}</span>
+            <button type="button" class="exclude-btn" :class="{ active: item.excluded }" @click="toggleExclude(item)" title="Exclude from route">⊘</button>
           </div>
-          <div v-if="index < localItems.length - 1" class="segment-row">
+          <div v-if="index < localItems.length - 1 && !item.excluded && !localItems[index + 1].excluded" class="segment-row">
             <div class="seg-line" :style="{ background: collection.color || '#10b981' }" />
             <div class="mode-pills">
               <button
@@ -57,6 +58,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useMarkersStore } from '../stores/markers.js'
+import AppIcon from './AppIcon.vue'
 
 const MODES = [
   { value: 'walk',  label: 'Walk'  },
@@ -79,11 +81,10 @@ const segments = ref({})
 onMounted(async () => {
   localItems.value = markersStore.items
     .filter((m) => m.collections.some((c) => c.id === props.collection.id))
-    .map((m) => ({
-      markerId: m.id,
-      marker: m,
-      position: m.collections.find((c) => c.id === props.collection.id)?.position ?? null,
-    }))
+    .map((m) => {
+      const pos = m.collections.find((c) => c.id === props.collection.id)?.position ?? null
+      return { markerId: m.id, marker: m, position: pos, excluded: pos === null }
+    })
     .sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity))
 
   try {
@@ -145,14 +146,25 @@ function onDragEnd() {
   dragIndex.value = dragOverIndex.value = null
 }
 
+function stopNum(item) {
+  if (item.excluded) return null
+  return localItems.value.filter(i => !i.excluded).indexOf(item) + 1
+}
+
+function toggleExclude(item) { item.excluded = !item.excluded }
+
 // ── Save ─────────────────────────────────────────────────────────────────────
 async function save() {
   error.value = null
   saving.value = true
   try {
+    let pos = 0
     await markersStore.updateTripPositions(
       props.collection.id,
-      localItems.value.map((item, i) => ({ marker_id: item.markerId, position: i + 1 }))
+      localItems.value.map((item) => ({
+        marker_id: item.markerId,
+        position: item.excluded ? null : ++pos,
+      }))
     )
     emit('close')
   } catch (err) {
@@ -240,6 +252,7 @@ h2 { font-size: 15px; font-weight: 700; }
 .order-row:hover { background: var(--surface-2); }
 .order-row.is-drag-over { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-top: 2px solid var(--accent); }
 .order-row:active { cursor: grabbing; }
+.order-row.is-excluded { opacity: 0.45; }
 
 .drag-handle {
   font-size: 16px;
@@ -273,6 +286,22 @@ h2 { font-size: 15px; font-weight: 700; }
   text-overflow: ellipsis;
   min-width: 0;
 }
+
+.exclude-btn {
+  font-size: 14px;
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+  border-radius: 4px;
+}
+.order-row:hover .exclude-btn { opacity: 1; }
+.exclude-btn.active { opacity: 1; color: var(--danger, #ef4444); }
+.exclude-btn:hover { background: var(--surface-2); }
 
 .segment-row {
   display: flex;

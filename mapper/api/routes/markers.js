@@ -76,7 +76,7 @@ function checkDuplicatePositions(collection_ids, collection_positions, excludeMa
 }
 
 router.post('/', (req, res) => {
-  const { lat, lng, label, description, visited_at, color, category_ids, collection_ids, collection_positions } = req.body
+  const { lat, lng, label, description, visited_at, color, image_url, category_ids, collection_ids, collection_positions } = req.body
 
   if (lat == null || lng == null) {
     return res.status(400).json({ error: 'lat and lng are required' })
@@ -91,8 +91,8 @@ router.post('/', (req, res) => {
   }
 
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO markers (lat, lng, label, description, visited_at, color) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(lat, lng, label || null, description || null, visited_at || null, color || null)
+    .prepare('INSERT INTO markers (lat, lng, label, description, visited_at, color, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(lat, lng, label || null, description || null, visited_at || null, color || null, image_url || null)
 
   if (Array.isArray(category_ids)) {
     const insert = db.prepare('INSERT OR IGNORE INTO marker_categories (marker_id, category_id) VALUES (?, ?)')
@@ -112,7 +112,7 @@ router.put('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM markers WHERE id = ?').get(id)
   if (!existing) return res.status(404).json({ error: 'Not found' })
 
-  const { label, description, visited_at, color, category_ids, collection_ids, collection_positions } = req.body
+  const { label, description, visited_at, color, image_url, category_ids, collection_ids, collection_positions } = req.body
   const lat = req.body.lat ?? existing.lat
   const lng = req.body.lng ?? existing.lng
 
@@ -126,8 +126,8 @@ router.put('/:id', (req, res) => {
   }
 
   db.prepare(
-    'UPDATE markers SET lat=?, lng=?, label=?, description=?, visited_at=?, color=? WHERE id=?'
-  ).run(lat, lng, label ?? null, description ?? null, visited_at ?? null, color ?? null, id)
+    'UPDATE markers SET lat=?, lng=?, label=?, description=?, visited_at=?, color=?, image_url=? WHERE id=?'
+  ).run(lat, lng, label ?? null, description ?? null, visited_at ?? null, color ?? null, image_url ?? null, id)
 
   if (Array.isArray(category_ids)) {
     db.prepare('DELETE FROM marker_categories WHERE marker_id = ?').run(id)
