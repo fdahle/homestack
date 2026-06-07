@@ -20,6 +20,7 @@
         <template v-if="tab === 'general'">
           <form @submit.prevent="saveGeneral">
             <div class="group-label">Start position</div>
+            <p class="hint">The map position and zoom level shown when the app first loads.</p>
             <div class="row">
               <div class="field">
                 <label>Latitude</label>
@@ -34,6 +35,7 @@
               <label>Zoom level (1–19)</label>
               <input v-model.number="form.zoom" type="number" min="1" max="19" step="1" />
             </div>
+            <p class="hint">Or fill in the fields automatically:</p>
             <div class="btn-pair">
               <button type="button" class="btn-ghost" @click="useCurrentLocation" :disabled="gpsLoading">
                 <template v-if="gpsLoading">Getting location…</template>
@@ -139,6 +141,7 @@
         <template v-if="tab === 'account'">
           <form @submit.prevent="doChangePassword">
             <div class="group-label">Change password</div>
+            <p class="hint">Update your login password. You'll need your current password to confirm.</p>
             <div class="field">
               <label>Current password</label>
               <input v-model="pwForm.current" type="password" autocomplete="current-password" />
@@ -168,16 +171,57 @@
 
         <!-- ── Data ── -->
         <template v-if="tab === 'data'">
+
+          <!-- Backup & Restore -->
+          <div class="data-group">
+            <div class="group-label">Backup</div>
+            <p class="hint">Full snapshot — saves markers, categories, collections, persons and all relations. Use Restore to bring everything back exactly.</p>
+            <input type="file" accept=".json" ref="restoreInput" @change="onRestoreFileSelected" style="display:none" />
+            <div class="import-btn-row">
+              <button type="button" class="btn-secondary" @click="doBackup" :disabled="backingUp">
+                {{ backingUp ? 'Preparing…' : 'Download backup' }}
+              </button>
+              <button type="button" class="btn-secondary" @click="restoreInput.click()">
+                Restore from backup…
+              </button>
+            </div>
+            <p v-if="backupError" class="msg error">{{ backupError }}</p>
+
+            <!-- Restore state -->
+            <template v-if="restoreFile || restoreError || restoreStatus">
+              <div v-if="restoreFile && restoreData" class="file-row">
+                <span class="file-name">{{ restoreFile.name }}</span>
+                <span class="file-count">
+                  {{ restoreData.markers.length }} markers · {{ restoreData.categories.length }} categories · {{ restoreData.collections.length }} collections · {{ restoreData.persons.length }} persons
+                </span>
+              </div>
+              <p v-if="restoreError" class="msg error">{{ restoreError }}</p>
+              <p v-if="restoreStatus" class="msg ok">{{ restoreStatus }}</p>
+              <template v-if="restoreData && !restoreStatus">
+                <p class="msg warn">This will replace ALL existing data and cannot be undone.</p>
+                <div class="import-btn-row">
+                  <button type="button" class="btn-secondary" @click="cancelRestore">Cancel</button>
+                  <button type="button" class="btn-danger full" :disabled="restoring" @click="doRestore">
+                    {{ restoring ? 'Restoring…' : 'Restore' }}
+                  </button>
+                </div>
+              </template>
+            </template>
+          </div>
+
+          <!-- Export -->
           <div class="data-group">
             <div class="group-label">Export</div>
-            <p class="hint">Download all markers as a JSON file.</p>
+            <p class="hint">Portable markers file — categories, collections and persons are saved as names only, not full relations.</p>
             <button type="button" class="btn-secondary full" @click="doExport" :disabled="exporting">
-              {{ exporting ? 'Preparing…' : 'Download markers.json' }}
+              {{ exporting ? 'Preparing…' : 'Download export' }}
             </button>
           </div>
 
+          <!-- Import -->
           <div class="data-group">
             <div class="group-label">Import</div>
+            <p class="hint">Add markers from a previous export or from a Google Maps saved places CSV.</p>
 
             <input type="file" accept=".json" ref="fileInput" @change="onFileSelected" style="display:none" />
             <input type="file" accept=".csv" multiple ref="csvInput" @change="onCsvSelected" style="display:none" />
@@ -273,10 +317,10 @@ import { useImportExport } from '../composables/useImportExport.js'
 const SETTINGS_KEY = 'mapper_settings'
 
 const TILE_OPTIONS = [
-  { key: 'osm',         label: 'Street',    thumb: 'https://tile.openstreetmap.org/12/2074/1410.png' },
-  { key: 'carto-light', label: 'Light',     thumb: 'https://a.basemaps.cartocdn.com/light_all/12/2074/1410.png' },
-  { key: 'topo',        label: 'Topo',      thumb: 'https://a.tile.opentopomap.org/12/2074/1410.png' },
-  { key: 'satellite',   label: 'Satellite', thumb: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/12/1410/2074' },
+  { key: 'osm',           label: 'OSM',       thumb: 'https://tile.openstreetmap.org/12/2074/1410.png' },
+  { key: 'carto-voyager', label: 'Carto',     thumb: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/12/2074/1410.png' },
+  { key: 'topo',          label: 'Topo',      thumb: 'https://a.tile.opentopomap.org/12/2074/1410.png' },
+  { key: 'satellite',     label: 'Satellite', thumb: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/12/1410/2074' },
 ]
 
 const props = defineProps({
@@ -304,7 +348,7 @@ onMounted(() => {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
     form.value              = { lat: s.lat ?? 20, lng: s.lng ?? 0, zoom: s.zoom ?? 2 }
-    tileKey.value           = s.tile ?? 'osm'
+    tileKey.value           = s.tile === 'carto-light' ? 'carto-voyager' : (s.tile ?? 'osm')
     cluster.value           = s.cluster !== false
     excludedAmenities.value = s.excludedAmenities ?? ['waste_basket', 'bench']
     poiRadius.value         = s.poiRadius ?? 25
@@ -445,8 +489,11 @@ async function doChangePassword() {
   }
 }
 
-// ── Import / Export ───────────────────────────────────────
+// ── Import / Export / Backup ──────────────────────────────
 const {
+  backingUp, backupError, doBackup,
+  restoreInput, restoreFile, restoreData, restoreError, restoreStatus,
+  restoring, onRestoreFileSelected, cancelRestore, doRestore,
   exporting, doExport,
   fileInput, importFile, importMarkers, importError, importStatus,
   importing, importProgress, importFailed, onFileSelected, doImport,
@@ -805,6 +852,22 @@ h2 { font-size: 16px; font-weight: 700; }
 }
 .msg.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .msg.ok    { color: #16a34a;        background: color-mix(in srgb, #16a34a 10%, transparent); }
+.msg.warn  { color: #b45309;        background: color-mix(in srgb, #b45309 10%, transparent); }
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.btn-danger:hover { opacity: .85; }
+.btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+.btn-danger.full { width: 100%; }
 
 .csv-cancel {
   margin-left: auto;

@@ -78,6 +78,96 @@ function parseGoogleCsv(text) {
 // ── Composable ────────────────────────────────────────────────────────────────
 
 export function useImportExport(markersStore) {
+  // ── Backup ──────────────────────────────────────────────
+  const backingUp   = ref(false)
+  const backupError = ref(null)
+
+  async function doBackup() {
+    backingUp.value   = true
+    backupError.value = null
+    try {
+      const res = await fetch('/api/backup')
+      if (!res.ok) throw new Error(`Backup failed (${res.status})`)
+      const data = await res.json()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const date = new Date().toISOString().slice(0, 10)
+      a.download = `mapmarker-backup-${date}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      backupError.value = err.message
+    } finally {
+      backingUp.value = false
+    }
+  }
+
+  // ── Restore ─────────────────────────────────────────────
+  const restoreInput    = ref(null)
+  const restoreFile     = ref(null)
+  const restoreData     = ref(null)
+  const restoreError    = ref(null)
+  const restoreStatus   = ref(null)
+  const restoring       = ref(false)
+
+  function onRestoreFileSelected(e) {
+    restoreError.value  = null
+    restoreStatus.value = null
+    restoreData.value   = null
+    const file = e.target.files[0]
+    if (!file) return
+    restoreFile.value = file
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result)
+        if (data?.type !== 'backup' || !Array.isArray(data.markers)) {
+          throw new Error('Not a valid backup file')
+        }
+        restoreData.value = data
+      } catch (err) {
+        restoreError.value = 'Invalid file: ' + err.message
+        restoreFile.value = null
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  function cancelRestore() {
+    restoreFile.value   = null
+    restoreData.value   = null
+    restoreError.value  = null
+    restoreStatus.value = null
+    if (restoreInput.value) restoreInput.value.value = ''
+  }
+
+  async function doRestore() {
+    restoring.value = true
+    restoreError.value  = null
+    restoreStatus.value = null
+    try {
+      const res = await fetch('/api/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(restoreData.value),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error)
+      const c = result.counts
+      restoreStatus.value = `Restored — ${c.markers} markers, ${c.categories} categories, ${c.collections} collections, ${c.persons} persons.`
+      restoreData.value = null
+      restoreFile.value = null
+      if (restoreInput.value) restoreInput.value.value = ''
+      await markersStore.fetch()
+    } catch (err) {
+      restoreError.value = err.message
+    } finally {
+      restoring.value = false
+    }
+  }
+
   // ── Export ──────────────────────────────────────────────
   const exporting = ref(false)
 
@@ -85,23 +175,31 @@ export function useImportExport(markersStore) {
     exporting.value = true
     try {
       const res = await fetch('/api/markers')
+      if (!res.ok) throw new Error(`Export failed (${res.status})`)
       const markers = await res.json()
       const payload = {
-        version: 1,
+        version: 3,
+        type: 'export',
         exported_at: new Date().toISOString(),
         markers: markers.map((m) => ({
           lat: m.lat, lng: m.lng,
-          label: m.label, description: m.description,
-          visited_at: m.visited_at,
+          label: m.label || null,
+          description: m.description || null,
+          visited_at: m.visited_at || null,
+          color: m.color || null,
+          image_url: m.image_url || null,
+          address: m.address || null,
+          country: m.country || null,
           categories: m.categories?.map((c) => c.name) ?? [],
-          collections: m.collections?.map((c) => c.name) ?? [],
+          collections: m.collections?.map((c) => ({ name: c.name, position: c.position ?? null })) ?? [],
+          persons: m.persons?.map((p) => p.name) ?? [],
         })),
       }
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'markers.json'
+      a.download = 'mapmarker-export.json'
       a.click()
       URL.revokeObjectURL(url)
     } finally {
@@ -154,6 +252,10 @@ export function useImportExport(markersStore) {
           lat: m.lat, lng: m.lng,
           label: m.label || null, description: m.description || null,
           visited_at: m.visited_at || null,
+          color: m.color || null,
+          image_url: m.image_url || null,
+          address: m.address || null,
+          country: m.country || null,
           category_ids: [], collection_ids: [],
         })
         ok++
@@ -317,6 +419,10 @@ export function useImportExport(markersStore) {
   }
 
   return {
+    // backup
+    backingUp, backupError, doBackup,
+    restoreInput, restoreFile, restoreData, restoreError, restoreStatus,
+    restoring, onRestoreFileSelected, cancelRestore, doRestore,
     // export
     exporting, doExport,
     // json import

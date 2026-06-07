@@ -79,15 +79,16 @@
 
         <!-- Meta: address, coords -->
         <div class="view-meta">
-          <template v-if="addressLoading || addressLine">
+          <template v-if="form.address || addressLoading || addressLine">
             <span class="meta-label">Address</span>
-            <div v-if="addressLoading" class="meta-row">Fetching address…</div>
+            <div v-if="form.address" class="meta-row address-row">{{ form.address }}</div>
+            <div v-else-if="addressLoading" class="meta-row">Fetching address…</div>
             <div v-else-if="addressLine" class="meta-row address-row">{{ addressLine }}</div>
           </template>
           <div class="meta-row coords-text">{{ latStr }}, {{ lngStr }}</div>
           <div class="meta-row">
             <a
-              :href="`https://www.google.com/maps?q=${latStr},${lngStr}`"
+              :href="googleMapsHref"
               target="_blank"
               rel="noopener noreferrer"
               class="open-maps-link"
@@ -104,6 +105,7 @@
 
       <!-- Edit / create form -->
       <form v-else @submit.prevent="save">
+        <div class="edit-body">
         <div class="field">
           <label>Label</label>
           <input v-model="form.label" type="text" placeholder="e.g. Eiffel Tower" />
@@ -115,53 +117,66 @@
         </div>
 
         <div class="field">
+          <label>Visited</label>
+          <div class="visited-row">
+            <label class="checkbox-item" style="margin:0">
+              <input type="checkbox" v-model="visitedChecked" style="width:auto" />
+              Yes
+            </label>
+            <input v-model="visitedDate" type="date" class="visited-date" :style="{ visibility: visitedChecked ? 'visible' : 'hidden' }" />
+          </div>
+        </div>
+
+        <div class="field">
           <label>Image</label>
-          <div class="img-search-row">
-            <input
-              v-model="imageSearchQuery"
-              type="text"
-              class="img-search-input"
-              placeholder="Search name…"
-              @keydown.enter.prevent="searchWiki"
-            />
-            <button type="button" class="btn-ghost btn-sm" :disabled="imageSearchLoading !== false" @click="searchWiki">
-              {{ imageSearchLoading === 'wiki' ? '…' : 'Wiki' }}
-            </button>
-            <button type="button" class="btn-ghost btn-sm" :disabled="imageSearchLoading !== false" @click="searchCommons">
-              {{ imageSearchLoading === 'commons' ? '…' : 'Commons' }}
-            </button>
-          </div>
-          <div v-if="imageResults !== null" class="img-results">
-            <div v-if="imageResults.length === 0" class="img-no-result">No images found</div>
-            <div v-else class="img-results-grid">
-              <button
-                v-for="r in imageResults"
-                :key="r.url"
-                type="button"
-                class="img-result-card"
-                @click="selectImage(r.url)"
-              >
-                <img :src="r.url" class="img-result-thumb" @error="imageResults = imageResults.filter(x => x.url !== r.url)" />
-                <span class="img-result-title">{{ r.title }}</span>
-              </button>
+          <div v-if="form.image_url && !imageChangeMode" class="img-current">
+            <img :src="form.image_url" class="img-current-thumb" @error="$event.target.style.display='none'" />
+            <div class="img-current-actions">
+              <button type="button" class="btn-ghost btn-sm" @click="imageChangeMode = true">Change</button>
+              <button type="button" class="btn-ghost btn-sm" @click="form.image_url = ''">Remove</button>
             </div>
           </div>
-          <a
-            v-if="imageSearchQuery.trim()"
-            :href="`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(imageSearchQuery.trim())}`"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn-ghost btn-sm img-google-link"
-          >Search Google Images <AppIcon name="externalLink" /></a>
-          <input v-model="form.image_url" type="url" placeholder="Or paste image URL…" style="margin-top:6px" />
-          <div v-if="form.image_url" class="image-preview-wrap">
-            <img :src="form.image_url" class="image-preview-thumb" @error="$event.target.style.display='none'" />
-            <div class="image-preview-overlay">
-              <button type="button" class="hero-btn danger" @click="form.image_url = ''" title="Remove image">
-                <AppIcon name="close" />
+          <template v-if="!form.image_url || imageChangeMode">
+            <div class="img-search-row">
+              <input
+                v-model="imageSearchQuery"
+                type="text"
+                class="img-search-input"
+                placeholder="Search name…"
+                @keydown.enter.prevent="searchWiki"
+              />
+              <button type="button" class="btn-ghost btn-sm" :class="{ 'btn-source-active': imageResultsSource === 'wiki' }" :disabled="imageSearchLoading !== false" @click="searchWiki">
+                {{ imageSearchLoading === 'wiki' ? '…' : 'Wiki' }}
+              </button>
+              <button type="button" class="btn-ghost btn-sm" :class="{ 'btn-source-active': imageResultsSource === 'commons' }" :disabled="imageSearchLoading !== false" @click="searchCommons">
+                {{ imageSearchLoading === 'commons' ? '…' : 'Commons' }}
               </button>
             </div>
-          </div>
+            <div v-if="imageResults !== null" class="img-results">
+              <div v-if="imageResults.length === 0" class="img-no-result">No images found</div>
+              <div v-else class="img-results-grid">
+                <button
+                  v-for="r in imageResults"
+                  :key="r.url"
+                  type="button"
+                  class="img-result-card"
+                  @click="selectImage(r.url); imageChangeMode = false"
+                >
+                  <img :src="r.url" class="img-result-thumb" @error="imageResults = imageResults.filter(x => x.url !== r.url)" />
+                  <span class="img-result-title">{{ r.title }}</span>
+                </button>
+              </div>
+            </div>
+            <div class="img-url-row">
+              <input v-model="form.image_url" type="url" placeholder="Paste image URL…" class="img-url-input" />
+              <a
+                :href="`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(imageSearchQuery.trim() || form.label || '')}`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn-ghost btn-sm img-google-btn"
+              >Google <AppIcon name="externalLink" /></a>
+            </div>
+          </template>
         </div>
 
         <div class="field">
@@ -247,20 +262,16 @@
         </div>
 
         <div class="field">
-          <div class="visited-row">
-            <label class="checkbox-item" style="margin:0">
-              <input type="checkbox" v-model="visitedChecked" style="width:auto" />
-              Visited
-            </label>
-            <input v-model="visitedDate" type="date" class="visited-date" :style="{ visibility: visitedChecked ? 'visible' : 'hidden' }" />
-          </div>
+          <label>Address</label>
+          <input v-model="form.address" type="text" :placeholder="addressLoading ? 'Fetching address…' : 'e.g. 123 Main St, City'" />
         </div>
 
         <div class="field coords">
           <span>{{ latStr }}, {{ lngStr }}</span>
         </div>
+        </div><!-- end .edit-body -->
 
-        <p v-if="error" class="error">{{ error }}</p>
+        <p v-if="error" class="error edit-error">{{ error }}</p>
 
         <div class="modal-actions">
           <template v-if="isEdit">
@@ -271,7 +282,9 @@
             </template>
           </template>
           <div class="spacer" />
-          <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
+          <button type="button" class="btn-secondary" @click="isEdit ? (viewing = true, confirmDelete = false) : $emit('close')">
+            {{ isEdit ? '← Back' : 'Cancel' }}
+          </button>
           <button type="submit" class="btn-primary" :disabled="saving">
             {{ saving ? '...' : 'Save' }}
           </button>
@@ -322,6 +335,8 @@ const imageUrlInputRef = ref(null)
 const imageSearchQuery = ref('')
 const imageSearchLoading = ref(false) // false | 'wiki' | 'commons'
 const imageResults = ref(null) // null | [{ url, title }]
+const imageChangeMode = ref(false)
+const imageResultsSource = ref(null) // null | 'wiki' | 'commons'
 
 const form = ref({
   label: '',
@@ -333,6 +348,7 @@ const form = ref({
   person_ids: [],
   visited_at: '',
   color: '',
+  address: '',
   lat: 0,
   lng: 0,
 })
@@ -366,6 +382,10 @@ watch(() => form.value.label, (label, oldLabel) => {
   }
 })
 
+watch(() => form.value.image_url, (val) => {
+  if (val) imageChangeMode.value = false
+})
+
 watch(visitedChecked, (val) => {
   if (!val) {
     form.value.visited_at = ''
@@ -380,6 +400,7 @@ watch(visitedDate, (val) => {
 })
 
 onMounted(async () => {
+  imageChangeMode.value = false
   if (props.marker) {
     form.value = {
       label: props.marker.label || '',
@@ -393,6 +414,7 @@ onMounted(async () => {
       person_ids: props.marker.persons?.map((p) => p.id) ?? [],
       visited_at: props.marker.visited_at?.slice(0, 10) || '',
       color: props.marker.color || '',
+      address: props.marker.address || '',
       lat: props.marker.lat,
       lng: props.marker.lng,
     }
@@ -410,7 +432,9 @@ onMounted(async () => {
         const street = [a.house_number, a.road].filter(Boolean).join(' ')
         const city = a.city || a.town || a.village || a.hamlet || a.municipality
         const parts = [street, [a.postcode, city].filter(Boolean).join(' '), a.country].filter(Boolean)
-        addressLine.value = parts.join(', ') || null
+        const geocoded = parts.join(', ') || null
+        addressLine.value = geocoded
+        if (!form.value.address && geocoded) form.value.address = geocoded
       }
 
       // Pre-fill the image search query with the place name for later use
@@ -430,11 +454,34 @@ onMounted(async () => {
     } else if (gf?.type === 'person' && gf.id !== '__none__') {
       form.value.person_ids = [gf.id]
     }
+
+    addressLoading.value = true
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${props.latlng.lat}&lon=${props.latlng.lng}&format=json&addressdetails=1`
+      )
+      const data = await res.json()
+      const a = data.address
+      if (a) {
+        const street = [a.house_number, a.road].filter(Boolean).join(' ')
+        const city = a.city || a.town || a.village || a.hamlet || a.municipality
+        const parts = [street, [a.postcode, city].filter(Boolean).join(' '), a.country].filter(Boolean)
+        const geocoded = parts.join(', ') || null
+        if (!form.value.address && geocoded) form.value.address = geocoded
+      }
+    } catch { /* silent */ }
+    finally { addressLoading.value = false }
   }
 })
 
 const latStr = computed(() => Number(form.value.lat).toFixed(5))
 const lngStr = computed(() => Number(form.value.lng).toFixed(5))
+
+const googleMapsHref = computed(() => {
+  const label = form.value.label?.trim()
+  if (label) return `https://www.google.com/maps/search/${encodeURIComponent(label)}/@${latStr.value},${lngStr.value},17z`
+  return `https://www.google.com/maps?q=${latStr.value},${lngStr.value}`
+})
 
 function setPosition(collectionId, value) {
   const num = value === '' ? null : parseInt(value, 10)
@@ -467,10 +514,16 @@ function startImageEdit() {
 }
 
 async function searchWiki() {
+  if (imageResultsSource.value === 'wiki') {
+    imageResults.value = null
+    imageResultsSource.value = null
+    return
+  }
   const q = imageSearchQuery.value.trim()
   if (!q) return
   imageSearchLoading.value = 'wiki'
   imageResults.value = null
+  imageResultsSource.value = null
   try {
     const searchRes = await fetch(
       `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srlimit=3&format=json&origin=*`
@@ -486,15 +539,22 @@ async function searchWiki() {
     imageResults.value = pages
       .map(p => ({ url: p.thumbnail?.source ?? null, title: p.title }))
       .filter(r => r.url)
+    imageResultsSource.value = 'wiki'
   } catch { imageResults.value = [] }
   finally { imageSearchLoading.value = false }
 }
 
 async function searchCommons() {
+  if (imageResultsSource.value === 'commons') {
+    imageResults.value = null
+    imageResultsSource.value = null
+    return
+  }
   const q = imageSearchQuery.value.trim()
   if (!q) return
   imageSearchLoading.value = 'commons'
   imageResults.value = null
+  imageResultsSource.value = null
   try {
     const searchRes = await fetch(
       `https://commons.wikimedia.org/w/api.php?action=query&list=search&srnamespace=6&srsearch=${encodeURIComponent(q)}&srlimit=5&format=json&origin=*`
@@ -514,6 +574,7 @@ async function searchCommons() {
       }))
       .filter(r => r.url)
     imageResults.value = results.slice(0, 3)
+    imageResultsSource.value = 'commons'
   } catch { imageResults.value = [] }
   finally { imageSearchLoading.value = false }
 }
@@ -567,6 +628,7 @@ async function save() {
       ...form.value,
       color: form.value.color || null,
       image_url: form.value.image_url || null,
+      address: form.value.address || null,
     })
   } catch (err) {
     error.value = err.message
@@ -627,8 +689,18 @@ h2 {
 .close-btn:hover { background: var(--surface-2); }
 
 form {
-  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.edit-body {
+  flex: 1;
   overflow-y: auto;
+  padding: 16px 20px;
+  min-height: 0;
 }
 
 .field { margin-bottom: 14px; }
@@ -731,52 +803,6 @@ textarea { resize: vertical; }
   padding: 4px 0;
 }
 
-.img-google-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 6px;
-  text-decoration: none;
-  font-size: 12px;
-}
-
-.img-url-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.img-url-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-}
-
-.image-url-input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-  font-size: 13px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  color: var(--text);
-}
-
-.img-url-preview .img-preview-thumb {
-  max-height: 60px;
-  border-radius: 4px;
-  object-fit: cover;
-}
-
-.img-editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
 
 /* Title & description */
 .view-title-row {
@@ -915,50 +941,49 @@ textarea { resize: vertical; }
 .open-maps-link:hover { text-decoration: underline; }
 
 /* Image field in edit mode */
-.image-preview-wrap {
-  margin-top: 6px;
-  position: relative;
-  display: inline-block;
+.img-current {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  margin-bottom: 6px;
 }
 
-.image-preview-thumb {
-  max-height: 80px;
-  max-width: 100%;
-  border-radius: 4px;
+.img-current-thumb {
+  height: 48px;
+  width: 72px;
   object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
   display: block;
 }
 
-.image-preview-overlay {
-  position: absolute;
-  inset: 0;
+.img-current-actions {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
-  background: rgba(0, 0, 0, 0.3);
+  gap: 6px;
+  margin-left: auto;
 }
-.image-preview-wrap:hover .image-preview-overlay { opacity: 1; }
 
-.hero-btn {
-  display: inline-flex;
+.img-url-row {
+  display: flex;
+  gap: 6px;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
+  margin-top: 6px;
 }
-.hero-btn:hover { background: rgba(0, 0, 0, 0.8); }
-.hero-btn.danger { color: #fca5a5; }
-.hero-btn.danger:hover { background: rgba(180, 30, 30, 0.75); color: #fff; }
+
+.img-url-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.img-google-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-decoration: none;
+}
 
 /* Shared form styles */
 .color-row {
@@ -1111,11 +1136,16 @@ textarea { resize: vertical; }
   margin-top: 8px;
 }
 
-/* In form mode the actions sit inside the scrollable form */
+/* In form mode the actions are pinned outside the scrollable area */
 form .modal-actions {
-  padding: 12px 0 0;
+  padding: 12px 20px 20px;
   border-top: 1px solid var(--border);
-  margin-top: 8px;
+  margin-top: 0;
+}
+
+.edit-error {
+  padding: 0 20px;
+  margin-bottom: 0;
 }
 
 .btn-sm {
@@ -1137,6 +1167,8 @@ form .modal-actions {
 
 .btn-ghost { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
 .btn-ghost:hover { background: var(--border); color: var(--text); }
+
+.btn-source-active { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
 
 @media (max-width: 640px) {
   .overlay { align-items: stretch; padding: 0; }

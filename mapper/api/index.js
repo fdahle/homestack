@@ -20,12 +20,13 @@ import collectionRoutes from './routes/collections.js'
 import personRoutes from './routes/persons.js'
 import shareLinksRoutes from './routes/shareLinks.js'
 import publicShareRoutes from './routes/publicShare.js'
+import backupRoutes from './routes/backup.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
 
 app.use(helmet())
-app.use(express.json())
+app.use(express.json({ limit: '10mb' }))
 app.use(cookieParser())
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 })
@@ -38,6 +39,7 @@ app.use('/api/collections', collectionRoutes)
 app.use('/api/persons', personRoutes)
 app.use('/api/share-links', shareLinksRoutes)
 app.use('/api/public/share', publicShareRoutes)
+app.use('/api/backup', backupRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 

@@ -11,7 +11,12 @@ router.get('/', (_req, res) => {
 
 function normDate(d, isEnd = false) {
   if (/^\d{4}$/.test(d)) return d + (isEnd ? '-12-31' : '-01-01')
-  if (/^\d{4}-\d{2}$/.test(d)) return d + (isEnd ? '-31' : '-01')
+  if (/^\d{4}-\d{2}$/.test(d)) {
+    if (!isEnd) return d + '-01'
+    const [y, m] = d.split('-').map(Number)
+    const lastDay = new Date(y, m, 0).getDate()
+    return `${d}-${String(lastDay).padStart(2, '0')}`
+  }
   return d
 }
 
