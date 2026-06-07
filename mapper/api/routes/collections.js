@@ -34,7 +34,7 @@ router.post('/', (req, res) => {
   if (dateErr) return res.status(400).json({ error: dateErr })
 
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO collections (name, description, is_trip, start_date, end_date, color, show_route_line, show_exact_route) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .prepare("INSERT INTO collections (name, description, is_trip, start_date, end_date, color, show_route_line, show_exact_route, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
     .run(name.trim(), description || null, is_trip ? 1 : 0, start_date || null, end_date || null, color || '#10b981', is_trip && show_route_line ? 1 : 0, is_trip && show_exact_route ? 1 : 0)
 
   res.status(201).json(db.prepare('SELECT * FROM collections WHERE id = ?').get(lastInsertRowid))

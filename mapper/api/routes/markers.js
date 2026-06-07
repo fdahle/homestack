@@ -92,7 +92,7 @@ function checkDuplicatePositions(collection_ids, collection_positions, excludeMa
 }
 
 router.post('/', (req, res) => {
-  const { lat, lng, label, description, visited_at, color, image_url, address, country, category_ids, collection_ids, collection_positions, person_ids } = req.body
+  const { lat, lng, label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, source, category_ids, collection_ids, collection_positions, person_ids } = req.body
 
   if (lat == null || lng == null) {
     return res.status(400).json({ error: 'lat and lng are required' })
@@ -107,8 +107,8 @@ router.post('/', (req, res) => {
   }
 
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO markers (lat, lng, label, description, visited_at, color, image_url, address, country) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(lat, lng, label || null, description || null, visited_at || null, color || null, image_url || null, address || null, country || null)
+    .prepare("INSERT INTO markers (lat, lng, label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
+    .run(lat, lng, label || null, description || null, visited_at || null, planned_at || null, color || null, image_url || null, address || null, country || null, rating ?? null, is_favorite ? 1 : 0, external_url || null, source || 'manual')
 
   if (Array.isArray(category_ids)) {
     const insert = db.prepare('INSERT OR IGNORE INTO marker_categories (marker_id, category_id) VALUES (?, ?)')
@@ -133,7 +133,7 @@ router.put('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM markers WHERE id = ?').get(id)
   if (!existing) return res.status(404).json({ error: 'Not found' })
 
-  const { label, description, visited_at, color, image_url, address, country, category_ids, collection_ids, collection_positions, person_ids } = req.body
+  const { label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, category_ids, collection_ids, collection_positions, person_ids } = req.body
   const lat = req.body.lat ?? existing.lat
   const lng = req.body.lng ?? existing.lng
 
@@ -147,8 +147,8 @@ router.put('/:id', (req, res) => {
   }
 
   db.prepare(
-    'UPDATE markers SET lat=?, lng=?, label=?, description=?, visited_at=?, color=?, image_url=?, address=?, country=? WHERE id=?'
-  ).run(lat, lng, label ?? null, description ?? null, visited_at ?? null, color ?? null, image_url ?? null, address ?? null, country ?? null, id)
+    "UPDATE markers SET lat=?, lng=?, label=?, description=?, visited_at=?, planned_at=?, color=?, image_url=?, address=?, country=?, rating=?, is_favorite=?, external_url=?, updated_at=datetime('now') WHERE id=?"
+  ).run(lat, lng, label ?? null, description ?? null, visited_at ?? null, planned_at ?? null, color ?? null, image_url ?? null, address ?? null, country ?? null, rating ?? null, is_favorite != null ? (is_favorite ? 1 : 0) : (existing.is_favorite ?? 0), external_url ?? null, id)
 
   if (Array.isArray(category_ids)) {
     db.prepare('DELETE FROM marker_categories WHERE marker_id = ?').run(id)
@@ -174,7 +174,7 @@ router.put('/:id', (req, res) => {
 router.patch('/:id/country', (req, res) => {
   const existing = db.prepare('SELECT id FROM markers WHERE id = ?').get(req.params.id)
   if (!existing) return res.status(404).json({ error: 'Not found' })
-  db.prepare('UPDATE markers SET country = ? WHERE id = ?').run(req.body.country ?? null, req.params.id)
+  db.prepare("UPDATE markers SET country = ?, updated_at = datetime('now') WHERE id = ?").run(req.body.country ?? null, req.params.id)
   res.json({ ok: true })
 })
 

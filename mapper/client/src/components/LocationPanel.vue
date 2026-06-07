@@ -84,7 +84,7 @@
                 :key="alt.id"
                 type="button"
                 class="alt-item"
-                :class="{ 'alt-item--active': alt.id === poiData?.id }"
+                :class="{ 'alt-item--active': alt.id === poiData?.id && alt.osmType === poiData?.osmType }"
                 @click="emit('select-poi', alt); showAlternatives = false"
               >
                 <span class="alt-name">{{ poiLabel(alt) }}</span>

@@ -14,7 +14,7 @@ router.post('/', (req, res) => {
   if (!name?.trim()) return res.status(400).json({ error: 'Name required' })
 
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO categories (name, color) VALUES (?, ?)')
+    .prepare("INSERT INTO categories (name, color, created_at) VALUES (?, ?, datetime('now'))")
     .run(name.trim(), color || '#3b82f6')
 
   res.status(201).json(db.prepare('SELECT * FROM categories WHERE id = ?').get(lastInsertRowid))

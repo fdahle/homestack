@@ -16,9 +16,17 @@
             @blur="onSearchBlur"
             placeholder="Search address…"
             autocomplete="off"
-            type="search"
+            type="text"
           />
-          <div class="search-results" v-if="searchOpen && searchResults.length">
+          <span v-if="searchLoading" class="search-spinner" aria-label="Searching" />
+          <button
+            v-else-if="searchQuery"
+            class="search-clear"
+            type="button"
+            @mousedown.prevent="clearSearch"
+            aria-label="Clear search"
+          >✕</button>
+          <div class="search-results" v-if="searchOpen && (searchResults.length || (!searchLoading && searchQuery.trim()))">
             <button
               v-for="r in searchResults"
               :key="r.place_id"
@@ -28,6 +36,9 @@
             >
               {{ r.display_name }}
             </button>
+            <div v-if="!searchResults.length && !searchLoading" class="search-no-results">
+              No results found
+            </div>
           </div>
         </div>
       </div>
@@ -404,7 +415,13 @@ async function closeSidebar() {
 }
 
 // Composables
-const { searchQuery, searchResults, searchOpen, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(getMap)
+const { searchQuery, searchResults, searchOpen, searchLoading, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(getMap)
+
+function clearSearch() {
+  searchQuery.value = ''
+  searchResults.value = []
+  searchOpen.value = false
+}
 
 function handleSearchSelect(r) {
   const latlng = selectResult(r)
@@ -586,7 +603,7 @@ watch(tripRouteMarkers, () => {
 
 .search-input {
   width: 100%;
-  padding: 9px 14px;
+  padding: 9px 36px 9px 14px;
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -595,6 +612,38 @@ watch(tripRouteMarkers, () => {
   color: var(--text);
 }
 .search-input:focus { border-color: var(--accent); outline: none; }
+
+.search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted, #888);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 50%;
+}
+.search-clear:hover { color: var(--text); }
+
+.search-spinner {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: search-spin 0.6s linear infinite;
+}
+@keyframes search-spin {
+  to { transform: translateY(-50%) rotate(360deg); }
+}
 
 .search-results {
   position: absolute;
@@ -626,6 +675,12 @@ watch(tripRouteMarkers, () => {
 }
 .search-result-item:last-child { border-bottom: none; }
 .search-result-item:hover { background: var(--surface-2); }
+
+.search-no-results {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-muted, #888);
+}
 
 /* Sidebar toggle + settings overlay — only needed on mobile */
 .sidebar-open-btn,

@@ -17,12 +17,13 @@ export function useSearch(getMap) {
   const searchQuery = ref('')
   const searchResults = ref([])
   const searchOpen = ref(false)
+  const searchLoading = ref(false)
   let searchTimer = null
 
   function onSearchInput() {
     clearTimeout(searchTimer)
     const q = searchQuery.value.trim()
-    if (!q) { searchResults.value = []; return }
+    if (!q) { searchResults.value = []; searchLoading.value = false; return }
 
     // Coordinate shortcut — no network request needed
     const coordMatch = q.match(COORD_RE)
@@ -37,10 +38,12 @@ export function useSearch(getMap) {
           lon: String(lon),
           _coord: true,
         }]
+        searchLoading.value = false
         return
       }
     }
 
+    searchLoading.value = true
     searchTimer = setTimeout(async () => {
       try {
         const res = await fetch(
@@ -48,6 +51,7 @@ export function useSearch(getMap) {
         )
         searchResults.value = await res.json()
       } catch { searchResults.value = [] }
+      searchLoading.value = false
     }, 400)
   }
 
@@ -71,5 +75,5 @@ export function useSearch(getMap) {
     clearTimeout(searchTimer)
   }
 
-  return { searchQuery, searchResults, searchOpen, onSearchInput, onSearchBlur, selectResult, cleanup }
+  return { searchQuery, searchResults, searchOpen, searchLoading, onSearchInput, onSearchBlur, selectResult, cleanup }
 }

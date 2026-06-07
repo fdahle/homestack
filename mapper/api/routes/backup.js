@@ -6,10 +6,10 @@ const router = Router()
 router.use(requireAuth)
 
 router.get('/', (_req, res) => {
-  const categories = db.prepare('SELECT id, name, color FROM categories').all()
-  const collections = db.prepare('SELECT id, name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route FROM collections').all()
-  const persons = db.prepare('SELECT id, name, color FROM persons').all()
-  const rawMarkers = db.prepare('SELECT id, lat, lng, label, description, visited_at, color, image_url, address, country, created_at FROM markers').all()
+  const categories = db.prepare('SELECT id, name, color, created_at FROM categories').all()
+  const collections = db.prepare('SELECT id, name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route, created_at FROM collections').all()
+  const persons = db.prepare('SELECT id, name, color, created_at FROM persons').all()
+  const rawMarkers = db.prepare('SELECT id, lat, lng, label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, source, created_at, updated_at FROM markers').all()
 
   const catLinks = db.prepare('SELECT marker_id, category_id FROM marker_categories').all()
   const colLinks = db.prepare('SELECT marker_id, collection_id, position FROM marker_collections').all()
@@ -78,34 +78,34 @@ router.post('/restore', (req, res) => {
     db.exec('DELETE FROM categories')
 
     const catMap = {}
-    const insCategory = db.prepare('INSERT INTO categories (name, color) VALUES (?, ?)')
+    const insCategory = db.prepare("INSERT INTO categories (name, color, created_at) VALUES (?, ?, ?)")
     for (const c of categories) {
-      const { lastInsertRowid } = insCategory.run(c.name, c.color ?? '#3b82f6')
+      const { lastInsertRowid } = insCategory.run(c.name, c.color ?? '#3b82f6', c.created_at ?? null)
       catMap[c.id] = lastInsertRowid
     }
 
     const colMap = {}
     const insCollection = db.prepare(
-      'INSERT INTO collections (name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO collections (name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
     for (const c of collections) {
       const { lastInsertRowid } = insCollection.run(
         c.name, c.description ?? null, c.start_date ?? null, c.end_date ?? null,
-        c.color ?? '#10b981', c.is_trip ?? 0, c.show_route_line ?? 0, c.show_exact_route ?? 0
+        c.color ?? '#10b981', c.is_trip ?? 0, c.show_route_line ?? 0, c.show_exact_route ?? 0, c.created_at ?? null
       )
       colMap[c.id] = lastInsertRowid
     }
 
     const perMap = {}
-    const insPerson = db.prepare('INSERT INTO persons (name, color) VALUES (?, ?)')
+    const insPerson = db.prepare('INSERT INTO persons (name, color, created_at) VALUES (?, ?, ?)')
     for (const p of persons) {
-      const { lastInsertRowid } = insPerson.run(p.name, p.color ?? '#8b5cf6')
+      const { lastInsertRowid } = insPerson.run(p.name, p.color ?? '#8b5cf6', p.created_at ?? null)
       perMap[p.id] = lastInsertRowid
     }
 
     const markerMap = {}
     const insMarker = db.prepare(
-      'INSERT INTO markers (lat, lng, label, description, visited_at, color, image_url, address, country, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO markers (lat, lng, label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
     const insMarkerCat = db.prepare('INSERT OR IGNORE INTO marker_categories (marker_id, category_id) VALUES (?, ?)')
     const insMarkerCol = db.prepare('INSERT OR IGNORE INTO marker_collections (marker_id, collection_id, position) VALUES (?, ?, ?)')
@@ -113,9 +113,10 @@ router.post('/restore', (req, res) => {
 
     for (const m of markers) {
       const { lastInsertRowid } = insMarker.run(
-        m.lat, m.lng, m.label ?? null, m.description ?? null, m.visited_at ?? null,
+        m.lat, m.lng, m.label ?? null, m.description ?? null, m.visited_at ?? null, m.planned_at ?? null,
         m.color ?? null, m.image_url ?? null, m.address ?? null, m.country ?? null,
-        m.created_at ?? new Date().toISOString()
+        m.rating ?? null, m.is_favorite ?? 0, m.external_url ?? null, m.source ?? 'manual',
+        m.created_at ?? new Date().toISOString(), m.updated_at ?? null
       )
       markerMap[m.id] = lastInsertRowid
 

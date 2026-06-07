@@ -94,7 +94,15 @@ out tags center 30;`
 
   const excluded = getExcludedAmenities()
 
-  const candidates = data.elements
+  const seen = new Set()
+  const uniqueElements = data.elements.filter(el => {
+    const key = `${el.type}/${el.id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  const candidates = uniqueElements
     .map(el => {
       const elLat = el.lat ?? el.center?.lat
       const elLon = el.lon ?? el.center?.lon
