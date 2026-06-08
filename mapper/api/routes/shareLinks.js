@@ -11,7 +11,8 @@ router.use(requireAuth)
 router.get('/', (_req, res) => {
   const links = db.prepare('SELECT * FROM share_links ORDER BY created_at DESC').all()
   const result = links.map((link) => {
-    const filter = JSON.parse(link.filter_json)
+    let filter
+    try { filter = JSON.parse(link.filter_json) } catch { filter = { all: false, categories: [], collections: [], persons: [], markers: [] } }
     const markerCount = resolveMarkerIds(filter).length
     return {
       token: link.token,

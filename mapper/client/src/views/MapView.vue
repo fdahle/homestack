@@ -156,12 +156,23 @@
 
     <SettingsModal
       v-if="settingsOpen"
-      :saved="savedSettings"
       :current="currentMapView"
-      @save="onSettingsSave"
       @close="settingsOpen = false"
       @tile-change="applyTileLayer"
       @cluster-change="(v) => reconfigureClustering(v, markersStore.filtered)"
+      @open-marker-table="settingsOpen = false; markerTableOpen = true"
+      @open-csv-import="settingsOpen = false; csvImportOpen = true"
+    />
+
+    <MarkerTableModal
+      v-if="markerTableOpen"
+      @close="markerTableOpen = false"
+      @open-marker="(m) => { markerTableOpen = false; openMarkerModal(m) }"
+    />
+
+    <CsvImportModal
+      v-if="csvImportOpen"
+      @close="csvImportOpen = false"
     />
 
     <ShareManageModal
@@ -188,12 +199,15 @@ import StatsModal from '../components/StatsModal.vue'
 import LocationPanel from '../components/LocationPanel.vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import ShareManageModal from '../components/ShareManageModal.vue'
+import MarkerTableModal from '../components/MarkerTableModal.vue'
+import CsvImportModal from '../components/CsvImportModal.vue'
 import { useSearch } from '../composables/useSearch.js'
 import { useLocationPanel } from '../composables/useLocationPanel.js'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
 import { useModals } from '../composables/useModals.js'
 import { useStyleStore } from '../stores/style.js'
 import { loadSegments, saveSegment, fetchSegmentRoute } from '../composables/useTripRouting.js'
+import { useMapControl } from '../composables/useMapControl.js'
 
 const SETTINGS_KEY = 'mapper_settings'
 
@@ -214,6 +228,7 @@ const mapEl = ref(null)
 let map = null
 const getMap = () => map
 let routePolylines = []
+let csvPreviewLayer = null
 let routeHandles = []
 let renderToken = 0
 const undoStack = ref([])
@@ -435,10 +450,12 @@ const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLaye
 })
 const {
   modalOpen, editingMarker, pendingLatLng, markerSuggestedLabel,
-  manageOpen, manageType, manageItem, settingsOpen,
+  manageOpen, manageType, manageItem, settingsOpen, markerTableOpen, csvImportOpen,
   closeModal, openManageModal, openMarkerModal, openNewMarkerModal,
   onMarkerSave, onMarkerDelete,
 } = useModals()
+
+const { flyToTarget, csvPreviewMarkers } = useMapControl()
 
 function loadSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) } catch { return null }
@@ -502,6 +519,31 @@ onUnmounted(() => {
   cleanupSearch()
 })
 
+watch(flyToTarget, (target) => {
+  if (map && target) map.flyTo([target.lat, target.lng], target.zoom, { duration: 0.8 })
+})
+
+watch(csvPreviewMarkers, (markers) => {
+  if (!map) return
+  if (!csvPreviewLayer) {
+    csvPreviewLayer = L.layerGroup().addTo(map)
+  }
+  csvPreviewLayer.clearLayers()
+  for (const m of markers) {
+    L.circleMarker([m.lat, m.lng], {
+      radius: 7,
+      color: m.rejected ? '#ef4444' : '#6b7280',
+      fillColor: m.rejected ? '#fca5a5' : '#d1d5db',
+      fillOpacity: 0.85,
+      weight: 2,
+    }).bindTooltip(m.label || `${m.lat.toFixed(4)}, ${m.lng.toFixed(4)}`, { permanent: false }).addTo(csvPreviewLayer)
+  }
+  if (markers.length === 0 && csvPreviewLayer) {
+    csvPreviewLayer.remove()
+    csvPreviewLayer = null
+  }
+}, { deep: true })
+
 function onKeyDown(e) {
   if (e.key === 'Escape') {
     if (addMode.value) addMode.value = false
@@ -532,13 +574,6 @@ function handleOpenSettings() {
   settingsOpen.value = true
 }
 
-function onSettingsSave(settings) {
-  const merged = { ...(loadSettings() ?? {}), ...settings }
-  savedSettings.value = merged
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged))
-  if (settings.tile) applyTileLayer(settings.tile)
-  settingsOpen.value = false
-}
 
 watch(displayMarkers, (markers) => {
   if (map) renderMarkers(markers)
@@ -878,11 +913,14 @@ watch(tripRouteMarkers, () => {
     transform: translateY(100%);
   }
 
-  /* On mobile the color mode dropdown floats over the map — keep it visible
-     but shift it left slightly so it doesn't overlap the sidebar-open button */
+  /* Stack color-mode and share below the full-width search bar on mobile */
   .color-mode-control {
+    top: calc(56px + var(--sat, 0px));
     right: 10px;
-    top: 10px;
+  }
+
+  .share-btn {
+    top: calc(96px + var(--sat, 0px));
   }
 }
 </style>

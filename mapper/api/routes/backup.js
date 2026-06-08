@@ -8,7 +8,7 @@ router.use(requireAuth)
 router.get('/', (_req, res) => {
   const categories = db.prepare('SELECT id, name, color, created_at FROM categories').all()
   const collections = db.prepare('SELECT id, name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route, created_at FROM collections').all()
-  const persons = db.prepare('SELECT id, name, color, created_at FROM persons').all()
+  const persons = db.prepare('SELECT id, name, first_name, last_name, color, address_marker_id, created_at FROM persons').all()
   const rawMarkers = db.prepare('SELECT id, lat, lng, label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, source, created_at, updated_at FROM markers').all()
 
   const catLinks = db.prepare('SELECT marker_id, category_id FROM marker_categories').all()
@@ -97,9 +97,9 @@ router.post('/restore', (req, res) => {
     }
 
     const perMap = {}
-    const insPerson = db.prepare('INSERT INTO persons (name, color, created_at) VALUES (?, ?, ?)')
+    const insPerson = db.prepare('INSERT INTO persons (name, first_name, last_name, color, created_at) VALUES (?, ?, ?, ?, ?)')
     for (const p of persons) {
-      const { lastInsertRowid } = insPerson.run(p.name, p.color ?? '#8b5cf6', p.created_at ?? null)
+      const { lastInsertRowid } = insPerson.run(p.name, p.first_name ?? null, p.last_name ?? null, p.color ?? '#8b5cf6', p.created_at ?? null)
       perMap[p.id] = lastInsertRowid
     }
 
@@ -131,6 +131,13 @@ router.post('/restore', (req, res) => {
       }
     }
 
+    const updPersonAddr = db.prepare('UPDATE persons SET address_marker_id=? WHERE id=?')
+    for (const p of persons) {
+      if (p.address_marker_id != null && markerMap[p.address_marker_id] != null) {
+        updPersonAddr.run(markerMap[p.address_marker_id], perMap[p.id])
+      }
+    }
+
     const insWaypoint = db.prepare(
       'INSERT OR IGNORE INTO trip_waypoints (collection_id, from_marker_id, to_marker_id, mode, via_points) VALUES (?, ?, ?, ?, ?)'
     )
@@ -156,7 +163,7 @@ router.post('/restore', (req, res) => {
   } catch (err) {
     db.exec('ROLLBACK')
     console.error('Restore failed:', err)
-    res.status(500).json({ error: 'Restore failed: ' + err.message })
+    res.status(500).json({ error: 'Restore failed' })
   }
 })
 

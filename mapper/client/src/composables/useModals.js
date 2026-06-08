@@ -17,6 +17,10 @@ export function useModals() {
 
   const markerListOpen = ref(false)
 
+  const markerTableOpen = ref(false)
+
+  const csvImportOpen = ref(false)
+
   function closeModal() {
     modalOpen.value = false
     editingMarker.value = null
@@ -68,6 +72,8 @@ export function useModals() {
     manageItem,
     settingsOpen,
     markerListOpen,
+    markerTableOpen,
+    csvImportOpen,
     closeModal,
     openManageModal,
     openMarkerModal,

@@ -96,11 +96,12 @@
           </div>
         </div>
 
-        <div class="modal-actions">
-          <div class="spacer" />
-          <button type="button" class="btn-secondary" @click="$emit('close')">Close</button>
-          <button v-if="!props.readOnly" type="button" class="btn-primary" @click="viewing = false; confirmDelete = false">Edit</button>
-        </div>
+      </div>
+
+      <div v-if="viewing" class="modal-actions">
+        <div class="spacer" />
+        <button type="button" class="btn-secondary" @click="$emit('close')">Close</button>
+        <button v-if="!props.readOnly" type="button" class="btn-primary" @click="viewing = false; confirmDelete = false">Edit</button>
       </div>
 
       <!-- Edit / create form -->
@@ -708,6 +709,8 @@ textarea { resize: vertical; }
 
 /* ── View body ───────────────────────────────────────────── */
 .view-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1130,15 +1133,8 @@ textarea { resize: vertical; }
   border-top: 1px solid var(--border);
 }
 
-/* In view mode actions are inside .view-body which already has padding */
-.view-body .modal-actions {
-  padding: 12px 20px 20px;
-  margin-top: 8px;
-}
-
 /* In form mode the actions are pinned outside the scrollable area */
 form .modal-actions {
-  padding: 12px 20px 20px;
   border-top: 1px solid var(--border);
   margin-top: 0;
 }
@@ -1180,6 +1176,6 @@ form .modal-actions {
     border-radius: 0;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
-  form { padding-bottom: calc(20px + var(--sab, 0px)); }
+  .modal-actions { padding-bottom: calc(16px + var(--sab, 0px)); }
 }
 </style>

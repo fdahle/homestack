@@ -84,7 +84,7 @@ db.exec(`
 function migrate(sql) {
   try { db.exec(sql) } catch (err) {
     if (!err.message.includes('duplicate column') && !err.message.includes('already exists') && !err.message.includes('no such table') && !err.message.includes('no such column')) {
-      console.error('Migration failed:', err.message, '\nSQL:', sql)
+      console.error('Migration failed:', err.message)
     }
   }
 }
@@ -113,6 +113,10 @@ migrate('ALTER TABLE collections ADD COLUMN created_at TEXT')
 migrate("UPDATE collections SET created_at = datetime('now') WHERE created_at IS NULL")
 migrate('ALTER TABLE persons ADD COLUMN created_at TEXT')
 migrate("UPDATE persons SET created_at = datetime('now') WHERE created_at IS NULL")
+migrate('ALTER TABLE persons ADD COLUMN first_name TEXT')
+migrate("UPDATE persons SET first_name = name WHERE first_name IS NULL")
+migrate('ALTER TABLE persons ADD COLUMN last_name TEXT')
+migrate('ALTER TABLE persons ADD COLUMN address_marker_id INTEGER REFERENCES markers(id) ON DELETE SET NULL')
 migrate(`
   INSERT OR IGNORE INTO marker_categories (marker_id, category_id)
   SELECT id, category_id FROM markers WHERE category_id IS NOT NULL

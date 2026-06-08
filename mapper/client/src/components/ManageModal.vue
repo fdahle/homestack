@@ -12,7 +12,18 @@
       </div>
 
       <form @submit.prevent="save">
-        <div class="field">
+        <div class="row" v-if="type === 'person'">
+          <div class="field">
+            <label>First name</label>
+            <input v-model="form.first_name" type="text" placeholder="First name" required />
+          </div>
+          <div class="field">
+            <label>Last name</label>
+            <input v-model="form.last_name" type="text" placeholder="Last name" />
+          </div>
+        </div>
+
+        <div class="field" v-else>
           <label>Name</label>
           <input v-model="form.name" type="text" :placeholder="label + ' name'" required />
         </div>
@@ -61,6 +72,36 @@
           </button>
         </div>
 
+        <div class="field" v-if="type === 'person'">
+          <label>Address marker</label>
+          <div class="address-marker-row">
+            <input
+              v-model="markerSearch"
+              type="text"
+              placeholder="Search markers…"
+              @focus="markerDropdownOpen = true"
+              @blur="onMarkerBlur"
+              autocomplete="off"
+            />
+            <button v-if="form.address_marker_id" type="button" class="clear-btn" @click="form.address_marker_id = null; markerSearch = ''">✕</button>
+          </div>
+          <div v-if="markerDropdownOpen && filteredMarkers.length" class="marker-dropdown">
+            <button
+              v-for="m in filteredMarkers"
+              :key="m.id"
+              type="button"
+              class="marker-option"
+              @mousedown.prevent="selectMarker(m)"
+            >
+              <span class="marker-label">{{ m.label || '(no label)' }}</span>
+              <span v-if="m.address" class="marker-addr">{{ m.address }}</span>
+            </button>
+          </div>
+          <p v-if="form.address_marker_id && selectedMarkerDisplay" class="hint-text">
+            Selected: {{ selectedMarkerDisplay }}
+          </p>
+        </div>
+
         <div class="field">
           <label>Color</label>
           <div class="color-row">
@@ -102,6 +143,7 @@ import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
+import { useMarkersStore } from '../stores/markers.js'
 import TripOrderModal from './TripOrderModal.vue'
 
 const props = defineProps({
@@ -113,12 +155,39 @@ const emit = defineEmits(['close'])
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
 const personsStore = usePersonsStore()
+const markersStore = useMarkersStore()
 
 const isEdit = computed(() => !!props.item)
 const label = computed(() => props.type === 'category' ? 'Category' : props.type === 'collection' ? 'Collection' : 'Person')
 const saving = ref(false)
 const error = ref(null)
 const tripOrderOpen = ref(false)
+const markerSearch = ref('')
+const markerDropdownOpen = ref(false)
+
+const filteredMarkers = computed(() => {
+  const q = markerSearch.value.toLowerCase()
+  return markersStore.items
+    .filter((m) => !q || (m.label || '').toLowerCase().includes(q) || (m.address || '').toLowerCase().includes(q))
+    .slice(0, 20)
+})
+
+const selectedMarkerDisplay = computed(() => {
+  if (!form.value.address_marker_id) return null
+  const m = markersStore.items.find((m) => m.id === form.value.address_marker_id)
+  if (!m) return null
+  return [m.label, m.address].filter(Boolean).join(' — ')
+})
+
+function selectMarker(m) {
+  form.value.address_marker_id = m.id
+  markerSearch.value = ''
+  markerDropdownOpen.value = false
+}
+
+function onMarkerBlur() {
+  setTimeout(() => { markerDropdownOpen.value = false }, 150)
+}
 
 const presets = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
@@ -140,6 +209,9 @@ function generateAutoColor() {
 
 const form = ref({
   name: '',
+  first_name: '',
+  last_name: '',
+  address_marker_id: null,
   description: '',
   is_trip: false,
   start_date: '',
@@ -153,6 +225,9 @@ onMounted(() => {
   if (props.item) {
     form.value = {
       name: props.item.name || '',
+      first_name: props.item.first_name || '',
+      last_name: props.item.last_name || '',
+      address_marker_id: props.item.address_marker_id || null,
       description: props.item.description || '',
       is_trip: !!props.item.is_trip,
       start_date: props.item.start_date || '',
@@ -324,6 +399,55 @@ textarea { resize: vertical; }
 .checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .checkbox-label input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
 .hint-text { font-size: 11px; color: var(--text-2); margin-top: 4px; }
+
+.address-marker-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.address-marker-row input { flex: 1; }
+
+.clear-btn {
+  background: none;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 8px;
+  height: 34px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.clear-btn:hover { background: var(--surface-2); color: var(--danger); }
+
+.marker-dropdown {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 4px;
+  box-shadow: var(--shadow);
+}
+
+.marker-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+}
+.marker-option:last-child { border-bottom: none; }
+.marker-option:hover { background: var(--surface-2); }
+
+.marker-label { font-size: 13px; font-weight: 500; color: var(--text); }
+.marker-addr { font-size: 11px; color: var(--text-2); margin-top: 1px; }
 
 .btn-order {
   width: 100%;

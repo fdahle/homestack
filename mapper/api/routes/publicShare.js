@@ -30,7 +30,8 @@ router.get('/:token/data', shareLimiter, async (req, res, next) => {
       }
     }
 
-    const filter = JSON.parse(link.filter_json)
+    let filter
+    try { filter = JSON.parse(link.filter_json) } catch { return res.status(500).json({ error: 'Internal server error' }) }
     const markerIds = resolveMarkerIds(filter)
     const markers = buildMarkersPayload(markerIds)
 

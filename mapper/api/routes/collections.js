@@ -82,7 +82,11 @@ router.get('/:id/segments', (req, res) => {
   if (!col) return res.status(404).json({ error: 'Not found' })
   if (!col.is_trip) return res.status(400).json({ error: 'Not a trip' })
   const rows = db.prepare('SELECT from_marker_id, to_marker_id, mode, via_points FROM trip_waypoints WHERE collection_id = ?').all(req.params.id)
-  res.json(rows.map(r => ({ ...r, via_points: JSON.parse(r.via_points) })))
+  res.json(rows.map(r => {
+    let via_points
+    try { via_points = JSON.parse(r.via_points) } catch { via_points = [] }
+    return { ...r, via_points }
+  }))
 })
 
 router.put('/:id/segments/:fromId/:toId', (req, res) => {

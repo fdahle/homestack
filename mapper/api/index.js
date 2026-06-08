@@ -32,20 +32,30 @@ app.use(cookieParser())
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 })
 app.use('/api/auth', authLimiter)
 
+const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300 })
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const applyWriteLimiter = (req, res, next) =>
+  WRITE_METHODS.has(req.method) ? writeLimiter(req, res, next) : next()
+
 app.use('/api/auth', authRoutes)
-app.use('/api/markers', markerRoutes)
-app.use('/api/categories', categoryRoutes)
-app.use('/api/collections', collectionRoutes)
-app.use('/api/persons', personRoutes)
-app.use('/api/share-links', shareLinksRoutes)
+app.use('/api/markers', applyWriteLimiter, markerRoutes)
+app.use('/api/categories', applyWriteLimiter, categoryRoutes)
+app.use('/api/collections', applyWriteLimiter, collectionRoutes)
+app.use('/api/persons', applyWriteLimiter, personRoutes)
+app.use('/api/share-links', applyWriteLimiter, shareLinksRoutes)
 app.use('/api/public/share', publicShareRoutes)
-app.use('/api/backup', backupRoutes)
+app.use('/api/backup', applyWriteLimiter, backupRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
+const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'dist')
+app.use(express.static(DIST))
+app.get('*', (_req, res) => res.sendFile(join(DIST, 'index.html')))
+
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
-  console.error(err)
+  if (process.env.NODE_ENV === 'production') console.error(err.message)
+  else console.error(err)
   res.status(500).json({ error: 'Internal server error' })
 })
 

@@ -18,7 +18,7 @@
 
         <!-- ── General ── -->
         <template v-if="tab === 'general'">
-          <form @submit.prevent="saveGeneral">
+          <form @submit.prevent>
             <div class="group-label">Start position</div>
             <p class="hint">The map position and zoom level shown when the app first loads.</p>
             <div class="row">
@@ -46,11 +46,6 @@
               </button>
             </div>
             <p v-if="gpsError" class="msg error">{{ gpsError }}</p>
-            <div class="actions">
-              <div class="spacer" />
-              <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
-              <button type="submit" class="btn-primary">Save</button>
-            </div>
           </form>
         </template>
 
@@ -164,13 +159,19 @@
             </div>
           </form>
 
-          <div class="logout-section">
-            <button type="button" class="btn-logout" @click="logout">Sign out</button>
-          </div>
         </template>
 
         <!-- ── Data ── -->
         <template v-if="tab === 'data'">
+
+          <!-- Review markers table -->
+          <div class="data-group">
+            <div class="group-label">Review</div>
+            <p class="hint">Browse and edit all markers in a table — useful for quickly checking labels, images, and relations.</p>
+            <button type="button" class="btn-secondary full" @click="$emit('open-marker-table')">
+              Open marker table
+            </button>
+          </div>
 
           <!-- Backup & Restore -->
           <div class="data-group">
@@ -224,13 +225,12 @@
             <p class="hint">Add markers from a previous export or from a Google Maps saved places CSV.</p>
 
             <input type="file" accept=".json" ref="fileInput" @change="onFileSelected" style="display:none" />
-            <input type="file" accept=".csv" multiple ref="csvInput" @change="onCsvSelected" style="display:none" />
 
             <div class="import-btn-row">
               <button type="button" class="btn-secondary" @click="fileInput.click()">
                 JSON export
               </button>
-              <button type="button" class="btn-secondary" @click="csvInput.click()">
+              <button type="button" class="btn-secondary" @click="$emit('open-csv-import')">
                 Google Maps CSV
               </button>
             </div>
@@ -258,56 +258,22 @@
                   : `Import ${importMarkers.length} markers` }}
               </button>
             </template>
-
-            <!-- CSV import state -->
-            <template v-if="csvFiles || csvError || csvStatus">
-              <div class="import-divider" />
-              <div v-if="csvFiles && csvFiles.length" class="file-row">
-                <span class="file-name">
-                  {{ csvFiles.length === 1 ? csvFiles[0].name : `${csvFiles.length} files` }}
-                </span>
-                <span class="file-count" v-if="csvRows">{{ csvRows.length }} places</span>
-                <button type="button" class="csv-cancel" @click="resetCsv" title="Cancel">✕</button>
-              </div>
-              <p v-if="csvError" class="msg error">{{ csvError }}</p>
-              <p v-if="csvStatus" class="msg ok">{{ csvStatus }}</p>
-              <div v-if="csvFailed.length" class="failed-list">
-                Failed: {{ csvFailed.map(f => f.label).join(', ') }}
-              </div>
-              <button
-                v-if="csvRows && csvRows.length && !geocoding && !geocodedMarkers"
-                type="button"
-                class="btn-primary full"
-                @click="doGeocode"
-              >
-                Process {{ csvRows.length }} places…
-              </button>
-              <p v-if="geocoding" class="msg">
-                Geocoding {{ geocodeProgress }} / {{ csvRows.length }}…
-                <button type="button" class="csv-cancel" @click="resetCsv" title="Cancel">✕</button>
-              </p>
-              <button
-                v-if="geocodedMarkers && geocodedMarkers.length"
-                type="button"
-                class="btn-primary full"
-                :disabled="csvImporting"
-                @click="doCsvImport"
-              >
-                {{ csvImporting
-                  ? `Importing… (${csvImportProgress} / ${geocodedMarkers.length})`
-                  : `Import ${geocodedMarkers.length} markers` }}
-              </button>
-            </template>
           </div>
         </template>
 
+      </div>
+
+      <div class="modal-footer">
+        <button v-if="tab === 'account'" type="button" class="btn-logout" @click="logout">Sign out</button>
+        <div class="spacer" />
+        <button type="button" class="btn-secondary" @click="$emit('close')">Done</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
@@ -324,10 +290,9 @@ const TILE_OPTIONS = [
 ]
 
 const props = defineProps({
-  saved:   { type: Object, default: null },
   current: { type: Object, default: null },
 })
-const emit = defineEmits(['save', 'close', 'tile-change', 'cluster-change'])
+const emit = defineEmits(['close', 'tile-change', 'cluster-change', 'open-marker-table', 'open-csv-import'])
 
 const markersStore = useMarkersStore()
 const authStore    = useAuthStore()
@@ -382,16 +347,15 @@ function useCurrentLocation() {
   )
 }
 
-function saveGeneral() {
-  emit('save', {
-    ...form.value,
-    theme: isDark.value ? 'dark' : 'light',
-    tile: tileKey.value,
-    cluster: cluster.value,
-    excludedAmenities: excludedAmenities.value,
-    poiRadius: poiRadius.value,
-  })
-}
+watch(form, (val) => {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    s.lat  = val.lat
+    s.lng  = val.lng
+    s.zoom = val.zoom
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
+  } catch {}
+}, { deep: true })
 
 // ── Appearance ────────────────────────────────────────────
 const tileKey = ref('osm')
@@ -497,10 +461,6 @@ const {
   exporting, doExport,
   fileInput, importFile, importMarkers, importError, importStatus,
   importing, importProgress, importFailed, onFileSelected, doImport,
-  csvInput, csvFiles, csvRows, csvError, csvStatus,
-  geocoding, geocodeProgress, geocodedMarkers,
-  csvImporting, csvImportProgress, csvFailed,
-  resetCsv, onCsvSelected, doGeocode, doCsvImport,
 } = useImportExport(markersStore)
 </script>
 
@@ -575,6 +535,8 @@ h2 { font-size: 16px; font-weight: 700; }
 .tab-body {
   padding: 20px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .group-label {
@@ -627,7 +589,17 @@ h2 { font-size: 16px; font-weight: 700; }
   gap: 8px;
   align-items: center;
 }
+
 .spacer { flex: 1; }
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
 
 .btn-primary    { background: var(--accent); color: #fff; font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
@@ -790,16 +762,9 @@ h2 { font-size: 16px; font-weight: 700; }
 .exclude-add-row .btn-ghost { flex-shrink: 0; white-space: nowrap; }
 
 /* ── Account ── */
-.logout-section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
 .btn-logout {
-  width: 100%;
-  padding: 9px;
-  font-size: 14px;
+  padding: 7px 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--danger);
   border: 1px solid var(--danger);
@@ -925,6 +890,6 @@ h2 { font-size: 16px; font-weight: 700; }
   }
   .tabs::-webkit-scrollbar { display: none; }
   .tab-btn { flex: 0 0 auto; padding: 10px 14px; }
-  .tab-body { padding-bottom: calc(20px + var(--sab, 0px)); }
+  .modal-footer { padding-bottom: calc(12px + var(--sab, 0px)); }
 }
 </style>

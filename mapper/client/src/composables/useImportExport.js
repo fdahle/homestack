@@ -340,17 +340,18 @@ export function useImportExport(markersStore) {
 
     for (const row of csvRows.value) {
       if (row.coords) {
-        results.push({ lat: row.coords.lat, lng: row.coords.lng, label: row.label, description: row.description })
+        results.push({ lat: row.coords.lat, lng: row.coords.lng, label: row.label, description: row.description, country: null })
         geocodeProgress.value++
         continue
       }
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(row.title)}&format=json&limit=1`
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(row.title)}&format=json&limit=1&addressdetails=1`
         )
         const data = await res.json()
         if (data.length) {
-          results.push({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label: row.label, description: row.description })
+          const country = data[0].address?.country ?? null
+          results.push({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label: row.label, description: row.description, country })
         } else {
           failed++
         }
@@ -380,15 +381,16 @@ export function useImportExport(markersStore) {
     )
   }
 
-  async function doCsvImport() {
+  async function doCsvImport(list = null) {
+    const markers = list ?? geocodedMarkers.value
     csvImporting.value = true
     csvImportProgress.value = 0
     csvError.value = null
     csvFailed.value = []
     let ok = 0
     let skipped = 0
-    for (let i = 0; i < geocodedMarkers.value.length; i++) {
-      const m = geocodedMarkers.value[i]
+    for (let i = 0; i < markers.length; i++) {
+      const m = markers[i]
       if (isExistingMarker(m)) {
         skipped++
         csvImportProgress.value++

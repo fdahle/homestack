@@ -34,7 +34,7 @@ export const usePersonsStore = defineStore('persons', {
       const updated = await res.json()
       const idx = this.items.findIndex((p) => p.id === id)
       if (idx !== -1) this.items[idx] = updated
-      useMarkersStore().patchEmbeddedPerson(id, { name: updated.name, color: updated.color })
+      useMarkersStore().patchEmbeddedPerson(id, { name: updated.name, first_name: updated.first_name, last_name: updated.last_name, color: updated.color })
       return updated
     },
 

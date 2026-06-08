@@ -6,10 +6,15 @@ import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
 
+const SECURE = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+
 function setAuthCookie(res, payload) {
   const token = jwt.sign(payload, process.env.SESSION_SECRET, { expiresIn: '7d' })
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
-  res.setHeader('Set-Cookie', `mapper_token=${token}; HttpOnly; SameSite=Strict; Max-Age=604800${secure}; Path=/`)
+  res.setHeader('Set-Cookie', `mapper_token=${token}; HttpOnly; SameSite=Strict; Max-Age=604800${SECURE}; Path=/`)
+}
+
+function clearAuthCookie(res) {
+  res.setHeader('Set-Cookie', `mapper_token=; HttpOnly; SameSite=Strict; Max-Age=0${SECURE}; Path=/`)
 }
 
 router.get('/config', (_req, res) => {
@@ -52,7 +57,7 @@ router.post('/login', async (req, res, next) => {
 })
 
 router.post('/logout', (_req, res) => {
-  res.setHeader('Set-Cookie', 'mapper_token=; HttpOnly; SameSite=Strict; Max-Age=0; Path=/')
+  clearAuthCookie(res)
   res.json({ ok: true })
 })
 

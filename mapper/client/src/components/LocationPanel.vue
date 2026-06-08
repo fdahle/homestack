@@ -422,6 +422,7 @@ h2 {
 
 .panel-body {
   flex: 1;
+  min-height: 0;
   padding: 16px;
   overflow-y: auto;
 }
