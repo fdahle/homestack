@@ -1,4 +1,4 @@
-# MapMarker
+# Mapper
 
 A personal map bookmarking app. Save places, organise them into categories and collections, plan trips, and share views with others via share links.
 
