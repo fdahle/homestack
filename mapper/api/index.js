@@ -13,6 +13,13 @@ import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import rateLimit from 'express-rate-limit'
 
+import db from './db.js'
+
+if (process.env.RESET_PASSWORD) {
+  db.prepare('DELETE FROM users').run()
+  console.log('RESET_PASSWORD set — all users cleared. Remove the env var and set a new password via the UI.')
+}
+
 import authRoutes from './routes/auth.js'
 import markerRoutes from './routes/markers.js'
 import categoryRoutes from './routes/categories.js'
@@ -33,8 +40,8 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc:  ["'self'"],
       styleSrc:   ["'self'", "'unsafe-inline'"],
-      imgSrc:     ["'self'", "data:", "https://tile.openstreetmap.org", "https://*.basemaps.cartocdn.com", "https://*.tile.openstreetmap.org"],
-      connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://router.project-osrm.org", "https://api.openrouteservice.org"],
+      imgSrc:     ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://router.project-osrm.org", "https://api.openrouteservice.org", "https://overpass-api.de"],
       fontSrc:    ["'self'", "https:", "data:"],
       objectSrc:  ["'none'"],
       frameAncestors: ["'self'"],

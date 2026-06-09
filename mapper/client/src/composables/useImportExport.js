@@ -77,7 +77,7 @@ function parseGoogleCsv(text) {
 
 // ── Composable ────────────────────────────────────────────────────────────────
 
-export function useImportExport(markersStore) {
+export function useImportExport(markersStore, categoriesStore, collectionsStore, personsStore) {
   // ── Backup ──────────────────────────────────────────────
   const backingUp   = ref(false)
   const backupError = ref(null)
@@ -186,10 +186,15 @@ export function useImportExport(markersStore) {
           label: m.label || null,
           description: m.description || null,
           visited_at: m.visited_at || null,
+          planned_at: m.planned_at || null,
           color: m.color || null,
           image_url: m.image_url || null,
           address: m.address || null,
           country: m.country || null,
+          rating: m.rating ?? null,
+          is_favorite: m.is_favorite ?? 0,
+          external_url: m.external_url || null,
+          source: m.source || null,
           categories: m.categories?.map((c) => c.name) ?? [],
           collections: m.collections?.map((c) => ({ name: c.name, position: c.position ?? null })) ?? [],
           persons: m.persons?.map((p) => p.name) ?? [],
@@ -244,19 +249,62 @@ export function useImportExport(markersStore) {
     importError.value  = null
     importStatus.value = null
     importFailed.value = []
+
+    // Build name→id maps from current store state
+    const catNameToId = Object.fromEntries((categoriesStore?.items ?? []).map(c => [c.name, c.id]))
+    const colNameToId = Object.fromEntries((collectionsStore?.items ?? []).map(c => [c.name, c.id]))
+    const perNameToId = Object.fromEntries((personsStore?.items ?? []).map(p => [p.name, p.id]))
+
+    // Pre-create any categories/collections/persons not yet in the store
+    const allCatNames = new Set(importMarkers.value.flatMap(m => m.categories ?? []))
+    const allColNames = new Set(importMarkers.value.flatMap(m => (m.collections ?? []).map(c => typeof c === 'string' ? c : c.name)))
+    const allPerNames = new Set(importMarkers.value.flatMap(m => m.persons ?? []))
+
+    for (const name of allCatNames) {
+      if (!catNameToId[name] && categoriesStore) {
+        try { catNameToId[name] = (await categoriesStore.create({ name })).id } catch {}
+      }
+    }
+    for (const name of allColNames) {
+      if (!colNameToId[name] && collectionsStore) {
+        try { colNameToId[name] = (await collectionsStore.create({ name })).id } catch {}
+      }
+    }
+    for (const name of allPerNames) {
+      if (!perNameToId[name] && personsStore) {
+        try { perNameToId[name] = (await personsStore.create({ name })).id } catch {}
+      }
+    }
+
     let ok = 0
     for (let i = 0; i < importMarkers.value.length; i++) {
       const m = importMarkers.value[i]
       try {
+        const category_ids = (m.categories ?? []).map(n => catNameToId[n]).filter(Boolean)
+        const colEntries   = (m.collections ?? []).map(c => typeof c === 'string' ? { name: c, position: null } : c)
+        const collection_ids = colEntries.map(c => colNameToId[c.name]).filter(Boolean)
+        const collection_positions = Object.fromEntries(
+          colEntries.filter(c => colNameToId[c.name]).map(c => [colNameToId[c.name], c.position ?? null])
+        )
+        const person_ids = (m.persons ?? []).map(n => perNameToId[n]).filter(Boolean)
+
         await markersStore.create({
           lat: m.lat, lng: m.lng,
-          label: m.label || null, description: m.description || null,
+          label: m.label || null,
+          description: m.description || null,
           visited_at: m.visited_at || null,
+          planned_at: m.planned_at || null,
           color: m.color || null,
           image_url: m.image_url || null,
           address: m.address || null,
           country: m.country || null,
-          category_ids: [], collection_ids: [],
+          rating: m.rating ?? null,
+          is_favorite: m.is_favorite ?? 0,
+          external_url: m.external_url || null,
+          category_ids,
+          collection_ids,
+          collection_positions,
+          person_ids,
         })
         ok++
       } catch {

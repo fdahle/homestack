@@ -278,6 +278,9 @@ import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useAuthStore } from '../stores/auth.js'
+import { useCategoriesStore } from '../stores/categories.js'
+import { useCollectionsStore } from '../stores/collections.js'
+import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
 
 const SETTINGS_KEY = 'mapper_settings'
@@ -294,8 +297,11 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'tile-change', 'cluster-change', 'open-marker-table', 'open-csv-import'])
 
-const markersStore = useMarkersStore()
-const authStore    = useAuthStore()
+const markersStore     = useMarkersStore()
+const authStore        = useAuthStore()
+const categoriesStore  = useCategoriesStore()
+const collectionsStore = useCollectionsStore()
+const personsStore     = usePersonsStore()
 const router       = useRouter()
 const tab          = ref('general')
 
@@ -461,7 +467,7 @@ const {
   exporting, doExport,
   fileInput, importFile, importMarkers, importError, importStatus,
   importing, importProgress, importFailed, onFileSelected, doImport,
-} = useImportExport(markersStore)
+} = useImportExport(markersStore, categoriesStore, collectionsStore, personsStore)
 </script>
 
 <style scoped>

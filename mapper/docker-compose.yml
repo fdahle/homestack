@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "3082:3000"
+      - "3063:3000"
     volumes:
       - ./data:/app/data
     environment:
