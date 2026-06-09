@@ -25,7 +25,22 @@ import backupRoutes from './routes/backup.js'
 const app = express()
 const PORT = process.env.PORT || 3000
 
-app.use(helmet())
+app.set('trust proxy', 1)
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc:  ["'self'"],
+      styleSrc:   ["'self'", "'unsafe-inline'"],
+      imgSrc:     ["'self'", "data:", "https://tile.openstreetmap.org", "https://*.basemaps.cartocdn.com", "https://*.tile.openstreetmap.org"],
+      connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://router.project-osrm.org", "https://api.openrouteservice.org"],
+      fontSrc:    ["'self'", "https:", "data:"],
+      objectSrc:  ["'none'"],
+      frameAncestors: ["'self'"],
+    },
+  },
+}))
 app.use(express.json({ limit: '10mb' }))
 app.use(cookieParser())
 
