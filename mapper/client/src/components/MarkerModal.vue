@@ -268,7 +268,11 @@
         </div>
 
         <div class="field coords">
-          <span>{{ latStr }}, {{ lngStr }}</span>
+          <span class="coords-mono">{{ latStr }}, {{ lngStr }}</span>
+          <label class="checkbox-item coords-toggle" style="margin:0">
+            <input type="checkbox" v-model="useCoordLink" style="width:auto" />
+            use coords
+          </label>
         </div>
         </div><!-- end .edit-body -->
 
@@ -323,6 +327,7 @@ const viewing = ref(!!props.marker)
 const saving = ref(false)
 const error = ref(null)
 const confirmDelete = ref(false)
+const useCoordLink = ref(false)
 const visitedChecked = ref(false)
 const visitedDate = ref('')
 const addressLine = ref(null)
@@ -421,6 +426,7 @@ onMounted(async () => {
     }
     visitedChecked.value = !!props.marker.visited_at
     visitedDate.value = (props.marker.visited_at && props.marker.visited_at !== 'yes') ? props.marker.visited_at.slice(0, 10) : ''
+    useCoordLink.value = !!props.marker.use_coords
 
     addressLoading.value = true
     try {
@@ -480,7 +486,7 @@ const lngStr = computed(() => Number(form.value.lng).toFixed(5))
 
 const googleMapsHref = computed(() => {
   const label = form.value.label?.trim()
-  if (label) return `https://www.google.com/maps/search/${encodeURIComponent(label)}/@${latStr.value},${lngStr.value},17z`
+  if (label && !useCoordLink.value) return `https://www.google.com/maps/search/${encodeURIComponent(label)}/@${latStr.value},${lngStr.value},17z`
   return `https://www.google.com/maps?q=${latStr.value},${lngStr.value}`
 })
 
@@ -630,6 +636,7 @@ async function save() {
       color: form.value.color || null,
       image_url: form.value.image_url || null,
       address: form.value.address || null,
+      use_coords: useCoordLink.value,
     })
   } catch (err) {
     error.value = err.message
@@ -705,6 +712,7 @@ form {
 }
 
 .field { margin-bottom: 14px; }
+.field > label:first-child { margin-bottom: 8px; }
 textarea { resize: vertical; }
 
 /* ── View body ───────────────────────────────────────────── */
@@ -943,6 +951,7 @@ textarea { resize: vertical; }
 }
 .open-maps-link:hover { text-decoration: underline; }
 
+
 /* Image field in edit mode */
 .img-current {
   display: flex;
@@ -1100,9 +1109,19 @@ textarea { resize: vertical; }
 }
 
 .coords {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 12px;
   color: var(--text-2);
-  font-family: monospace;
+}
+
+.coords-mono { font-family: monospace; }
+
+.coords-toggle {
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-2);
 }
 
 .visited-row {
@@ -1171,11 +1190,11 @@ form .modal-actions {
   .modal {
     width: 100vw;
     max-width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
     border-radius: 0;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
-  .modal-actions { padding-bottom: calc(16px + var(--sab, 0px)); }
+  .modal-actions { padding-bottom: calc(24px + var(--sab, 0px)); }
 }
 </style>

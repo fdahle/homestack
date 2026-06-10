@@ -32,9 +32,10 @@
               :key="r.place_id"
               type="button"
               class="search-result-item"
+              :class="{ 'is-marker-result': r._marker }"
               @mousedown.prevent="handleSearchSelect(r)"
             >
-              {{ r.display_name }}
+              <span v-if="r._marker" class="result-pin">◉</span>{{ r.display_name }}
             </button>
             <div v-if="!searchResults.length && !searchLoading" class="search-no-results">
               No results found
@@ -430,7 +431,11 @@ async function closeSidebar() {
 }
 
 // Composables
-const { searchQuery, searchResults, searchOpen, searchLoading, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(getMap)
+const { searchQuery, searchResults, searchOpen, searchLoading, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+  getMap,
+  () => markersStore.filtered,
+  (marker) => { closeLocationPanel(); addMode.value = false; openMarkerModal(marker) },
+)
 
 function clearSearch() {
   searchQuery.value = ''
@@ -440,7 +445,7 @@ function clearSearch() {
 
 function handleSearchSelect(r) {
   const latlng = selectResult(r)
-  openLocationPanel(latlng)
+  if (!r._marker) openLocationPanel(latlng)
 }
 const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, poiData, poiLoading, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
 const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLayer(getMap, (marker) => {
@@ -497,6 +502,10 @@ let clickTimer = null
   map.on('click', (e) => {
     clearTimeout(clickTimer)
     clickTimer = setTimeout(() => {
+      if (searchJustClosed.value) {
+        searchJustClosed.value = false
+        return
+      }
       if (addMode.value) {
         addMode.value = false
         openNewMarkerModal(e.latlng, '')
@@ -623,7 +632,7 @@ watch(tripRouteMarkers, () => {
   top: 10px;
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 1010;
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -710,6 +719,8 @@ watch(tripRouteMarkers, () => {
 }
 .search-result-item:last-child { border-bottom: none; }
 .search-result-item:hover { background: var(--surface-2); }
+.is-marker-result { border-left: 2px solid var(--accent); }
+.result-pin { color: var(--accent); font-size: 10px; margin-right: 4px; }
 
 .search-no-results {
   padding: 10px 12px;
@@ -737,7 +748,7 @@ watch(tripRouteMarkers, () => {
   .sidebar-open-btn {
     display: flex;
     position: absolute;
-    bottom: calc(36px + var(--sab, 0px));
+    bottom: calc(22px + var(--sab, 0px));
     right: 10px;
     top: auto;
     z-index: 1000;
@@ -844,7 +855,7 @@ watch(tripRouteMarkers, () => {
 
 .undo-btn {
   position: absolute;
-  bottom: calc(90px + var(--sab, 0px));
+  bottom: calc(76px + var(--sab, 0px));
   left: 10px;
   z-index: 1000;
   display: flex;
@@ -866,7 +877,7 @@ watch(tripRouteMarkers, () => {
 
 .add-marker-btn {
   position: absolute;
-  bottom: calc(36px + var(--sab, 0px));
+  bottom: calc(22px + var(--sab, 0px));
   left: 10px;
   z-index: 1000;
   display: flex;

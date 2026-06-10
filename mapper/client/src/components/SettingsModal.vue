@@ -884,8 +884,8 @@ h2 { font-size: 16px; font-weight: 700; }
   .modal {
     width: 100vw;
     max-width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
     border-radius: 0;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
@@ -896,6 +896,6 @@ h2 { font-size: 16px; font-weight: 700; }
   }
   .tabs::-webkit-scrollbar { display: none; }
   .tab-btn { flex: 0 0 auto; padding: 10px 14px; }
-  .modal-footer { padding-bottom: calc(12px + var(--sab, 0px)); }
+  .modal-footer { padding-bottom: calc(24px + var(--sab, 0px)); }
 }
 </style>

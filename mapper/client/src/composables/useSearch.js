@@ -13,12 +13,35 @@ function zoomForResult(r) {
   return 17
 }
 
-export function useSearch(getMap) {
+// getMarkers: optional () => marker[]  — enables local marker search
+// onMarkerSelect: optional (marker) => void — called when a marker result is chosen
+export function useSearch(getMap, getMarkers, onMarkerSelect) {
   const searchQuery = ref('')
   const searchResults = ref([])
   const searchOpen = ref(false)
   const searchLoading = ref(false)
+  const searchJustClosed = ref(false)
   let searchTimer = null
+
+  function buildMarkerResults(q) {
+    if (!getMarkers) return []
+    const ql = q.toLowerCase()
+    return getMarkers()
+      .filter((m) =>
+        (m.label || '').toLowerCase().includes(ql) ||
+        (m.description || '').toLowerCase().includes(ql) ||
+        (m.address || '').toLowerCase().includes(ql)
+      )
+      .slice(0, 3)
+      .map((m) => ({
+        place_id: `__marker__${m.id}`,
+        display_name: m.label || `${Number(m.lat).toFixed(4)}, ${Number(m.lng).toFixed(4)}`,
+        lat: String(m.lat),
+        lon: String(m.lng),
+        _marker: true,
+        _markerObj: m,
+      }))
+  }
 
   function onSearchInput() {
     clearTimeout(searchTimer)
@@ -43,28 +66,37 @@ export function useSearch(getMap) {
       }
     }
 
+    // Show local marker matches immediately while geocoding request is in-flight
+    const markerResults = buildMarkerResults(q)
+    searchResults.value = markerResults
+
     searchLoading.value = true
     searchTimer = setTimeout(async () => {
       try {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=7&addressdetails=1`
         )
-        searchResults.value = await res.json()
-      } catch { searchResults.value = [] }
+        searchResults.value = [...markerResults, ...await res.json()]
+      } catch { searchResults.value = [...markerResults] }
       searchLoading.value = false
     }, 400)
   }
 
   function onSearchBlur() {
+    if (searchOpen.value && (searchResults.value.length > 0 || searchQuery.value.trim())) {
+      searchJustClosed.value = true
+      setTimeout(() => { searchJustClosed.value = false }, 400)
+    }
     setTimeout(() => { searchOpen.value = false }, 150)
   }
 
   function selectResult(r) {
     const map = getMap()
     if (map) {
-      const zoom = r._coord ? 16 : zoomForResult(r)
+      const zoom = r._coord ? 16 : r._marker ? Math.max(map.getZoom(), 14) : zoomForResult(r)
       map.setView([parseFloat(r.lat), parseFloat(r.lon)], zoom)
     }
+    if (r._marker && onMarkerSelect) onMarkerSelect(r._markerObj)
     searchQuery.value = r.display_name
     searchResults.value = []
     searchOpen.value = false
@@ -75,5 +107,5 @@ export function useSearch(getMap) {
     clearTimeout(searchTimer)
   }
 
-  return { searchQuery, searchResults, searchOpen, searchLoading, onSearchInput, onSearchBlur, selectResult, cleanup }
+  return { searchQuery, searchResults, searchOpen, searchLoading, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup }
 }

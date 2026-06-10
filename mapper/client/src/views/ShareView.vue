@@ -42,13 +42,67 @@
       <div class="map-area">
         <div class="map-container" ref="mapEl" />
 
+        <!-- Search bar -->
+        <div class="top-bar">
+          <div class="search-wrapper">
+            <input
+              class="search-input"
+              v-model="searchQuery"
+              @input="onSearchInput"
+              @focus="searchOpen = true"
+              @blur="onSearchBlur"
+              placeholder="Search address or marker…"
+              autocomplete="off"
+              type="text"
+            />
+            <span v-if="searchLoading" class="search-spinner" aria-label="Searching" />
+            <button
+              v-else-if="searchQuery"
+              class="search-clear"
+              type="button"
+              @mousedown.prevent="searchQuery = ''; searchResults = []"
+              aria-label="Clear search"
+            >✕</button>
+            <div class="search-results" v-if="searchOpen && (searchResults.length || (!searchLoading && searchQuery.trim()))">
+              <button
+                v-for="r in searchResults"
+                :key="r.place_id"
+                type="button"
+                class="search-result-item"
+                :class="{ 'is-marker-result': r._marker }"
+                @mousedown.prevent="handleSearchSelect(r)"
+              >
+                <span v-if="r._marker" class="result-pin">◉</span>{{ r.display_name }}
+              </button>
+              <div v-if="!searchResults.length && !searchLoading" class="search-no-results">
+                No results found
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile switcher -->
+        <div class="tile-control" ref="tileControlRef">
+          <button class="tile-trigger" @click.stop="tileMenuOpen = !tileMenuOpen">
+            <span class="tile-trigger-label">{{ TILE_LABELS[currentTile] ?? 'OSM' }}</span>
+            <AppIcon name="chevronDown" class="tile-chevron" :class="{ open: tileMenuOpen }" />
+          </button>
+          <div v-if="tileMenuOpen" class="tile-dropdown">
+            <button
+              v-for="(_, key) in TILES"
+              :key="key"
+              class="tile-option"
+              :class="{ active: currentTile === key }"
+              @click="switchTile(key); tileMenuOpen = false"
+            >{{ TILE_LABELS[key] }}</button>
+          </div>
+        </div>
+
         <!-- Sidebar toggle -->
         <button v-show="!sidebarOpen" class="sidebar-open-btn" @click="sidebarOpen = true" title="Open panel">
           <AppIcon name="hamburger" />
         </button>
 
-        <!-- Attribution badge -->
-        <div class="attribution-badge">MapMarker</div>
       </div>
 
       <!-- Mobile backdrop -->
@@ -94,6 +148,7 @@ import AppIcon from '../components/AppIcon.vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import MarkerModal from '../components/MarkerModal.vue'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
+import { useSearch } from '../composables/useSearch.js'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -106,6 +161,13 @@ const TILES = {
   'carto-light':   { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://carto.com/">CARTO</a>' },
   topo:            { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>' },
   satellite:       { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri' },
+}
+const TILE_LABELS = {
+  osm: 'OSM',
+  'carto-voyager': 'Voyager',
+  'carto-light': 'Light',
+  topo: 'Topo',
+  satellite: 'Satellite',
 }
 
 const route = useRoute()
@@ -128,10 +190,40 @@ const mapEl = ref(null)
 let map = null
 let tileLayer = null
 
+// Tile switcher
+const currentTile = ref('osm')
+const tileMenuOpen = ref(false)
+const tileControlRef = ref(null)
+watch(tileMenuOpen, (open) => {
+  const handler = (e) => { if (tileControlRef.value && !tileControlRef.value.contains(e.target)) tileMenuOpen.value = false }
+  if (open) document.addEventListener('click', handler, { once: true })
+})
+
+function switchTile(key) {
+  currentTile.value = key
+  if (!map) return
+  const t = TILES[key] ?? TILES.osm
+  const maxNative = key === 'topo' ? 17 : 19
+  const maxZoom = key === 'topo' ? 17 : 21
+  if (tileLayer) tileLayer.remove()
+  tileLayer = L.tileLayer(t.url, { attribution: t.attribution, maxNativeZoom: maxNative, maxZoom }).addTo(map)
+}
+
 const getMap = () => map
 const { renderMarkers, initClusterGroup } = useMarkerLayer(getMap, (marker) => {
   openedMarker.value = marker
 })
+
+// Search
+const { searchQuery, searchResults, searchOpen, searchLoading, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+  getMap,
+  () => markersStore.items,
+  (marker) => { openedMarker.value = marker },
+)
+
+function handleSearchSelect(r) {
+  selectResult(r)
+}
 
 async function fetchData(password) {
   const headers = {}
@@ -153,9 +245,10 @@ async function loadMap(data) {
 
   const s = (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) } catch { return null } })()
   map = L.map(mapEl.value, { zoomControl: false, maxZoom: 21 }).setView([s?.lat ?? 20, s?.lng ?? 0], s?.zoom ?? 2)
-  if (window.innerWidth > 640) L.control.zoom({ position: 'bottomright' }).addTo(map)
+  if (window.innerWidth > 1024) L.control.zoom({ position: 'bottomright' }).addTo(map)
 
   const tileKey = s?.tile ?? 'osm'
+  currentTile.value = tileKey
   const t = TILES[tileKey] ?? TILES.osm
   const maxNative = tileKey === 'topo' ? 17 : 19
   const maxZoom = tileKey === 'topo' ? 17 : 21
@@ -181,6 +274,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (map) { map.remove(); map = null }
+  cleanupSearch()
   markersStore.items = []
   markersStore.activeGroupFilter = null
   categoriesStore.items = []
@@ -326,7 +420,168 @@ watch(sidebarOpen, async () => {
 
 .loading-text { font-size: 14px; color: var(--text-2, #666); }
 
-/* Map UI */
+/* ── Search bar ──────────────────────────────────────────────────────────── */
+.top-bar {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.search-wrapper {
+  width: 420px;
+  max-width: calc(100% - 130px);
+  position: relative;
+  pointer-events: auto;
+}
+
+.search-input {
+  width: 100%;
+  padding: 9px 36px 9px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  color: var(--text);
+}
+.search-input:focus { border-color: var(--accent); outline: none; }
+
+.search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 50%;
+}
+.search-clear:hover { color: var(--text); }
+
+.search-spinner {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: search-spin 0.6s linear infinite;
+}
+@keyframes search-spin { to { transform: translateY(-50%) rotate(360deg); } }
+
+.search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 1001;
+}
+
+.search-result-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-result-item:last-child { border-bottom: none; }
+.search-result-item:hover { background: var(--surface-2); }
+.is-marker-result { border-left: 2px solid var(--accent); }
+.result-pin { color: var(--accent); font-size: 10px; margin-right: 4px; }
+
+.search-no-results {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* ── Tile switcher ───────────────────────────────────────────────────────── */
+.tile-control {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+}
+
+.tile-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.tile-trigger:hover { background: var(--surface-2); color: var(--text); }
+
+.tile-trigger-label { color: var(--accent); font-weight: 600; }
+
+.tile-chevron { transition: transform 0.15s; flex-shrink: 0; }
+.tile-chevron.open { transform: rotate(180deg); }
+
+.tile-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  min-width: 110px;
+}
+
+.tile-option {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.tile-option:last-child { border-bottom: none; }
+.tile-option:hover { background: var(--surface-2); color: var(--text); }
+.tile-option.active { color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+
+/* ── Map UI ──────────────────────────────────────────────────────────────── */
 .sidebar-open-btn {
   position: absolute;
   top: 12px;
@@ -342,22 +597,6 @@ watch(sidebarOpen, async () => {
 }
 .sidebar-open-btn:hover { background: var(--surface-2, #f5f5f5); }
 
-.attribution-badge {
-  position: absolute;
-  bottom: 28px;
-  right: 10px;
-  z-index: 400;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-2, #888);
-  background: rgba(255,255,255,0.85);
-  padding: 3px 7px;
-  border-radius: 6px;
-  pointer-events: none;
-}
-
 .mobile-overlay {
   display: none;
   position: fixed;
@@ -368,6 +607,30 @@ watch(sidebarOpen, async () => {
 
 @media (max-width: 640px) {
   .mobile-overlay { display: block; }
+
+  /* Full-width search bar on mobile */
+  .top-bar {
+    top: calc(10px + var(--sat, 0px));
+    padding: 0 10px;
+  }
+  .search-wrapper {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Tile switcher to bottom-left on mobile */
+  .tile-control {
+    top: auto;
+    bottom: calc(22px + var(--sab, 0px));
+    left: 10px;
+  }
+
+  /* Move hamburger to bottom-right on mobile so it doesn't clash with search */
+  .sidebar-open-btn {
+    top: auto;
+    bottom: calc(22px + var(--sab, 0px));
+    right: 10px;
+  }
 }
 
 /* Panel transition (mirrors MapView.vue) */
