@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#4f46e5"/>
+  <rect x="128" y="160" width="256" height="24" rx="12" fill="white" opacity="0.9"/>
+  <rect x="128" y="216" width="192" height="24" rx="12" fill="white" opacity="0.9"/>
+  <rect x="128" y="272" width="224" height="24" rx="12" fill="white" opacity="0.9"/>
+  <rect x="128" y="328" width="160" height="24" rx="12" fill="white" opacity="0.9"/>
+  <!-- Checkmark circle on bottom right -->
+  <circle cx="368" cy="352" r="64" fill="#818cf8"/>
+  <polyline points="340,352 358,372 400,330" stroke="white" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
