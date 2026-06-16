@@ -1,0 +1,12 @@
+{
+  "name": "planner",
+  "private": true,
+  "scripts": {
+    "dev": "docker compose up couchdb -d && concurrently -n api,client -c blue,green \"npm --prefix api run dev\" \"npm --prefix client run dev\"",
+    "stop": "docker compose stop couchdb",
+    "reset": "node api/scripts/reset.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
