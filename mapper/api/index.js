@@ -41,7 +41,7 @@ app.use(helmet({
       scriptSrc:  ["'self'"],
       styleSrc:   ["'self'", "'unsafe-inline'"],
       imgSrc:     ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://router.project-osrm.org", "https://api.openrouteservice.org", "https://overpass-api.de", "https://overpass.kumi.systems"],
+      connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://router.project-osrm.org", "https://api.openrouteservice.org", "https://overpass-api.de", "https://overpass.kumi.systems", "https://en.wikipedia.org", "https://commons.wikimedia.org"],
       fontSrc:    ["'self'", "https:", "data:"],
       objectSrc:  ["'none'"],
       frameAncestors: ["'self'"],
