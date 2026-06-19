@@ -37,7 +37,10 @@
             >
               <span v-if="r._marker" class="result-pin">◉</span>{{ r.display_name }}
             </button>
-            <div v-if="!searchResults.length && !searchLoading" class="search-no-results">
+            <div v-if="searchError && !searchLoading" class="search-error">
+              <span class="search-error-icon">⚠</span>{{ searchError }}
+            </div>
+            <div v-else-if="!searchResults.length && !searchLoading" class="search-no-results">
               No results found
             </div>
           </div>
@@ -53,6 +56,8 @@
         :poi-data="poiData"
         :poi-loading="poiLoading"
         :poi-alternatives="poiAlternatives"
+        :location-error="locationError"
+        :poi-error="poiError"
         @close="closeLocationPanel"
         @save-as-marker="handleSaveAsMarker"
         @select-poi="selectAlternativePoi"
@@ -431,7 +436,7 @@ async function closeSidebar() {
 }
 
 // Composables
-const { searchQuery, searchResults, searchOpen, searchLoading, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
   getMap,
   () => markersStore.filtered,
   (marker) => { closeLocationPanel(); addMode.value = false; openMarkerModal(marker) },
@@ -447,7 +452,7 @@ function handleSearchSelect(r) {
   const latlng = selectResult(r)
   if (!r._marker) openLocationPanel(latlng)
 }
-const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, poiData, poiLoading, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
+const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, locationError, poiData, poiLoading, poiError, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
 const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLayer(getMap, (marker) => {
   closeLocationPanel()
   addMode.value = false
@@ -726,6 +731,21 @@ watch(tripRouteMarkers, () => {
   padding: 10px 12px;
   font-size: 13px;
   color: var(--text-muted, #888);
+}
+
+.search-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.search-error-icon {
+  flex-shrink: 0;
+  color: #e0a800;
 }
 
 /* Sidebar toggle + settings overlay — only needed on mobile */

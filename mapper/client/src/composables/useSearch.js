@@ -20,6 +20,7 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
   const searchResults = ref([])
   const searchOpen = ref(false)
   const searchLoading = ref(false)
+  const searchError = ref(null)
   const searchJustClosed = ref(false)
   let searchTimer = null
 
@@ -45,6 +46,7 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
 
   function onSearchInput() {
     clearTimeout(searchTimer)
+    searchError.value = null
     const q = searchQuery.value.trim()
     if (!q) { searchResults.value = []; searchLoading.value = false; return }
 
@@ -76,8 +78,12 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=7&addressdetails=1`
         )
+        if (!res.ok) throw new Error(`Nominatim ${res.status}`)
         searchResults.value = [...markerResults, ...await res.json()]
-      } catch { searchResults.value = [...markerResults] }
+      } catch {
+        searchResults.value = [...markerResults]
+        searchError.value = 'Search is temporarily unavailable — the geocoding service didn’t respond.'
+      }
       searchLoading.value = false
     }, 400)
   }
@@ -107,5 +113,5 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
     clearTimeout(searchTimer)
   }
 
-  return { searchQuery, searchResults, searchOpen, searchLoading, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup }
+  return { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup }
 }

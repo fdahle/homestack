@@ -55,6 +55,32 @@ function elementToPoiShape(el) {
   }
 }
 
+// Mirrors are tried in order: the main instance returns 504/429 when overloaded,
+// so we fall back to alternates before giving up.
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+]
+
+async function runOverpassQuery(query, signal) {
+  let lastError = null
+  for (const url of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(url, { method: 'POST', body: query, signal })
+      if (!res.ok) {
+        // 504/429/5xx → server busy; try the next mirror
+        lastError = new Error(`Overpass ${res.status}`)
+        continue
+      }
+      return await res.json()
+    } catch (err) {
+      if (err.name === 'AbortError') throw err
+      lastError = err
+    }
+  }
+  throw lastError ?? new Error('Overpass request failed')
+}
+
 async function fetchOverpassPoi(lat, lon, signal) {
   const r = getPoiRadius()
   const query = `[out:json][timeout:8];
@@ -84,12 +110,7 @@ out tags center;
 );
 out tags center 30;`
 
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    body: query,
-    signal,
-  })
-  const data = await res.json()
+  const data = await runOverpassQuery(query, signal)
   if (!data.elements?.length) return null
 
   const excluded = getExcludedAmenities()
@@ -130,8 +151,10 @@ export function useLocationPanel(getMap) {
   const locationLatLng = ref(null)
   const locationInfo = ref(null)
   const locationLoading = ref(false)
+  const locationError = ref(null)
   const poiData = ref(null)
   const poiLoading = ref(false)
+  const poiError = ref(null)
   const poiAlternatives = ref([])
 
   let locationLayer = null
@@ -163,7 +186,9 @@ export function useLocationPanel(getMap) {
     const map = getMap()
     locationLatLng.value = latlng
     locationInfo.value = null
+    locationError.value = null
     poiData.value = null
+    poiError.value = null
     poiAlternatives.value = []
     locationLoading.value = true
     poiLoading.value = true
@@ -182,7 +207,10 @@ export function useLocationPanel(getMap) {
       `https://nominatim.openstreetmap.org/reverse?lat=${latlng.lat}&lon=${latlng.lng}&format=json&addressdetails=1&extratags=1&polygon_geojson=1`,
       { signal }
     )
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`Nominatim ${r.status}`)
+        return r.json()
+      })
       .then(data => {
         const dist = haversineMeters(latlng.lat, latlng.lng, parseFloat(data.lat), parseFloat(data.lon))
         if (dist > 250) {
@@ -192,7 +220,11 @@ export function useLocationPanel(getMap) {
           drawLocationPolygon(data?.geojson)
         }
       })
-      .catch(err => { if (err.name !== 'AbortError') locationInfo.value = null })
+      .catch(err => {
+        if (err.name === 'AbortError') return
+        locationInfo.value = null
+        locationError.value = 'Address lookup failed — the geocoding service is unreachable. Check your connection and try again.'
+      })
       .finally(() => { if (!signal.aborted) locationLoading.value = false })
 
     // Overpass: debounced 500ms so rapid clicks don't stack up requests
@@ -206,7 +238,12 @@ export function useLocationPanel(getMap) {
             poiAlternatives.value = result?.all ?? []
           }
         })
-        .catch(err => { if (err.name !== 'AbortError') { poiData.value = null; poiAlternatives.value = [] } })
+        .catch(err => {
+          if (err.name === 'AbortError') return
+          poiData.value = null
+          poiAlternatives.value = []
+          poiError.value = 'Couldn’t load nearby places — the map data service is busy. Try again shortly.'
+        })
         .finally(() => { if (!signal.aborted) poiLoading.value = false })
     }, 500)
   }
@@ -216,6 +253,8 @@ export function useLocationPanel(getMap) {
     clearTimeout(overpassTimer)
     locationPanelOpen.value = false
     poiAlternatives.value = []
+    locationError.value = null
+    poiError.value = null
     clearTempLayers()
   }
 
@@ -228,8 +267,10 @@ export function useLocationPanel(getMap) {
     locationLatLng,
     locationInfo,
     locationLoading,
+    locationError,
     poiData,
     poiLoading,
+    poiError,
     poiAlternatives,
     openLocationPanel,
     closeLocationPanel,

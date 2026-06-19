@@ -19,6 +19,12 @@
         </div>
 
         <div v-else class="info-rows">
+          <!-- Address lookup failed (Nominatim unreachable) -->
+          <div v-if="locationError" class="panel-warning">
+            <span class="panel-warning-icon">⚠</span>
+            <span>{{ locationError }}</span>
+          </div>
+
           <!-- POI-specific rich fields -->
           <template v-if="isPoi">
             <div v-if="cuisine" class="info-row">
@@ -61,8 +67,14 @@
             <span class="info-value mono">{{ latStr }}, {{ lngStr }}</span>
           </div>
 
+          <!-- Overpass failed (all mirrors busy/unreachable) -->
+          <div v-if="poiError && !poiLoading && !isPoi" class="panel-warning">
+            <span class="panel-warning-icon">⚠</span>
+            <span>{{ poiError }}</span>
+          </div>
+
           <!-- Inline hint while Overpass is still resolving -->
-          <div v-if="(poiLoading || progressVisible) && !isPoi" class="poi-checking">
+          <div v-if="(poiLoading || progressVisible) && !isPoi && !poiError" class="poi-checking">
             Checking for nearby places…
             <div class="poi-progress-track">
               <div
@@ -134,6 +146,8 @@ const props = defineProps({
   poiData: { type: Object, default: null },
   poiLoading: { type: Boolean, default: false },
   poiAlternatives: { type: Array, default: () => [] },
+  locationError: { type: String, default: null },
+  poiError: { type: String, default: null },
 })
 
 const emit = defineEmits(['close', 'save-as-marker', 'select-poi'])
@@ -453,6 +467,26 @@ h2 {
   font-size: 11px;
   color: var(--text-2);
   margin-top: 2px;
+}
+
+.panel-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, #e0a800 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, #e0a800 35%, var(--border));
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.panel-warning-icon {
+  flex-shrink: 0;
+  color: #e0a800;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .poi-progress-track {
