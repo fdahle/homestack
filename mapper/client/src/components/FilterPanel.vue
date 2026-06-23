@@ -144,7 +144,7 @@
               @click="drillInto({ type: 'person', id: person.id, name: person.name, color: person.color, item: person })"
             >
               <span class="group-dot" :style="{ background: person.color }" />
-              <span class="group-name">{{ person.name }}</span>
+              <span class="group-name">{{ styleStore.firstNameOnly ? (person.first_name || person.name) : person.name }}</span>
               <span class="group-count">{{ personCount(person.id) }}</span>
               <span class="group-arrow">›</span>
             </div>
@@ -1041,6 +1041,7 @@ function formatDateRange(item) {
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
     padding-bottom: var(--sab, 0px);
+    overscroll-behavior: none;
   }
 
   .drag-handle {

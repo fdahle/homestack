@@ -494,8 +494,16 @@ textarea { resize: vertical; }
     max-width: 100vw;
     min-height: 100vh;
     border-radius: 0;
+    display: flex;
+    flex-direction: column;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
-  form { padding-bottom: calc(20px + var(--sab, 0px)); }
+  form {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: calc(20px + var(--sab, 0px));
+  }
+  .modal-actions { margin-top: auto; }
 }
 </style>

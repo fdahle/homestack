@@ -2,24 +2,33 @@ import { defineStore } from 'pinia'
 
 const SETTINGS_KEY = 'mapper_settings'
 
-function loadColorMode() {
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') } catch { return {} }
+}
+
+function saveSettings(patch) {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}').colorMode ?? 'category'
-  } catch { return 'category' }
+    const s = loadSettings()
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, ...patch }))
+  } catch {}
 }
 
 export const useStyleStore = defineStore('style', {
-  state: () => ({
-    colorMode: loadColorMode(),
-  }),
+  state: () => {
+    const s = loadSettings()
+    return {
+      colorMode: s.colorMode ?? 'category',
+      firstNameOnly: s.firstNameOnly ?? false,
+    }
+  },
   actions: {
     setColorMode(mode) {
       this.colorMode = mode
-      try {
-        const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-        s.colorMode = mode
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
-      } catch {}
+      saveSettings({ colorMode: mode })
+    },
+    setFirstNameOnly(v) {
+      this.firstNameOnly = v
+      saveSettings({ firstNameOnly: v })
     },
   },
 })

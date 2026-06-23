@@ -467,6 +467,31 @@ const {
 
 const { flyToTarget, csvPreviewMarkers } = useMapControl()
 
+// Prevent pull-to-refresh when the bottom sheet is open on mobile.
+watch(sidebarOpen, (open) => {
+  document.body.style.overscrollBehaviorY = open ? 'none' : ''
+})
+
+// Push a history entry when any modal opens so the back gesture can close it.
+watch(
+  () => modalOpen.value || manageOpen.value || settingsOpen.value || statsOpen.value || markerTableOpen.value || csvImportOpen.value || shareOpen.value,
+  (anyOpen, wasOpen) => {
+    if (anyOpen && !wasOpen) history.pushState({ mapperModal: true }, '')
+  }
+)
+
+function handlePopState() {
+  if (modalOpen.value) { closeModal(); return }
+  if (manageOpen.value) { manageOpen.value = false; return }
+  if (settingsOpen.value) { settingsOpen.value = false; return }
+  if (statsOpen.value) { statsOpen.value = false; return }
+  if (markerTableOpen.value) { markerTableOpen.value = false; return }
+  if (csvImportOpen.value) { csvImportOpen.value = false; return }
+  if (shareOpen.value) { shareOpen.value = false; return }
+}
+
+onUnmounted(() => { window.removeEventListener('popstate', handlePopState) })
+
 function loadSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) } catch { return null }
 }
@@ -489,6 +514,7 @@ function applyTileLayer(key) {
 }
 
 onMounted(async () => {
+  window.addEventListener('popstate', handlePopState)
   savedSettings.value = loadSettings()
   const s = savedSettings.value
 

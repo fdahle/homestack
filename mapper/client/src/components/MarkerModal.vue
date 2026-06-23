@@ -2,7 +2,7 @@
   <div class="overlay" @click.self="$emit('close')">
     <div class="modal">
       <div class="modal-header">
-        <h2>{{ viewing ? 'Marker' : isEdit ? 'Edit Marker' : 'Add Marker' }}</h2>
+        <h2>{{ viewing ? (form.label || 'Marker') : isEdit ? 'Edit Marker' : 'Add Marker' }}</h2>
         <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
       </div>
 
@@ -71,7 +71,7 @@
                 @click="filterBy('person', person.id)"
               >
                 <span class="chip-dot" :style="{ background: person.color }" />
-                {{ person.name }}
+                {{ styleStore.firstNameOnly ? (person.first_name || person.name) : person.name }}
               </button>
             </div>
           </div>
@@ -306,6 +306,7 @@ import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useMarkersStore } from '../stores/markers.js'
+import { useStyleStore } from '../stores/style.js'
 
 const COLOR_PRESETS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
@@ -321,6 +322,7 @@ const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
 const personsStore = usePersonsStore()
 const markersStore = useMarkersStore()
+const styleStore = useStyleStore()
 
 const isEdit = computed(() => !!props.marker)
 const viewing = ref(!!props.marker)

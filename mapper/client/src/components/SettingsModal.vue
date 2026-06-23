@@ -71,6 +71,16 @@
             </button>
           </div>
 
+          <div class="setting-row" style="margin-top:16px">
+            <div class="setting-info">
+              <span class="setting-name">First name only</span>
+              <span class="setting-desc">Show only the first name of contacts as tags</span>
+            </div>
+            <button class="toggle" :class="{ on: styleStore.firstNameOnly }" @click="styleStore.setFirstNameOnly(!styleStore.firstNameOnly)" type="button">
+              <span class="knob" />
+            </button>
+          </div>
+
           <div class="setting-section">
             <div class="group-label" style="margin-top:20px">Map style</div>
             <div class="tile-grid">
@@ -282,6 +292,7 @@ import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
+import { useStyleStore } from '../stores/style.js'
 
 const SETTINGS_KEY = 'mapper_settings'
 
@@ -302,6 +313,7 @@ const authStore        = useAuthStore()
 const categoriesStore  = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
 const personsStore     = usePersonsStore()
+const styleStore       = useStyleStore()
 const router       = useRouter()
 const tab          = ref('general')
 
