@@ -477,7 +477,7 @@ textarea { resize: vertical; }
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 4px;
+  padding: 4px 20px 20px;
 }
 
 .spacer { flex: 1; }
