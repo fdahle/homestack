@@ -12,115 +12,117 @@
       </div>
 
       <form @submit.prevent="save">
-        <div class="row" v-if="type === 'person'">
-          <div class="field">
-            <label>First name</label>
-            <input v-model="form.first_name" type="text" placeholder="First name" required />
-          </div>
-          <div class="field">
-            <label>Last name</label>
-            <input v-model="form.last_name" type="text" placeholder="Last name" />
-          </div>
-        </div>
-
-        <div class="field" v-else>
-          <label>Name</label>
-          <input v-model="form.name" type="text" :placeholder="label + ' name'" required />
-        </div>
-
-        <div class="field" v-if="type === 'collection'">
-          <label>Description</label>
-          <textarea v-model="form.description" rows="2" placeholder="Optional notes" />
-        </div>
-
-        <div class="field" v-if="type === 'collection'">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="form.is_trip" @change="if (!form.is_trip) { form.start_date = ''; form.end_date = ''; form.show_route_line = false }" />
-            This is a trip
-          </label>
-        </div>
-
-        <div class="row" v-if="type === 'collection' && form.is_trip">
-          <div class="field">
-            <label>Start</label>
-            <input v-model="form.start_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
-          </div>
-          <div class="field">
-            <label>End</label>
-            <input v-model="form.end_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
-          </div>
-        </div>
-
-        <div class="field" v-if="type === 'collection' && form.is_trip">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="form.show_route_line" />
-            Show straight line between stops
-          </label>
-        </div>
-
-        <div class="field" v-if="type === 'collection' && form.is_trip">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="form.show_exact_route" />
-            Show road-snapped route
-          </label>
-          <p v-if="form.show_exact_route" class="hint-text">Click the route to add waypoints · Click a waypoint to delete it · Drag to move</p>
-        </div>
-
-        <div v-if="type === 'collection' && form.is_trip && isEdit" class="field">
-          <button type="button" class="btn-order" @click="tripOrderOpen = true">
-            <AppIcon name="reorder" /> Manage stop order
-          </button>
-        </div>
-
-        <div class="field" v-if="type === 'person'">
-          <label>Address marker</label>
-          <div class="address-marker-row">
-            <input
-              v-model="markerSearch"
-              type="text"
-              placeholder="Search markers…"
-              @focus="markerDropdownOpen = true"
-              @blur="onMarkerBlur"
-              autocomplete="off"
-            />
-            <button v-if="form.address_marker_id" type="button" class="clear-btn" @click="form.address_marker_id = null; markerSearch = ''">✕</button>
-          </div>
-          <div v-if="markerDropdownOpen && filteredMarkers.length" class="marker-dropdown">
-            <button
-              v-for="m in filteredMarkers"
-              :key="m.id"
-              type="button"
-              class="marker-option"
-              @mousedown.prevent="selectMarker(m)"
-            >
-              <span class="marker-label">{{ m.label || '(no label)' }}</span>
-              <span v-if="m.address" class="marker-addr">{{ m.address }}</span>
-            </button>
-          </div>
-          <p v-if="form.address_marker_id && selectedMarkerDisplay" class="hint-text">
-            Selected: {{ selectedMarkerDisplay }}
-          </p>
-        </div>
-
-        <div class="field">
-          <label>Color</label>
-          <div class="color-row">
-            <input v-model="form.color" type="color" class="color-input" />
-            <div class="color-presets">
-              <button
-                v-for="c in presets"
-                :key="c"
-                type="button"
-                class="preset"
-                :style="{ background: c, outline: form.color === c ? '2px solid #000' : 'none' }"
-                @click="form.color = c"
-              />
-              <button type="button" class="preset auto-preset" @click="form.color = generateAutoColor()" title="Pick a color distinct from existing ones">Auto</button>
+        <div class="form-body">
+          <div class="row" v-if="type === 'person'">
+            <div class="field">
+              <label>First name</label>
+              <input v-model="form.first_name" type="text" placeholder="First name" required />
+            </div>
+            <div class="field">
+              <label>Last name</label>
+              <input v-model="form.last_name" type="text" placeholder="Last name" />
             </div>
           </div>
-        </div>
 
-        <p v-if="error" class="error">{{ error }}</p>
+          <div class="field" v-else>
+            <label>Name</label>
+            <input v-model="form.name" type="text" :placeholder="label + ' name'" required />
+          </div>
+
+          <div class="field" v-if="type === 'collection'">
+            <label>Description</label>
+            <textarea v-model="form.description" rows="2" placeholder="Optional notes" />
+          </div>
+
+          <div class="field" v-if="type === 'collection'">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="form.is_trip" @change="if (!form.is_trip) { form.start_date = ''; form.end_date = ''; form.show_route_line = false }" />
+              This is a trip
+            </label>
+          </div>
+
+          <div class="row" v-if="type === 'collection' && form.is_trip">
+            <div class="field">
+              <label>Start</label>
+              <input v-model="form.start_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
+            </div>
+            <div class="field">
+              <label>End</label>
+              <input v-model="form.end_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
+            </div>
+          </div>
+
+          <div class="field" v-if="type === 'collection' && form.is_trip">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="form.show_route_line" />
+              Show straight line between stops
+            </label>
+          </div>
+
+          <div class="field" v-if="type === 'collection' && form.is_trip">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="form.show_exact_route" />
+              Show road-snapped route
+            </label>
+            <p v-if="form.show_exact_route" class="hint-text">Click the route to add waypoints · Click a waypoint to delete it · Drag to move</p>
+          </div>
+
+          <div v-if="type === 'collection' && form.is_trip && isEdit" class="field">
+            <button type="button" class="btn-order" @click="tripOrderOpen = true">
+              <AppIcon name="reorder" /> Manage stop order
+            </button>
+          </div>
+
+          <div class="field" v-if="type === 'person'">
+            <label>Address marker</label>
+            <div class="address-marker-row">
+              <input
+                v-model="markerSearch"
+                type="text"
+                placeholder="Search markers…"
+                @focus="markerDropdownOpen = true"
+                @blur="onMarkerBlur"
+                autocomplete="off"
+              />
+              <button v-if="form.address_marker_id" type="button" class="clear-btn" @click="form.address_marker_id = null; markerSearch = ''">✕</button>
+            </div>
+            <div v-if="markerDropdownOpen && filteredMarkers.length" class="marker-dropdown">
+              <button
+                v-for="m in filteredMarkers"
+                :key="m.id"
+                type="button"
+                class="marker-option"
+                @mousedown.prevent="selectMarker(m)"
+              >
+                <span class="marker-label">{{ m.label || '(no label)' }}</span>
+                <span v-if="m.address" class="marker-addr">{{ m.address }}</span>
+              </button>
+            </div>
+            <p v-if="form.address_marker_id && selectedMarkerDisplay" class="hint-text">
+              Selected: {{ selectedMarkerDisplay }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label>Color</label>
+            <div class="color-row">
+              <input v-model="form.color" type="color" class="color-input" />
+              <div class="color-presets">
+                <button
+                  v-for="c in presets"
+                  :key="c"
+                  type="button"
+                  class="preset"
+                  :style="{ background: c, outline: form.color === c ? '2px solid #000' : 'none' }"
+                  @click="form.color = c"
+                />
+                <button type="button" class="preset auto-preset" @click="form.color = generateAutoColor()" title="Pick a color distinct from existing ones">Auto</button>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="error" class="error">{{ error }}</p>
+        </div>
 
         <div class="modal-actions">
           <button v-if="isEdit" type="button" class="btn-danger" @click="del" :disabled="saving">
@@ -340,7 +342,9 @@ h2 { font-size: 16px; font-weight: 700; }
 }
 .close-btn:hover { background: var(--surface-2); }
 
-form { padding: 16px 20px 20px; }
+form { display: flex; flex-direction: column; }
+
+.form-body { padding: 16px 20px 20px; }
 
 .field { margin-bottom: 14px; }
 
@@ -492,18 +496,15 @@ textarea { resize: vertical; }
   .modal {
     width: 100vw;
     max-width: 100vw;
-    min-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
     border-radius: 0;
     display: flex;
     flex-direction: column;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
-  form {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding-bottom: calc(20px + var(--sab, 0px));
-  }
-  .modal-actions { margin-top: auto; }
+  form { flex: 1; min-height: 0; }
+  .form-body { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+  .modal-actions { flex-shrink: 0; padding-bottom: calc(20px + var(--sab, 0px)); }
 }
 </style>
