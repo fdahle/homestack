@@ -22,7 +22,7 @@
         ref="contentInput"
         v-model="content"
         class="note-content-input"
-        :placeholder="isTask ? 'New task…' : 'Take a note…'"
+        :placeholder="isTask ? 'Add a task…' : 'Take a note…'"
         rows="1"
         @focus="expanded = true"
         @keydown.escape="close"

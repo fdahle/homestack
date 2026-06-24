@@ -3,10 +3,13 @@ import DOMPurify from 'dompurify'
 
 marked.use({ breaks: true })
 
+function escapeHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 export function renderPlain(text) {
   if (!text) return ''
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return `<span style="white-space:pre-wrap">${escaped}</span>`
+  return `<span style="white-space:pre-wrap">${escapeHtml(text)}</span>`
 }
 
 const CHECKBOX_RE = /^\s*[-*+] \[( |x|X)\] (.*)$/
@@ -46,7 +49,7 @@ export function renderChecklist(text) {
   let idx = 0
   const render = (items, extraCls) => items.map(({ label }) => {
     const isChecked = extraCls.includes('checked')
-    const escaped = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const escaped = escapeHtml(label)
     return `<div class="task-item${extraCls}"><input type="checkbox"${isChecked ? ' checked' : ''} data-checkbox-idx="${idx++}"><span>${escaped}</span></div>`
   })
   const uncheckedHtml = render(unchecked, '')

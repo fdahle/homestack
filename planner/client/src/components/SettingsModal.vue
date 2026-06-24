@@ -368,7 +368,8 @@ async function changePassword() {
     }
     if (authStore.encryptionEnabled) {
       const { deriveKey } = await import('../utils/crypto.js')
-      const newKey = await deriveKey(pwNew.value, authStore.username)
+      // Same per-user salt, new password → new key; re-encrypt everything below.
+      const newKey = await deriveKey(pwNew.value, authStore.encSalt)
       await notesStore.reEncryptAllNotes(newKey)
       authStore.encryptionKey = newKey
     }

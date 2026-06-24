@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import PouchDB from 'pouchdb-browser'
-import { encryptField, decryptField, isEncryptedBlob } from '../utils/crypto.js'
+import { encryptField, decryptField, isEncryptedBlob, encryptBytes, decryptBytes } from '../utils/crypto.js'
+import { generateAttachmentId, compressImage } from '../utils/attachments.js'
 import { useAuthStore } from './auth.js'
 import { subscribeToPush, unsubscribeFromPush, syncPushSubscription } from '../composables/usePushNotifications.js'
 
@@ -74,6 +75,7 @@ export const useNotesStore = defineStore('notes', {
     notes: [],
     views: [],
     boardColumns: [],
+    attachmentUrls: {}, // "<noteId>:<attId>" → object URL (in-memory, regenerated each session)
     currentViewId: 'home', // 'home' | 'trash' | 'smart:today' | 'smart:upcoming' | 'smart:all-tasks' | <view _id>
     syncState: 'local',
     networkDelay: parseInt(localStorage.getItem('networkDelay') ?? '0') || 0,
@@ -98,9 +100,10 @@ export const useNotesStore = defineStore('notes', {
       } else if (state.currentViewId === 'home') {
         notes = state.notes.filter(n => !n.deletedAt && !n.viewId)
       } else {
+        const ids = this.includedViewIds(state.currentViewId)
         notes = state.notes.filter(n => !n.deletedAt && (
-          n.viewId === state.currentViewId ||
-          (n.labels || []).includes(state.currentViewId)
+          ids.has(n.viewId) ||
+          (n.labels || []).some(l => ids.has(l))
         ))
       }
       return notes.slice().sort((a, b) => {
@@ -151,6 +154,26 @@ export const useNotesStore = defineStore('notes', {
       }
       walk(roots, 0)
       return flat
+    },
+
+    // Returns the set of view ids whose notes should appear under `rootId`:
+    // rootId itself, plus any descendant chained through children with rollUp=true.
+    // A child's notes roll up into its parent only when child.rollUp === true; the
+    // chain is followed level by level so a grandchild surfaces only if every link
+    // up to rootId has rollUp enabled.
+    includedViewIds: (state) => (rootId) => {
+      const ids = new Set([rootId])
+      let added = true
+      while (added) {
+        added = false
+        for (const v of state.views) {
+          if (!ids.has(v._id) && v.rollUp === true && ids.has(v.parentId)) {
+            ids.add(v._id)
+            added = true
+          }
+        }
+      }
+      return ids
     },
 
     // Returns sorted board columns for a given viewId ('home' or a view _id)
@@ -260,16 +283,23 @@ export const useNotesStore = defineStore('notes', {
         ...fields,
         title:   await encryptField(key, fields.title   || ''),
         content: await encryptField(key, fields.content || ''),
+        ...(fields.scratch !== undefined ? { scratch: await encryptField(key, fields.scratch || '') } : {}),
       }
     },
 
     async _decryptNote(doc) {
       const key = this._cryptoCtx()
       if (!key) return doc
+      const attachments = Array.isArray(doc.attachments)
+        ? await Promise.all(doc.attachments.map(async (a) =>
+            a?.enc && isEncryptedBlob(a.name) ? { ...a, name: await decryptField(key, a.name) } : a))
+        : doc.attachments
       return {
         ...doc,
         title:   isEncryptedBlob(doc.title)   ? await decryptField(key, doc.title)   : (doc.title   || ''),
         content: isEncryptedBlob(doc.content) ? await decryptField(key, doc.content) : (doc.content || ''),
+        scratch: isEncryptedBlob(doc.scratch) ? await decryptField(key, doc.scratch) : (doc.scratch || ''),
+        attachments,
       }
     },
 
@@ -364,10 +394,12 @@ export const useNotesStore = defineStore('notes', {
     reset() {
       this._destroy()
       unsubscribeFromPush().catch(() => {})
-      this.notes        = []
-      this.views        = []
-      this.boardColumns = []
-      this.syncState    = 'local'
+      for (const url of Object.values(this.attachmentUrls)) URL.revokeObjectURL(url)
+      this.attachmentUrls = {}
+      this.notes          = []
+      this.views          = []
+      this.boardColumns   = []
+      this.syncState      = 'local'
     },
 
     // ── Notifications ─────────────────────────────────────────────────────────
@@ -446,6 +478,8 @@ export const useNotesStore = defineStore('notes', {
         viewId,
         columnId:    null,
         labels:      [],
+        scratch:     '',
+        attachments: [],
         deletedAt:   null,
         isTask:      isTask || false,
         dueDate:     dueDate || null,
@@ -456,10 +490,14 @@ export const useNotesStore = defineStore('notes', {
       })
     },
 
-    async updateNote(note, { title, content, viewId, labels, isTask, dueDate, priority, done, contentType, recurrence }) {
+    async updateNote(note, { title, content, scratch, viewId, labels, isTask, dueDate, priority, done, contentType, recurrence }) {
       this.error = null
       const doc    = await this._local.get(note._id)
-      const fields = await this._encryptNote({ title: title.trim(), content: content.trim() })
+      const fields = await this._encryptNote({
+        title:   title.trim(),
+        content: content.trim(),
+        ...(scratch !== undefined ? { scratch } : {}),
+      })
       await this._local.put({
         ...doc,
         ...fields,
@@ -483,6 +521,107 @@ export const useNotesStore = defineStore('notes', {
     async updateNoteNotification(note, notificationAt) {
       const doc = await this._local.get(note._id)
       await this._local.put({ ...doc, notificationAt: notificationAt || null })
+    },
+
+    // ── Attachments ───────────────────────────────────────────────────────────
+    // Binary data is stored as CouchDB-native _attachments; the note doc keeps a
+    // lightweight `attachments` metadata array. Added/removed immediately (like
+    // color/notification) to avoid rev races with the text save on modal close.
+    //
+    // NOTE: native _attachments bypass the field-encryption applied to
+    // title/content. With ENCRYPTION_ENABLED they would sync unencrypted.
+
+    async addAttachment(note, file) {
+      this.error = null
+      const auth   = useAuthStore()
+      const maxMb  = auth.maxAttachmentMb || 10
+      const blob   = await compressImage(file)
+      if (blob.size > maxMb * 1024 * 1024) {
+        const err = new Error(`File is too large (max ${maxMb} MB).`)
+        err.code = 'TOO_LARGE'
+        throw err
+      }
+      const id   = generateAttachmentId()
+      const type = blob.type || file.type || 'application/octet-stream'
+      const name = file.name || 'attachment'
+
+      // When encryption is enabled, encrypt the blob bytes and the filename
+      // before they touch CouchDB. The stored blob is opaque octet-stream; the
+      // real MIME type stays in plaintext meta.type so the client can render it.
+      const key       = this._cryptoCtx()
+      const storeBlob = key ? new Blob([await encryptBytes(key, await blob.arrayBuffer())]) : blob
+      const storeType = key ? 'application/octet-stream' : type
+      const meta = {
+        id,
+        name: key ? await encryptField(key, name) : name,
+        type,
+        size: blob.size,
+        enc:  !!key,
+      }
+
+      const doc = await this._local.get(note._id)
+      // putAttachment bumps the rev; re-fetch before writing the metadata field.
+      const res = await this._local.putAttachment(note._id, id, doc._rev, storeBlob, storeType)
+      const fresh = await this._local.get(note._id)
+      fresh.attachments = [...(fresh.attachments || []), meta]
+      fresh.updatedAt = new Date().toISOString()
+      await this._local.put(fresh)
+      void res
+      return meta
+    },
+
+    async removeAttachment(note, attId) {
+      this.error = null
+      const doc = await this._local.get(note._id)
+      try {
+        await this._local.removeAttachment(note._id, attId, doc._rev)
+      } catch (err) {
+        // 404 = blob already gone; still strip the metadata below.
+        if (err.status !== 404) throw err
+      }
+      const fresh = await this._local.get(note._id)
+      fresh.attachments = (fresh.attachments || []).filter(a => a.id !== attId)
+      fresh.updatedAt = new Date().toISOString()
+      await this._local.put(fresh)
+
+      const key = `${note._id}:${attId}`
+      if (this.attachmentUrls[key]) {
+        URL.revokeObjectURL(this.attachmentUrls[key])
+        delete this.attachmentUrls[key]
+      }
+    },
+
+    getAttachmentUrl(noteId, attId) {
+      const key = `${noteId}:${attId}`
+      if (this.attachmentUrls[key]) return this.attachmentUrls[key]
+      this.loadAttachmentUrl(noteId, attId)
+      return null
+    },
+
+    async loadAttachmentUrl(noteId, attId) {
+      const key = `${noteId}:${attId}`
+      if (this.attachmentUrls[key]) return this.attachmentUrls[key]
+      this._loadingUrls = this._loadingUrls || new Set()
+      if (this._loadingUrls.has(key)) return null
+      this._loadingUrls.add(key)
+      try {
+        let blob = await this._local.getAttachment(noteId, attId)
+        // Decrypt if this attachment was stored encrypted; restore real MIME type.
+        const meta      = this.notes.find(n => n._id === noteId)?.attachments?.find(a => a.id === attId)
+        const cryptoKey = this._cryptoCtx()
+        if (meta?.enc && cryptoKey) {
+          const dec = await decryptBytes(cryptoKey, await blob.arrayBuffer())
+          blob = new Blob([dec], { type: meta.type || 'application/octet-stream' })
+        }
+        const url = URL.createObjectURL(blob)
+        this.attachmentUrls[key] = url
+        return url
+      } catch (err) {
+        dbg('failed to load attachment', key, err?.message)
+        return null
+      } finally {
+        this._loadingUrls.delete(key)
+      }
     },
 
     // Single get+put for all task-related fields to avoid PouchDB 409 conflicts
@@ -522,8 +661,18 @@ export const useNotesStore = defineStore('notes', {
       const viewId    = note.deletedAt ? null : (note.viewId ?? null)
       const rawTitle  = (note.title || '').trim() ? note.title.trim() + ' (copy)' : ''
       const rawContent = note.content ?? ''
-      const fields    = await this._encryptNote({ title: rawTitle, content: rawContent })
-      await this._local.post({
+      const fields    = await this._encryptNote({ title: rawTitle, content: rawContent, scratch: note.scratch ?? '' })
+      const meta      = note.attachments || []
+      const key       = this._cryptoCtx()
+
+      // In-memory meta carries the decrypted filename; re-encrypt it for the copy
+      // so the duplicate's stored metadata stays encrypted too.
+      const copiedMeta = await Promise.all(meta.map(async (a) => ({
+        ...a,
+        name: (a.enc && key && !isEncryptedBlob(a.name)) ? await encryptField(key, a.name) : a.name,
+      })))
+
+      const res = await this._local.post({
         type:       'note',
         ...fields,
         color:      note.color      ?? null,
@@ -534,8 +683,20 @@ export const useNotesStore = defineStore('notes', {
         dueDate:    note.dueDate    ?? null,
         priority:   note.priority   ?? null,
         recurrence: note.recurrence ?? null,
+        attachments: copiedMeta,
         createdAt:  new Date().toISOString(),
       })
+
+      // Copy attachment blobs so the duplicate is independent of the original.
+      // Stored bytes are already encrypted for enc attachments; copy verbatim.
+      let rev = res.rev
+      for (const a of meta) {
+        try {
+          const blob   = await this._local.getAttachment(note._id, a.id)
+          const result = await this._local.putAttachment(res.id, a.id, rev, blob, a.enc ? 'application/octet-stream' : a.type)
+          rev = result.rev
+        } catch { /* skip missing blob */ }
+      }
     },
 
     async pinNote(note) {
@@ -558,6 +719,7 @@ export const useNotesStore = defineStore('notes', {
           viewId:      doc.viewId      ?? null,
           columnId:    doc.columnId    ?? null,
           labels:      doc.labels      ?? [],
+          scratch:     doc.scratch     ?? '',
           color:       doc.color       ?? null,
           deletedAt:   null,
           isTask:      doc.isTask      ?? true,
@@ -612,29 +774,27 @@ export const useNotesStore = defineStore('notes', {
       }
     },
 
+    // Fetch the latest docs for `ids` and write back transform(doc, id) for each.
+    // Centralizes the allDocs → map → bulkDocs pattern used across the store.
+    async _bulkUpdate(ids, transform) {
+      if (!ids.length) return
+      const result  = await this._local.allDocs({ keys: ids, include_docs: true })
+      const updates = result.rows.filter(r => r.doc).map(r => transform(r.doc, r.id))
+      await this._local.bulkDocs(updates)
+    },
+
     async pruneTrash() {
       const cutoff  = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      const expired = this.notes.filter(n => n.deletedAt && n.deletedAt < cutoff)
-      if (!expired.length) return
-      const ids    = expired.map(n => n._id)
-      const result = await this._local.allDocs({ keys: ids, include_docs: true })
-      const deletes = result.rows
-        .filter(r => r.doc)
-        .map(r => ({ ...r.doc, _deleted: true }))
-      await this._local.bulkDocs(deletes)
+      const ids     = this.notes.filter(n => n.deletedAt && n.deletedAt < cutoff).map(n => n._id)
+      await this._bulkUpdate(ids, (doc) => ({ ...doc, _deleted: true }))
     },
 
     async pruneDoneTasks() {
       if (!this.doneAutoDeleteDays) return
-      const cutoff  = new Date(Date.now() - this.doneAutoDeleteDays * 24 * 60 * 60 * 1000).toISOString()
-      const expired = this.notes.filter(n => n.done && !n.deletedAt && n.doneAt && n.doneAt < cutoff)
-      if (!expired.length) return
-      const ids    = expired.map(n => n._id)
-      const result = await this._local.allDocs({ keys: ids, include_docs: true })
-      const updates = result.rows
-        .filter(r => r.doc)
-        .map(r => ({ ...r.doc, deletedAt: new Date().toISOString() }))
-      await this._local.bulkDocs(updates)
+      const cutoff = new Date(Date.now() - this.doneAutoDeleteDays * 24 * 60 * 60 * 1000).toISOString()
+      const now    = new Date().toISOString()
+      const ids    = this.notes.filter(n => n.done && !n.deletedAt && n.doneAt && n.doneAt < cutoff).map(n => n._id)
+      await this._bulkUpdate(ids, (doc) => ({ ...doc, deletedAt: now }))
     },
 
     setDoneAutoDeleteDays(days) {
@@ -642,48 +802,39 @@ export const useNotesStore = defineStore('notes', {
       localStorage.setItem('doneAutoDeleteDays', String(this.doneAutoDeleteDays))
     },
 
-    // Reorder notes by assigning sequential `order` values (0, 1, 2 …).
-    // Pass `columnId` to also update the notes' column assignment:
-    //   undefined  → leave existing columnId unchanged
+    // NOTE: re-encrypts note text only. Attachment blobs/filenames stay under
+    // the previous key, so changing the encryption key invalidates existing
+    // attachments. Avoid changing the key while encrypted attachments exist.
     async reEncryptAllNotes(newKey) {
       await Promise.all(this.notes.map(async (note) => {
         const encTitle   = await encryptField(newKey, note.title   || '')
         const encContent = await encryptField(newKey, note.content || '')
-        await this._local.put({ ...note, title: encTitle, content: encContent })
+        const encScratch = await encryptField(newKey, note.scratch || '')
+        await this._local.put({ ...note, title: encTitle, content: encContent, scratch: encScratch })
       }))
     },
 
-    //   null       → assign to Uncategorized (columnId: null)
-    //   '<id>'     → assign to that board column
     async bulkDelete(ids) {
-      if (!ids.length) return
-      const result = await this._local.allDocs({ keys: ids, include_docs: true })
-      const updates = result.rows
-        .filter(r => r.doc)
-        .map(r => ({ ...r.doc, deletedAt: new Date().toISOString() }))
-      await this._local.bulkDocs(updates)
+      const now = new Date().toISOString()
+      await this._bulkUpdate(ids, (doc) => ({ ...doc, deletedAt: now }))
     },
 
     async bulkMove(ids, viewId) {
-      if (!ids.length) return
-      const result = await this._local.allDocs({ keys: ids, include_docs: true })
-      const updates = result.rows
-        .filter(r => r.doc)
-        .map(r => ({ ...r.doc, viewId: viewId ?? null, columnId: null, updatedAt: new Date().toISOString() }))
-      await this._local.bulkDocs(updates)
+      const now = new Date().toISOString()
+      await this._bulkUpdate(ids, (doc) => ({ ...doc, viewId: viewId ?? null, columnId: null, updatedAt: now }))
     },
 
+    // Reorder notes by assigning sequential `order` values (0, 1, 2 …).
+    // Pass `columnId` to also update the notes' column assignment:
+    //   undefined  → leave existing columnId unchanged
+    //   null       → assign to Uncategorized (columnId: null)
+    //   '<id>'     → assign to that board column
     async reorderNotes(noteIds, columnId) {
-      if (!noteIds.length) return
-      const result = await this._local.allDocs({ keys: noteIds, include_docs: true })
-      const updates = result.rows
-        .filter(r => r.doc)
-        .map(r => ({
-          ...r.doc,
-          order: noteIds.indexOf(r.id),
-          ...(columnId !== undefined ? { columnId } : {}),
-        }))
-      await this._local.bulkDocs(updates)
+      await this._bulkUpdate(noteIds, (doc, id) => ({
+        ...doc,
+        order: noteIds.indexOf(id),
+        ...(columnId !== undefined ? { columnId } : {}),
+      }))
     },
 
     // ── Export / Import ───────────────────────────────────────────────────────
@@ -716,7 +867,7 @@ export const useNotesStore = defineStore('notes', {
 
         // Encrypt notes on import if encryption is active
         if (doc.type === 'note' || !doc.type) {
-          const fields = await this._encryptNote({ title: doc.title || '', content: doc.content || '' })
+          const fields = await this._encryptNote({ title: doc.title || '', content: doc.content || '', scratch: doc.scratch || '' })
           doc = { ...doc, ...fields }
         }
 
@@ -759,13 +910,7 @@ export const useNotesStore = defineStore('notes', {
     async deleteBoardColumn(id) {
       // Move all notes in this column back to Uncategorized
       const noteIds = this.notes.filter(n => n.columnId === id).map(n => n._id)
-      if (noteIds.length) {
-        const result = await this._local.allDocs({ keys: noteIds, include_docs: true })
-        const updates = result.rows
-          .filter(r => r.doc)
-          .map(r => ({ ...r.doc, columnId: null }))
-        await this._local.bulkDocs(updates)
-      }
+      await this._bulkUpdate(noteIds, (doc) => ({ ...doc, columnId: null }))
       const doc = await this._local.get(id)
       await this._local.remove(doc)
     },
@@ -807,11 +952,7 @@ export const useNotesStore = defineStore('notes', {
         siblings.splice(position === 'before' ? idx : idx + 1, 0, { _id: draggedId })
       }
       const siblingIds = siblings.map(s => s._id)
-      const result = await this._local.allDocs({ keys: siblingIds, include_docs: true })
-      const updates = result.rows
-        .filter(r => r.doc)
-        .map(r => ({ ...r.doc, parentId: newParentId, order: siblingIds.indexOf(r.id) }))
-      await this._local.bulkDocs(updates)
+      await this._bulkUpdate(siblingIds, (doc, id) => ({ ...doc, parentId: newParentId, order: siblingIds.indexOf(id) }))
     },
 
     async deleteView(view) {

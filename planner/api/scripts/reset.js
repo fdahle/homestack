@@ -28,7 +28,20 @@ async function reset() {
     console.log(`  deleted user: ${doc.name}`)
   }
 
-  console.log(`\nDone. Deleted ${noteDbs.length} database(s) and ${userDocs.length} user(s).`)
+  // 3. Clear push subscription docs (keep the DB so the API doesn't need a restart)
+  let pushDeleted = 0
+  const pushRes = await couch('GET', '/planner_push_subscriptions/_all_docs?include_docs=true')
+  if (pushRes.ok) {
+    const pushBody = await pushRes.json()
+    const pushDocs = (pushBody.rows || []).map(r => r.doc).filter(Boolean)
+    for (const doc of pushDocs) {
+      await couch('DELETE', `/planner_push_subscriptions/${encodeURIComponent(doc._id)}?rev=${encodeURIComponent(doc._rev)}`)
+      console.log(`  deleted push subscription: ${doc._id}`)
+      pushDeleted++
+    }
+  }
+
+  console.log(`\nDone. Deleted ${noteDbs.length} database(s), ${userDocs.length} user(s) and ${pushDeleted} push subscription(s).`)
   console.log('Now clear localStorage/sessionStorage and IndexedDB in the browser, then register again.')
 }
 

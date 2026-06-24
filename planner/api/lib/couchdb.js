@@ -1,4 +1,4 @@
-const { randomUUID } = require('crypto')
+const { randomUUID, randomBytes } = require('crypto')
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args))
 
 const BASE    = process.env.COUCHDB_URL      || 'http://localhost:5984'
@@ -37,6 +37,9 @@ async function createUser(username, password, roles = [], dbId) {
     roles,
     type:     'user',
     dbId:     dbId || randomUUID(),
+    // Random per-user salt for client-side key derivation. Not secret; the
+    // client fetches it at login and the server never sees the derived key.
+    encSalt:  randomBytes(16).toString('base64'),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -76,6 +79,18 @@ async function getUserDbId(username) {
   const dbId = doc.dbId || null
   console.log(`[getUserDbId] username="${username}" dbId=${dbId}`)
   return dbId
+}
+
+// Returns the bits the client needs after authenticating: the notes DB id and
+// the encryption salt. The salt is non-secret (see createUser).
+async function getUserMeta(username) {
+  const res = await couch('GET', `/_users/org.couchdb.user:${encodeURIComponent(username)}`)
+  if (!res.ok) {
+    console.log(`[getUserMeta] user doc not found for "${username}" — status ${res.status}`)
+    return { dbId: null, encSalt: null }
+  }
+  const doc = await res.json()
+  return { dbId: doc.dbId || null, encSalt: doc.encSalt || null }
 }
 
 // ── Admin helpers ─────────────────────────────────────────────────────────────
@@ -143,15 +158,16 @@ async function ensurePushDb() {
   }
 }
 
-async function savePushSubscription(username, subscription) {
-  // Fetch existing doc to preserve _rev and sentKeys
+async function savePushSubscription(username, subscription, dbId) {
+  // Fetch existing doc to preserve _rev, sentKeys and dbId
   const existing = await couch('GET', `/${PUSH_DB}/${encodeURIComponent(username)}`)
-  let rev, sentKeys = []
+  let rev, sentKeys = [], existingDbId = null
 
   if (existing.ok) {
     const existingDoc = await existing.json()
-    rev      = existingDoc._rev
-    sentKeys = existingDoc.sentKeys || []
+    rev          = existingDoc._rev
+    sentKeys     = existingDoc.sentKeys || []
+    existingDbId = existingDoc.dbId || null
   } else if (existing.status !== 404) {
     const body = await existing.json().catch(() => ({}))
     throw new Error(body.reason || `CouchDB error ${existing.status}`)
@@ -161,6 +177,9 @@ async function savePushSubscription(username, subscription) {
     _id: username,
     subscription,
     sentKeys,
+    // The user's notes DB is named notes_<dbId>; store it so the push
+    // scheduler can find the right database (it can't derive it from username).
+    dbId: dbId || existingDbId || null,
     updatedAt: new Date().toISOString(),
   }
   if (rev) doc._rev = rev
@@ -206,7 +225,7 @@ async function updateSentKeys(username, sentKeys) {
 
 module.exports = {
   couch,
-  hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, getUserDbId,
+  hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, getUserDbId, getUserMeta,
   changeUserPassword,
   listUsers, updateUserRoles, deleteUser,
   ensurePushDb, savePushSubscription, deletePushSubscription,

@@ -1,5 +1,5 @@
 <template>
-  <aside class="side-menu" :class="{ collapsed }">
+  <aside class="side-menu" :class="{ collapsed, resizing }" :style="collapsed ? null : { width: width + 'px' }">
     <nav>
       <ul class="nav-list">
         <!-- Labels section (Home + user labels) -->
@@ -74,19 +74,25 @@
               >
                 <AppIcon name="chevron-right" :size="12" />
               </span>
+              <span class="nav-icon"><AppIcon :name="view.icon || 'folder'" :size="16" /></span>
+              <input
+                v-if="renamingId === view._id"
+                class="nav-rename-input"
+                v-model="renameValue"
+                @click.stop
+                @keydown.enter="submitRename"
+                @keydown.escape="cancelRename"
+                @blur="submitRename"
+              />
               <span
-                class="nav-icon"
-                :class="{ 'nav-icon--editable': editMode }"
-                @click.stop="editMode && toggleIconPicker(view, $event)"
-              ><AppIcon :name="view.icon || 'folder'" :size="16" /></span>
-              <span class="nav-label">{{ view.name }}</span>
+                v-else
+                class="nav-label"
+                @dblclick.stop="editMode && startRename(view)"
+              >{{ view.name }}</span>
               <span v-if="!editMode && viewNoteCounts[view._id] > 0" class="nav-badge">{{ viewNoteCounts[view._id] }}</span>
-              <span v-if="editMode" class="nav-actions">
-                <span class="nav-action" title="Add subview" @click.stop="startAddView(view._id)">
-                  <AppIcon name="plus" :size="12" />
-                </span>
-                <span class="nav-action nav-action--delete" title="Delete view" @click.stop="store.deleteView(view)">
-                  <AppIcon name="x" :size="12" />
+              <span v-if="editMode && renamingId !== view._id" class="nav-actions">
+                <span class="nav-action" title="Label options" @click.stop="toggleMenu(view, $event)">
+                  <AppIcon name="more-vertical" :size="14" />
                 </span>
               </span>
             </button>
@@ -98,6 +104,7 @@
                 placeholder="Subview name"
                 @keydown.enter="submitView"
                 @keydown.escape="cancelView"
+                @blur="cancelView"
               />
             </div>
           </li>
@@ -110,6 +117,7 @@
                 placeholder="View name"
                 @keydown.enter="submitView"
                 @keydown.escape="cancelView"
+                @blur="cancelView"
               />
             </div>
             <button v-else class="nav-item nav-item--add" @click="startAddView(null)">
@@ -169,7 +177,33 @@
         </li>
       </ul>
     </nav>
+    <div v-if="!collapsed" class="resize-handle" @mousedown.prevent="startResize"></div>
   </aside>
+
+  <Teleport to="body">
+    <div
+      v-if="menuOpenId && menuPos"
+      class="label-menu-float"
+      :style="{ top: menuPos.top + 'px', left: menuPos.left + 'px' }"
+      @click.stop
+    >
+      <button class="label-menu-item" @click="onMenuRename">
+        <AppIcon name="edit" :size="14" /> Rename
+      </button>
+      <button class="label-menu-item" @click="onMenuIcon">
+        <AppIcon name="folder" :size="14" /> Change icon
+      </button>
+      <button v-if="menuView?.parentId" class="label-menu-item" @click="onMenuToggleRollup">
+        <AppIcon name="check" :size="14" :class="{ invisible: !menuView?.rollUp }" /> Show in parent
+      </button>
+      <button class="label-menu-item" @click="onMenuAddSub">
+        <AppIcon name="plus" :size="14" /> Add sub-label
+      </button>
+      <button class="label-menu-item label-menu-item--delete" @click="onMenuDelete">
+        <AppIcon name="x" :size="14" /> Delete
+      </button>
+    </div>
+  </Teleport>
 
   <Teleport to="body">
     <div
@@ -204,6 +238,14 @@ const LABEL_ICONS = [
   'archive','briefcase', 'globe',     'zap',
 ]
 
+const MIN_WIDTH = 150
+const MAX_WIDTH = 420
+
+function loadJson(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback }
+  catch { return fallback }
+}
+
 export default {
   name: 'SideMenu',
 
@@ -223,13 +265,19 @@ export default {
       addingView:        false,
       newViewParentId:   null,
       newViewName:       '',
-      collapsedViews:    {},
-      collapsedSections: { tasks: false, labels: false },
+      collapsedViews:    loadJson('sidebarCollapsedViews', {}),
+      collapsedSections: loadJson('sidebarCollapsedSections', { tasks: false, labels: false }),
       draggedId:         null,
       dropTarget:        null,  // { id, position: 'before'|'after'|'inside' }
       noteDropTarget:    null,  // viewId string | null
       iconPickerOpenId:  null,
       iconPickerPos:     null,  // { top, left } in px (fixed coords)
+      width:             parseInt(localStorage.getItem('sidebarWidth')) || 180,
+      resizing:          false,
+      renamingId:        null,
+      renameValue:       '',
+      menuOpenId:        null,
+      menuPos:           null,  // { top, left } in px (fixed coords)
     }
   },
 
@@ -237,13 +285,19 @@ export default {
     this._closePickerBound = () => {
       this.iconPickerOpenId = null
       this.iconPickerPos = null
+      this.menuOpenId = null
+      this.menuPos = null
     }
     document.addEventListener('dragend', this.onExternalDragEnd)
+    document.addEventListener('keydown', this.onKeydown)
   },
 
   beforeUnmount() {
     document.removeEventListener('dragend', this.onExternalDragEnd)
+    document.removeEventListener('keydown', this.onKeydown)
     document.removeEventListener('click', this._closePickerBound)
+    document.removeEventListener('mousemove', this.onResizeMove)
+    document.removeEventListener('mouseup', this.stopResize)
   },
 
   watch: {
@@ -255,7 +309,19 @@ export default {
       if (!val) {
         this.cancelView()
         this.closeIconPicker()
+        this.closeMenu()
+        this.cancelRename()
       }
+    },
+
+    collapsedViews: {
+      deep: true,
+      handler(val) { localStorage.setItem('sidebarCollapsedViews', JSON.stringify(val)) },
+    },
+
+    collapsedSections: {
+      deep: true,
+      handler(val) { localStorage.setItem('sidebarCollapsedSections', JSON.stringify(val)) },
     },
   },
 
@@ -264,6 +330,10 @@ export default {
       if (!this.iconPickerOpenId) return 'folder'
       const view = this.store.views.find(v => v._id === this.iconPickerOpenId)
       return view?.icon || 'folder'
+    },
+
+    menuView() {
+      return this.menuOpenId ? this.store.views.find(v => v._id === this.menuOpenId) : null
     },
 
     smartViews() {
@@ -278,13 +348,21 @@ export default {
     },
 
     viewNoteCounts() {
-      const counts = {}
+      // Direct counts per view (own notes + notes labelled with it).
+      const direct = {}
       for (const note of this.store.notes) {
         if (note.deletedAt) continue
-        if (note.viewId) counts[note.viewId] = (counts[note.viewId] || 0) + 1
+        if (note.viewId) direct[note.viewId] = (direct[note.viewId] || 0) + 1
         for (const label of (note.labels || [])) {
-          counts[label] = (counts[label] || 0) + 1
+          direct[label] = (direct[label] || 0) + 1
         }
+      }
+      // Roll rolled-up children into their ancestors so the badge matches the list.
+      const counts = {}
+      for (const view of this.store.views) {
+        let total = 0
+        for (const id of this.store.includedViewIds(view._id)) total += direct[id] || 0
+        counts[view._id] = total
       }
       return counts
     },
@@ -322,6 +400,114 @@ export default {
       if (!this.iconPickerOpenId) return
       await this.store.updateView(this.iconPickerOpenId, { icon: iconName })
       this.closeIconPicker()
+    },
+
+    // ── Resize ──────────────────────────────────────────────────────────────────
+
+    startResize(e) {
+      const aside = e.currentTarget.closest('.side-menu')
+      this._resizeLeft = aside ? aside.getBoundingClientRect().left : 0
+      this.resizing = true
+      document.addEventListener('mousemove', this.onResizeMove)
+      document.addEventListener('mouseup', this.stopResize)
+    },
+
+    onResizeMove(e) {
+      const w = e.clientX - this._resizeLeft
+      this.width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w))
+    },
+
+    stopResize() {
+      this.resizing = false
+      localStorage.setItem('sidebarWidth', String(this.width))
+      document.removeEventListener('mousemove', this.onResizeMove)
+      document.removeEventListener('mouseup', this.stopResize)
+    },
+
+    // ── Rename ──────────────────────────────────────────────────────────────────
+
+    startRename(view) {
+      this.closeMenu()
+      this.renamingId = view._id
+      this.renameValue = view.name
+      this.$nextTick(() => {
+        const input = this.$el.querySelector('.nav-rename-input')
+        if (input) { input.focus(); input.select() }
+      })
+    },
+
+    async submitRename() {
+      if (!this.renamingId) return
+      const id = this.renamingId
+      const name = this.renameValue.trim()
+      const view = this.store.views.find(v => v._id === id)
+      this.renamingId = null
+      this.renameValue = ''
+      if (name && view && name !== view.name) {
+        await this.store.updateView(id, { name })
+      }
+    },
+
+    cancelRename() {
+      this.renamingId = null
+      this.renameValue = ''
+    },
+
+    onKeydown(e) {
+      if (e.key !== 'F2' || !this.editMode) return
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const view = this.store.views.find(v => v._id === this.store.currentViewId)
+      if (view) { e.preventDefault(); this.startRename(view) }
+    },
+
+    // ── Label menu ──────────────────────────────────────────────────────────────
+
+    toggleMenu(view, event) {
+      if (this.menuOpenId === view._id) { this.closeMenu(); return }
+      this.closeIconPicker()
+      const rect = event.currentTarget.getBoundingClientRect()
+      this.menuOpenId = view._id
+      this.menuPos = { top: rect.bottom + 4, left: Math.max(8, rect.right - 160) }
+      document.removeEventListener('click', this._closePickerBound)
+      this.$nextTick(() => document.addEventListener('click', this._closePickerBound))
+    },
+
+    closeMenu() {
+      this.menuOpenId = null
+      this.menuPos = null
+    },
+
+    onMenuRename() {
+      const view = this.menuView
+      this.closeMenu()
+      if (view) this.startRename(view)
+    },
+
+    onMenuIcon(event) {
+      const view = this.menuView
+      this.closeMenu()
+      if (view) this.toggleIconPicker(view, event)
+    },
+
+    async onMenuToggleRollup() {
+      const view = this.menuView
+      this.closeMenu()
+      if (view) await this.store.updateView(view._id, { rollUp: !view.rollUp })
+    },
+
+    onMenuAddSub() {
+      const view = this.menuView
+      this.closeMenu()
+      if (view) this.startAddView(view._id)
+    },
+
+    async onMenuDelete() {
+      const view = this.menuView
+      this.closeMenu()
+      if (!view) return
+      if (!confirm(`Delete "${view.name}" and its sub-labels? Notes will be moved to Home.`)) return
+      await this.store.deleteView(view)
     },
 
     toggleCollapse(viewId) {
@@ -459,6 +645,7 @@ export default {
 
 <style scoped>
 .side-menu {
+  position: relative;
   width: 180px;
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -469,6 +656,32 @@ export default {
   flex-shrink: 0;
 }
 .side-menu.collapsed { width: 0; border-right: none; }
+.side-menu.resizing { transition: none; user-select: none; }
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.resize-handle:hover,
+.side-menu.resizing .resize-handle { background: var(--accent); opacity: 0.4; }
+
+.nav-rename-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-bottom: 2px solid var(--accent);
+  outline: none;
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.1rem 0;
+  background: transparent;
+  color: var(--text-1);
+}
 
 nav { display: flex; flex-direction: column; height: 100%; padding: 0.5rem 0; overflow: hidden; }
 
@@ -662,10 +875,41 @@ nav { display: flex; flex-direction: column; height: 100%; padding: 0.5rem 0; ov
     transform: translateX(0);
     box-shadow: 4px 0 24px rgba(0,0,0,.18);
   }
+
+  .resize-handle { display: none; }
 }
 </style>
 
 <style>
+.label-menu-float {
+  position: fixed;
+  z-index: 9999;
+  min-width: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.13);
+  padding: 4px;
+}
+.label-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: var(--text-2);
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  border-radius: 5px;
+}
+.label-menu-item:hover { background: var(--surface-3); color: var(--text-1); }
+.label-menu-item--delete:hover { background: var(--danger-bg); color: var(--danger); }
+.label-menu-item .invisible { visibility: hidden; }
+
 .icon-picker-float {
   position: fixed;
   z-index: 9999;

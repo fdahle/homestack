@@ -28,15 +28,6 @@
       <AppIcon v-if="selected" name="check" :size="14" />
     </span>
 
-    <div v-if="!inTrash && !selectMode" class="note-card-actions">
-      <button class="note-card-action-btn" :title="note.pinned ? 'Unpin' : 'Pin'" @click.stop="$emit('pin', note)">
-        <AppIcon name="pin" :size="13" />
-      </button>
-      <button class="note-card-action-btn note-card-action-btn--danger" title="Move to trash" @click.stop="$emit('delete', note)">
-        <AppIcon name="trash" :size="13" />
-      </button>
-    </div>
-
     <span v-if="note.pinned && !selectMode" class="note-card-pin" title="Pinned">
       <AppIcon name="pin" :size="13" />
     </span>
@@ -59,6 +50,12 @@
         <span v-if="checklistProgress" class="note-card-recurrence" :title="`${checklistProgress.done} of ${checklistProgress.total} items done`">
           {{ checklistProgress.done }} / {{ checklistProgress.total }}
         </span>
+        <span v-if="attachments.length" class="note-card-recurrence" :title="`${attachments.length} attachment(s)`">
+          <AppIcon name="paperclip" :size="10" /> {{ attachments.length }}
+        </span>
+        <span v-if="hasScratch" class="note-card-recurrence" title="Has scratch notes">
+          <AppIcon name="edit" :size="10" />
+        </span>
         <time class="note-card-date">{{ formattedDate }}</time>
       </div>
     </template>
@@ -66,7 +63,7 @@
     <!-- ── Masonry / Trello layout ── -->
     <template v-else>
       <h2 v-if="note.title" class="note-card-title" :class="{ 'note-card-title--done': isTask && note.done }">{{ note.title }}</h2>
-      <div v-if="note.dueDate || note.priority || note.recurrence || checklistProgress" class="note-card-chips">
+      <div v-if="note.dueDate || note.priority || note.recurrence || checklistProgress || hasScratch" class="note-card-chips">
         <span v-if="note.dueDate" class="note-card-due" :class="{ overdue: isOverdue }">{{ formattedDueDate }}</span>
         <span v-if="note.priority" class="note-card-priority" :class="`priority--${note.priority}`">{{ note.priority }}</span>
         <span v-if="note.recurrence" class="note-card-recurrence" :title="`Repeats ${note.recurrence}`">
@@ -76,12 +73,42 @@
         <span v-if="checklistProgress" class="note-card-recurrence" :title="`${checklistProgress.done} of ${checklistProgress.total} items done`">
           {{ checklistProgress.done }} / {{ checklistProgress.total }}
         </span>
+        <span v-if="hasScratch" class="note-card-recurrence" title="Has scratch notes">
+          <AppIcon name="edit" :size="10" />
+        </span>
       </div>
     </template>
 
     <div class="note-card-content prose"
          v-html="renderedContent"
          @change.stop="$emit('checkbox-change', $event, note)" />
+
+    <!-- Attachment preview (masonry / trello only) -->
+    <div v-if="viewMode !== 'list' && attachments.length" class="note-card-attachments">
+      <template v-for="att in imageAttachments.slice(0, 4)" :key="att.id">
+        <img
+          v-if="thumbUrl(att)"
+          class="note-card-thumb"
+          :src="thumbUrl(att)"
+          :alt="att.name"
+          loading="lazy"
+        />
+      </template>
+      <span v-if="imageAttachments.length > 4" class="note-card-thumb note-card-thumb--more">
+        +{{ imageAttachments.length - 4 }}
+      </span>
+      <span
+        v-for="att in fileAttachments.slice(0, 3)"
+        :key="att.id"
+        class="note-card-file-tile"
+        :title="att.name"
+      >
+        <FileTypeIcon :name="att.name" :type="att.type" :size="28" />
+      </span>
+      <span v-if="fileAttachments.length > 3" class="note-card-file-count">
+        <AppIcon name="paperclip" :size="11" /> +{{ fileAttachments.length - 3 }}
+      </span>
+    </div>
 
     <div v-if="expiryLabel" class="note-card-expiry">{{ expiryLabel }}</div>
 
@@ -93,10 +120,18 @@
 </template>
 
 <script>
-import { isTaskNote } from '../stores/notes.js'
+import { isTaskNote, useNotesStore } from '../stores/notes.js'
+import { isImageType } from '../utils/attachments.js'
+import FileTypeIcon from './FileTypeIcon.vue'
 
 export default {
   name: 'NoteCard',
+
+  components: { FileTypeIcon },
+
+  setup() {
+    return { notesStore: useNotesStore() }
+  },
 
   props: {
     note:       { type: Object,  required: true },
@@ -117,6 +152,16 @@ export default {
   computed: {
     isTask() {
       return isTaskNote(this.note)
+    },
+
+    attachments() {
+      return Array.isArray(this.note.attachments) ? this.note.attachments : []
+    },
+    imageAttachments() {
+      return this.attachments.filter(a => isImageType(a.type))
+    },
+    fileAttachments() {
+      return this.attachments.filter(a => !isImageType(a.type))
     },
 
     today() {
@@ -166,6 +211,10 @@ export default {
       const done  = (content.match(/^\s*- \[[xX]\] /gm) || []).length
       return { done, total }
     },
+
+    hasScratch() {
+      return !!(this.note.scratch && this.note.scratch.trim())
+    },
   },
 
   methods: {
@@ -176,6 +225,10 @@ export default {
       } else {
         this.$emit('open', this.note)
       }
+    },
+
+    thumbUrl(att) {
+      return this.notesStore.getAttachmentUrl(this.note._id, att.id)
     },
   },
 }
@@ -206,5 +259,46 @@ export default {
 .note-card--selected {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+.note-card-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+.note-card-thumb {
+  width: 2.6rem;
+  height: 2.6rem;
+  object-fit: cover;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+}
+.note-card-thumb--more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.note-card-file-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+}
+.note-card-file-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.72rem;
+  color: var(--text-3);
 }
 </style>

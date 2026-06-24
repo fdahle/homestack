@@ -8,7 +8,7 @@ const webpush      = require('web-push')
 const authRoutes   = require('./routes/auth')
 const pushRoutes   = require('./routes/push')
 const adminRoutes  = require('./routes/admin')
-const { couch, ensurePushDb, getAllPushSubscriptions, updateSentKeys, deletePushSubscription } = require('./lib/couchdb')
+const { couch, ensurePushDb, getAllPushSubscriptions, updateSentKeys, deletePushSubscription, getUserDbId } = require('./lib/couchdb')
 
 const PORT = process.env.PORT || 3000
 
@@ -24,6 +24,10 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
+  // Only rate-limit the sensitive write endpoints (login, register,
+  // change-password, logout). GET /me and /config are polled automatically by
+  // the client on every app load / route change and must not consume the budget.
+  skip: (req) => req.method === 'GET',
 })
 
 const pushLimiter = rateLimit({
@@ -34,9 +38,17 @@ const pushLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 })
 
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+})
+
 app.use('/api/auth',  authLimiter, authRoutes)
 app.use('/api/push',  pushLimiter, pushRoutes)
-app.use('/api/admin', adminRoutes)
+app.use('/api/admin', adminLimiter, adminRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 
@@ -108,9 +120,15 @@ async function runPushScheduler() {
     const { _id: username, subscription, sentKeys = [] } = doc
     if (!subscription?.endpoint) continue
 
+    // The notes DB is named notes_<dbId>, not notes_<username>. Older
+    // subscription docs predate the stored dbId — look it up as a fallback.
+    const dbId = doc.dbId || await getUserDbId(username)
+    if (!dbId) continue
+    const notesDb = `notes_${dbId}`
+
     try {
       // Query this user's notes db for notes with notificationAt in the current window
-      const findRes = await couch('POST', `/notes_${username}/_find`, {
+      const findRes = await couch('POST', `/${notesDb}/_find`, {
         selector: {
           notificationAt: { $gte: start, $lte: end },
           deletedAt:      null,

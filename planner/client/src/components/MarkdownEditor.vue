@@ -1,23 +1,6 @@
 <template>
   <div class="md-editor-wrap">
     <editor-content :editor="editor" class="md-editor" />
-    <div class="md-toolbar">
-      <button
-        type="button"
-        class="md-toolbar-btn"
-        title="Insert image"
-        @click="triggerFileInput"
-      >
-        <AppIcon name="image" :size="14" />
-      </button>
-      <input
-        ref="fileInput"
-        type="file"
-        accept="image/*"
-        style="display: none"
-        @change="onFileSelected"
-      />
-    </div>
   </div>
 </template>
 
@@ -28,7 +11,6 @@ import { Markdown } from 'tiptap-markdown'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Image from '@tiptap/extension-image'
-import AppIcon from './AppIcon.vue'
 
 // Extend Image with an explicit tiptap-markdown serializer.
 // The default prosemirror-markdown image serializer is designed for inline
@@ -37,6 +19,10 @@ import AppIcon from './AppIcon.vue'
 // lets it pass through markdown-it verbatim) and call closeBlock so the
 // block is properly separated from adjacent content.
 const ImageWithMarkdown = Image.extend({
+  // Images are draggable by default, which lets the user drag an existing image
+  // and drop it back into the editor, duplicating it. Disable node dragging.
+  draggable: false,
+
   addStorage() {
     return {
       markdown: {
@@ -55,7 +41,7 @@ const ImageWithMarkdown = Image.extend({
 export default {
   name: 'MarkdownEditor',
 
-  components: { EditorContent, AppIcon },
+  components: { EditorContent },
 
   props: {
     modelValue: { type: String, default: '' },
@@ -81,6 +67,17 @@ export default {
       ],
       content: this.modelValue,
       editorProps: {
+        handleDOMEvents: {
+          // Belt-and-braces with the node's draggable:false — also block the
+          // browser-native image drag so an image can't be dragged out/re-dropped.
+          dragstart: (_view, event) => {
+            if (event.target instanceof HTMLImageElement) {
+              event.preventDefault()
+              return true
+            }
+            return false
+          },
+        },
         handlePaste: (view, event) => {
           const items = event.clipboardData?.items
           if (!items) return false
@@ -119,16 +116,6 @@ export default {
   },
 
   methods: {
-    triggerFileInput() {
-      this.$refs.fileInput.click()
-    },
-
-    onFileSelected(event) {
-      const file = event.target.files?.[0]
-      if (file) this._insertImageFile(file)
-      event.target.value = ''
-    },
-
     insertImage(file) {
       this._insertImageFile(file)
     },
@@ -147,34 +134,6 @@ export default {
 <style>
 .md-editor-wrap {
   position: relative;
-}
-
-.md-toolbar {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0.25rem 0;
-  border-top: 1px solid var(--border);
-  margin-top: 0.375rem;
-}
-
-.md-toolbar-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.6rem;
-  height: 1.6rem;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--text-3);
-  padding: 0;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
-}
-.md-toolbar-btn:hover {
-  background: var(--surface-3);
-  border-color: var(--border);
-  color: var(--text-1);
 }
 
 .md-editor .ProseMirror {

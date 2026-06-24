@@ -1,7 +1,7 @@
 const { randomUUID } = require('crypto')
 const express  = require('express')
 const fetch    = (...args) => import('node-fetch').then(({ default: f }) => f(...args))
-const { hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, getUserDbId, changeUserPassword } = require('../lib/couchdb')
+const { hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, getUserMeta, changeUserPassword } = require('../lib/couchdb')
 
 const router  = express.Router()
 const DB_BASE = process.env.COUCHDB_URL || 'http://localhost:5984'
@@ -36,11 +36,14 @@ router.post('/register', async (req, res) => {
     await createUserDb(dbId)
     await setSecurityDoc(username, dbId)
   } catch (err) {
-    return res.status(500).json({ error: err.message })
+    console.error('[register] failed:', err.message)
+    return res.status(500).json({ error: 'Registration failed' })
   }
 
-  // Auto-login after registration — keep session alive since they just signed up
-  return loginUser(username, password, true, req, res)
+  // Auto-login after registration — keep session alive since they just signed up.
+  // Retry a few times: CouchDB's auth cache can briefly return 401 for a user
+  // that was just created, so the immediate login otherwise fails spuriously.
+  return loginUser(username, password, true, req, res, 5)
 })
 
 // POST /api/auth/login
@@ -50,14 +53,19 @@ router.post('/login', async (req, res) => {
   return loginUser(username, password, !!rememberMe, req, res)
 })
 
-async function loginUser(username, password, rememberMe, _req, res) {
+async function loginUser(username, password, rememberMe, _req, res, retries = 0) {
   try {
-    const couchRes = await fetch(`${DB_BASE}/_session`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ name: username, password }),
-    })
-    const body = await couchRes.json()
+    let couchRes, body
+    for (let attempt = 0; ; attempt++) {
+      couchRes = await fetch(`${DB_BASE}/_session`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name: username, password }),
+      })
+      body = await couchRes.json()
+      if ((couchRes.ok && body.ok) || attempt >= retries) break
+      await new Promise(r => setTimeout(r, 200)) // wait for CouchDB auth cache to settle
+    }
 
     if (!couchRes.ok || !body.ok) {
       return res.status(401).json({ error: 'Invalid credentials' })
@@ -71,10 +79,10 @@ async function loginUser(username, password, rememberMe, _req, res) {
       res.setHeader('Set-Cookie', patched)
     }
 
-    const dbId    = await getUserDbId(username)
+    const { dbId, encSalt } = await getUserMeta(username)
     const isAdmin = (body.roles || []).includes('admin')
     console.log(`[login] username="${username}" dbId=${dbId} isAdmin=${isAdmin} rememberMe=${rememberMe}`)
-    return res.json({ ok: true, username, dbId, isAdmin })
+    return res.json({ ok: true, username, dbId, encSalt, isAdmin })
   } catch (err) {
     return res.status(502).json({ error: 'Auth backend unavailable' })
   }
@@ -107,10 +115,10 @@ router.get('/me', async (req, res) => {
     }
 
     const username = body.userCtx.name
-    const dbId     = await getUserDbId(username)
+    const { dbId, encSalt } = await getUserMeta(username)
     const isAdmin  = (body.userCtx.roles || []).includes('admin')
     console.log(`[/me] username="${username}" dbId=${dbId} isAdmin=${isAdmin}`)
-    return res.json({ authenticated: true, username, dbId, isAdmin })
+    return res.json({ authenticated: true, username, dbId, encSalt, isAdmin })
   } catch {
     return res.status(502).json({ error: 'Auth backend unavailable' })
   }
@@ -155,7 +163,8 @@ router.post('/change-password', async (req, res) => {
     await changeUserPassword(username, newPassword)
     return res.json({ ok: true })
   } catch (err) {
-    return res.status(500).json({ error: err.message })
+    console.error('[change-password] failed:', err.message)
+    return res.status(500).json({ error: 'Could not change password' })
   }
 })
 
@@ -166,6 +175,7 @@ router.get('/config', async (_req, res) => {
     encryptionEnabled: process.env.ENCRYPTION_ENABLED === 'true',
     allowSignup:       signupsAllowed(),
     setupRequired,
+    maxAttachmentMb:   parseInt(process.env.MAX_ATTACHMENT_SIZE_MB ?? '') || 10,
   })
 })
 

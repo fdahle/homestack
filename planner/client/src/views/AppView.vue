@@ -134,7 +134,7 @@
         <AddNoteForm
           v-if="store.currentViewId !== 'trash'"
           ref="addNoteForm"
-          :default-is-task="isSmartView"
+          :default-is-task="taskFilterActive"
           :default-due-date="store.currentViewId === 'smart:today' ? today : null"
           @add="addNote"
           @opened="mobileFormOpen = true"
@@ -476,6 +476,12 @@ export default {
     isSmartView() {
       return this.store.currentViewId.startsWith('smart:')
     },
+    // True whenever the visible list is restricted to tasks — either a smart
+    // task view or the "Tasks only" filter toggle. Drives the add-form default,
+    // placeholder and empty-state copy.
+    taskFilterActive() {
+      return this.isSmartView || this.showTasksOnly
+    },
     isContextNoteTask() {
       return this.contextMenu ? isTaskNote(this.contextMenu.note) : false
     },
@@ -550,6 +556,7 @@ export default {
       if (this.store.currentViewId === 'smart:upcoming')  return 'No upcoming tasks.'
       if (this.store.currentViewId === 'smart:all-tasks') return 'No tasks yet. Mark a note as a task to see it here.'
       if (this.store.currentViewId === 'smart:overdue')   return 'No overdue tasks.'
+      if (this.showTasksOnly) return 'No tasks yet.'
       return 'No notes yet. Add one above.'
     },
     // Trello doesn't make sense in trash or smart views — fall back to list
@@ -802,6 +809,9 @@ export default {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  /* Always reserve the scrollbar gutter so expanding the add-note form (which
+     can introduce a scrollbar) doesn't change the content width / re-center it. */
+  scrollbar-gutter: stable;
 }
 
 /* ── Header ──────────────────────────────────────────────────────── */
@@ -815,6 +825,11 @@ header {
   gap: 1rem;
   flex-shrink: 0;
   z-index: 10;
+  /* Fixed height so the bar is identical across views. Without this, Trash (which
+     hides the 32px search input) is a few px shorter than other views, whose
+     height is driven by that input. = 32px input + 0.75rem*2 padding + 1px border. */
+  height: 57px;
+  box-sizing: border-box;
 }
 
 .hamburger {
@@ -1645,6 +1660,8 @@ header h1 {
     padding: 0.5rem 0.75rem;
     gap: 0.35rem;
     position: relative;
+    /* Reset the desktop fixed height — mobile header is shorter by design. */
+    height: auto;
   }
 
   .header-left {

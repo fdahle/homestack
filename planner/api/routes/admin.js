@@ -30,7 +30,8 @@ router.get('/users', requireAdmin, async (_req, res) => {
       dbId:     u.dbId  || null,
     })))
   } catch (err) {
-    return res.status(500).json({ error: err.message })
+    console.error('[admin] list users failed:', err.message)
+    return res.status(500).json({ error: 'Could not list users' })
   }
 })
 
@@ -54,7 +55,8 @@ router.patch('/users/:username', requireAdmin, async (req, res) => {
     await updateUserRoles(username, roles)
     return res.json({ ok: true })
   } catch (err) {
-    return res.status(500).json({ error: err.message })
+    console.error('[admin] update roles failed:', err.message)
+    return res.status(500).json({ error: 'Could not update user roles' })
   }
 })
 
@@ -68,7 +70,8 @@ router.delete('/users/:username', requireAdmin, async (req, res) => {
     await deleteUser(username)
     return res.json({ ok: true })
   } catch (err) {
-    return res.status(500).json({ error: err.message })
+    console.error('[admin] delete user failed:', err.message)
+    return res.status(500).json({ error: 'Could not delete user' })
   }
 })
 

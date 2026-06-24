@@ -1,3 +1,6 @@
 .env
 node_modules/
 client/dist/
+
+# CouchDB local config — contains admin hash & auth secret, keep out of git
+couchdb/local.ini

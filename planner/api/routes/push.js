@@ -1,6 +1,6 @@
 const express = require('express')
 const fetch   = (...args) => import('node-fetch').then(({ default: f }) => f(...args))
-const { savePushSubscription, deletePushSubscription } = require('../lib/couchdb')
+const { savePushSubscription, deletePushSubscription, getUserDbId } = require('../lib/couchdb')
 
 const router  = express.Router()
 const DB_BASE = process.env.COUCHDB_URL || 'http://localhost:5984'
@@ -38,7 +38,8 @@ router.post('/subscribe', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid push subscription object' })
   }
   try {
-    await savePushSubscription(req.username, subscription)
+    const dbId = await getUserDbId(req.username)
+    await savePushSubscription(req.username, subscription, dbId)
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: err.message })

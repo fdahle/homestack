@@ -33,10 +33,12 @@ export const useAuthStore = defineStore('auth', {
       dbId:              savedDbId,
       isAuthenticated:   !!savedUsername,
       encryptionKey:     null, // CryptoKey | null — kept only in memory
+      encSalt:           null, // base64 per-user salt from the server — needed to (re)derive the key
       encryptionEnabled: localStorage.getItem(ENCRYPTION_KEY) === 'true',
       isAdmin:           false,
       allowSignup:       true,
       setupRequired:     false,
+      maxAttachmentMb:   10,
     }
   },
 
@@ -49,6 +51,7 @@ export const useAuthStore = defineStore('auth', {
         localStorage.setItem(ENCRYPTION_KEY, String(!!body.encryptionEnabled))
         this.allowSignup       = body.allowSignup !== false
         this.setupRequired     = !!body.setupRequired
+        this.maxAttachmentMb   = parseInt(body.maxAttachmentMb) || 10
       } catch { /* server may not be up in local dev */ }
     },
 
@@ -59,6 +62,7 @@ export const useAuthStore = defineStore('auth', {
         if (body.authenticated) {
           this.username        = body.username
           this.dbId            = body.dbId || null
+          this.encSalt         = body.encSalt || null
           this.isAuthenticated = true
           this.isAdmin         = body.isAdmin || false
           // Preserve whichever storage was already used (don't change rememberMe semantics)
@@ -89,6 +93,7 @@ export const useAuthStore = defineStore('auth', {
 
       this.username        = username
       this.dbId            = body.dbId || null
+      this.encSalt         = body.encSalt || null
       this.isAuthenticated = true
       this.isAdmin         = body.isAdmin || false
       writeStorage(USERNAME_KEY, username, rememberMe)
@@ -96,7 +101,7 @@ export const useAuthStore = defineStore('auth', {
 
       if (this.encryptionEnabled) {
         const { deriveKey } = await import('../utils/crypto.js')
-        this.encryptionKey = await deriveKey(password, username)
+        this.encryptionKey = await deriveKey(password, this.encSalt)
       }
     },
 
@@ -111,6 +116,7 @@ export const useAuthStore = defineStore('auth', {
 
       this.username        = username
       this.dbId            = body.dbId || null
+      this.encSalt         = body.encSalt || null
       this.isAuthenticated = true
       this.isAdmin         = body.isAdmin || false
       // Registration auto-logs in with persistent session
@@ -119,7 +125,7 @@ export const useAuthStore = defineStore('auth', {
 
       if (this.encryptionEnabled) {
         const { deriveKey } = await import('../utils/crypto.js')
-        this.encryptionKey = await deriveKey(password, username)
+        this.encryptionKey = await deriveKey(password, this.encSalt)
       }
     },
 
@@ -133,6 +139,7 @@ export const useAuthStore = defineStore('auth', {
     _clearAuth() {
       this.username        = null
       this.dbId            = null
+      this.encSalt         = null
       this.isAuthenticated = false
       this.encryptionKey   = null
       this.isAdmin         = false

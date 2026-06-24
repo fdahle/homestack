@@ -3,10 +3,21 @@
     <div class="modal-backdrop" @click.self="close">
       <div
         class="modal"
+        :class="{ 'modal--drag': dragOver }"
         :style="editColor ? { background: editColor } : {}"
-        @keydown.escape="close"
         @click="closePopups"
+        @dragstart="onContentDragStart"
+        @dragenter.prevent="onDragEnter"
+        @dragover.prevent
+        @dragleave="onDragLeave"
+        @drop.prevent="onDrop"
       >
+        <!-- Drag-to-attach overlay -->
+        <div v-if="dragOver && !inTrash" class="modal-drop-overlay">
+          <AppIcon name="paperclip" :size="28" />
+          <span>Drop files to attach</span>
+        </div>
+
 
         <!-- Title row with three-dot menu -->
         <div class="modal-title-row" @click.stop>
@@ -36,7 +47,6 @@
 
         <!-- Editor / preview with timestamp overlay -->
         <div class="editor-wrap" @paste="handleEditorPaste">
-          <div v-if="pasteImageWarning" class="paste-warn">Images are not supported in checkbox mode.</div>
           <template v-if="!inTrash">
             <MarkdownEditor
               v-if="editContentType === 'markdown'"
@@ -55,11 +65,55 @@
             />
           </template>
           <div v-else class="modal-preview" v-html="renderedContent" />
-          <span
-            v-if="timestampLabel"
-            class="note-timestamp"
-            :title="timestampTitle"
-          >{{ timestampLabel }}</span>
+        </div>
+
+        <!-- Scratch pad — hidden until toggled from the toolbar -->
+        <div v-if="scratchOpen" class="scratch-section" @click.stop>
+          <div class="scratch-label-row">
+            <AppIcon name="edit" :size="12" />
+            <span class="scratch-title">Scratch pad</span>
+          </div>
+          <textarea
+            v-model="editScratch"
+            class="scratch-editor"
+            placeholder="Working notes, links, sub-steps…"
+            :readonly="inTrash"
+          />
+        </div>
+
+        <!-- Attachment bar -->
+        <div v-if="editAttachments.length || attachError" class="attach-bar" @click.stop>
+          <div v-if="attachError" class="attach-error">{{ attachError }}</div>
+          <div v-if="editAttachments.length" class="attach-row">
+            <div
+              v-for="att in editAttachments"
+              :key="att.id"
+              class="attach-item"
+              :title="att.name"
+              @click="openAttachment(att)"
+            >
+              <img
+                v-if="isImage(att) && attachmentUrl(att)"
+                class="attach-thumb"
+                :src="attachmentUrl(att)"
+                :alt="att.name"
+              />
+              <FileTypeIcon v-else-if="!isImage(att)" :name="att.name" :type="att.type" :size="44" />
+              <button
+                v-if="!inTrash"
+                class="attach-remove"
+                title="Remove"
+                @click.stop="removeAttachment(att)"
+              >
+                <AppIcon name="x" :size="12" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timestamp row (below attachments) -->
+        <div v-if="timestampLabel" class="note-timestamp-row">
+          <span class="note-timestamp" :title="timestampTitle">{{ timestampLabel }}</span>
         </div>
 
         <!-- Bottom bar -->
@@ -73,6 +127,33 @@
               @click.stop="toggleTaskFlag"
             >
               <AppIcon name="task-check" :size="18" />
+            </button>
+
+            <!-- Attach file -->
+            <button
+              class="toolbar-btn"
+              title="Attach image or file"
+              @click.stop="triggerAttachInput"
+            >
+              <AppIcon name="paperclip" :size="18" />
+            </button>
+            <input
+              ref="attachInput"
+              type="file"
+              multiple
+              style="display: none"
+              @change="onAttachFilesSelected"
+            />
+
+            <!-- Scratch pad toggle -->
+            <button
+              class="toolbar-btn"
+              :class="{ 'toolbar-btn--active': scratchOpen }"
+              title="Scratch pad"
+              @click.stop="scratchOpen = !scratchOpen"
+            >
+              <AppIcon name="edit" :size="18" />
+              <span v-if="editScratch.trim()" class="toolbar-notif-dot" />
             </button>
 
             <!-- Color -->
@@ -216,13 +297,25 @@
       </div>
     </div>
   </Teleport>
+
+  <!-- Image lightbox (in-app preview) -->
+  <Teleport to="body">
+    <div v-if="lightboxUrl" class="lightbox-backdrop" @click="closeLightbox">
+      <button class="lightbox-close" title="Close" @click.stop="closeLightbox">
+        <AppIcon name="x" :size="22" />
+      </button>
+      <img class="lightbox-img" :src="lightboxUrl" :alt="lightboxAlt" @click.stop />
+    </div>
+  </Teleport>
 </template>
 
 <script>
 import { useNotesStore } from '../stores/notes.js'
 import { renderPlain, renderChecklist, renderCheckableMarkdown, sortCheckboxItems } from '../utils/markdown.js'
+import { isImageType } from '../utils/attachments.js'
 import MarkdownEditor from './MarkdownEditor.vue'
 import ChecklistEditor from './ChecklistEditor.vue'
+import FileTypeIcon from './FileTypeIcon.vue'
 
 function hasCheckboxSyntax(text) {
   return /^\s*- \[[ xX]\] /m.test(text || '')
@@ -233,7 +326,7 @@ import NotificationPicker from './NotificationPicker.vue'
 export default {
   name: 'NoteModal',
 
-  components: { MarkdownEditor, ChecklistEditor, ColorPicker, NotificationPicker },
+  components: { MarkdownEditor, ChecklistEditor, ColorPicker, NotificationPicker, FileTypeIcon },
 
   props: {
     note: { type: Object, required: true },
@@ -249,6 +342,8 @@ export default {
     return {
       editTitle:        this.note.title          ?? '',
       editContent:      this.note.content        ?? '',
+      editScratch:      this.note.scratch        ?? '',
+      scratchOpen:      !!(this.note.scratch || '').trim(),
       editViewId:       this.note.viewId         ?? null,
       editLabels:       Array.isArray(this.note.labels) ? [...this.note.labels] : [],
       editColor:        this.note.color          ?? null,
@@ -259,6 +354,12 @@ export default {
       editDone:         this.note.done           ?? false,
       editContentType:  this.note.contentType    ?? (hasCheckboxSyntax(this.note.content) ? 'checklist' : 'plain'),
       editRecurrence:   this.note.recurrence     ?? null,
+      editAttachments:  Array.isArray(this.note.attachments) ? [...this.note.attachments] : [],
+      attachError:      null,
+      dragOver:         false,
+      dragDepth:        0,
+      lightboxUrl:      null,
+      lightboxAlt:      '',
       viewDropdownOpen: false,
       moreMenuOpen:     false,
       colorOpen:        false,
@@ -266,7 +367,6 @@ export default {
       dueDateOpen:      false,
       priorityOpen:     false,
       recurrenceOpen:   false,
-      pasteImageWarning: false,
     }
   },
 
@@ -281,10 +381,16 @@ export default {
       this.recurrenceOpen   = false
     }
     window.addEventListener('click', this._globalClose)
+
+    this._globalKeydown = (e) => {
+      if (e.key === 'Escape') this.onEscape()
+    }
+    window.addEventListener('keydown', this._globalKeydown)
   },
 
   beforeUnmount() {
     window.removeEventListener('click', this._globalClose)
+    window.removeEventListener('keydown', this._globalKeydown)
   },
 
   computed: {
@@ -327,6 +433,7 @@ export default {
       if (!this.inTrash) {
         const titleChanged       = this.editTitle.trim()    !== (this.note.title       ?? '')
         const contentChanged     = this.editContent.trim()  !== (this.note.content     ?? '')
+        const scratchChanged     = this.editScratch.trim()  !== (this.note.scratch     ?? '')
         const viewChanged        = this.editViewId          !== (this.note.viewId      ?? null)
         const origLabels         = Array.isArray(this.note.labels) ? [...this.note.labels].sort() : []
         const labelsChanged      = JSON.stringify(origLabels) !== JSON.stringify([...this.editLabels].sort())
@@ -337,10 +444,11 @@ export default {
         const contentTypeChanged = this.editContentType     !== (this.note.contentType ?? 'plain')
         const recurrenceChanged  = this.editRecurrence      !== (this.note.recurrence  ?? null)
 
-        if (titleChanged || contentChanged || viewChanged || labelsChanged || taskChanged || dueDateChanged || priorityChanged || doneChanged || contentTypeChanged || recurrenceChanged) {
+        if (titleChanged || contentChanged || scratchChanged || viewChanged || labelsChanged || taskChanged || dueDateChanged || priorityChanged || doneChanged || contentTypeChanged || recurrenceChanged) {
           await this.store.updateNote(this.note, {
             title:       this.editTitle,
             content:     this.editContentType === 'checklist' ? sortCheckboxItems(this.editContent) : this.editContent,
+            scratch:     this.editScratch,
             viewId:      this.editViewId,
             labels:      this.editLabels,
             isTask:      this.editIsTask,
@@ -480,22 +588,127 @@ export default {
     },
 
     handleEditorPaste(event) {
-      if (this.editContentType === 'markdown') return
+      // In markdown mode the editor handles image paste inline itself.
+      if (this.editContentType === 'markdown' || this.inTrash) return
       const items = event.clipboardData?.items
       if (!items) return
+      const files = []
       for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          event.preventDefault()
-          if (this.editContentType === 'checklist') {
-            this.pasteImageWarning = true
-            setTimeout(() => { this.pasteImageWarning = false }, 3000)
-            return
-          }
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
           const file = item.getAsFile()
-          this.editContentType = 'markdown'
-          this.$nextTick(() => { this.$refs.mdEditor?.insertImage(file) })
-          return
+          if (file) files.push(file)
         }
+      }
+      if (files.length) {
+        event.preventDefault()
+        this.addFiles(files)
+      }
+    },
+
+    // Block dragging any image that's already in the note (attachment thumbnail,
+    // editor image, or preview image). Otherwise it can be dragged and dropped
+    // back into the editor, duplicating it.
+    onContentDragStart(event) {
+      if (event.target instanceof HTMLImageElement) event.preventDefault()
+    },
+
+    onDragEnter(event) {
+      if (this.inTrash) return
+      // Only react to file drags, not text/element drags within the modal.
+      if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return
+      this.dragDepth++
+      this.dragOver = true
+    },
+
+    onDragLeave() {
+      if (this.dragDepth > 0) this.dragDepth--
+      if (this.dragDepth === 0) this.dragOver = false
+    },
+
+    onDrop(event) {
+      this.dragDepth = 0
+      this.dragOver = false
+      if (this.inTrash) return
+      const files = Array.from(event.dataTransfer?.files || [])
+      if (!files.length) return
+      // In markdown mode, images go inline in the text; everything else attaches.
+      if (this.editContentType === 'markdown') {
+        const images = files.filter(f => f.type.startsWith('image/'))
+        const others = files.filter(f => !f.type.startsWith('image/'))
+        images.forEach(f => this.$refs.mdEditor?.insertImage(f))
+        if (others.length) this.addFiles(others)
+      } else {
+        this.addFiles(files)
+      }
+    },
+
+    onEscape() {
+      if (this.lightboxUrl) { this.closeLightbox(); return }
+      this.close()
+    },
+
+    openLightbox(url, alt) {
+      this.lightboxUrl = url
+      this.lightboxAlt = alt || ''
+    },
+
+    closeLightbox() {
+      this.lightboxUrl = null
+      this.lightboxAlt = ''
+    },
+
+    triggerAttachInput() {
+      this.$refs.attachInput?.click()
+    },
+
+    onAttachFilesSelected(event) {
+      const files = Array.from(event.target.files || [])
+      if (files.length) this.addFiles(files)
+      event.target.value = ''
+    },
+
+    async addFiles(files) {
+      this.attachError = null
+      for (const file of files) {
+        try {
+          const meta = await this.store.addAttachment(this.note, file)
+          this.editAttachments.push(meta)
+        } catch (err) {
+          this.attachError = err?.message || 'Could not attach file.'
+        }
+      }
+    },
+
+    async removeAttachment(att) {
+      this.editAttachments = this.editAttachments.filter(a => a.id !== att.id)
+      try {
+        await this.store.removeAttachment(this.note, att.id)
+      } catch (err) {
+        this.attachError = err?.message || 'Could not remove attachment.'
+      }
+    },
+
+    isImage(att) {
+      return isImageType(att.type)
+    },
+
+    attachmentUrl(att) {
+      return this.store.getAttachmentUrl(this.note._id, att.id)
+    },
+
+    async openAttachment(att) {
+      const url = this.store.getAttachmentUrl(this.note._id, att.id)
+        || await this.store.loadAttachmentUrl(this.note._id, att.id)
+      if (!url) return
+      if (this.isImage(att)) {
+        this.openLightbox(url, att.name)
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = att.name || 'attachment'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
       }
     },
   },
@@ -589,14 +802,95 @@ export default {
   min-height: 0;
 }
 
-.paste-warn {
+/* Drag-to-attach overlay covering the whole modal */
+.modal--drag { position: relative; }
+.modal-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 8px;
+  border: 2px dashed var(--accent);
+  background: var(--accent-bg, rgba(0,120,255,.10));
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Attachment bar — no hard top border (toolbar already has one); just spacing */
+.attach-bar {
+  flex-shrink: 0;
+  padding-top: 0.25rem;
+}
+
+.attach-error {
   font-size: 0.8rem;
-  color: var(--warning, #e09000);
-  background: var(--warning-bg, rgba(224,144,0,.12));
+  color: var(--danger);
+  background: var(--danger-bg);
   border-radius: 4px;
   padding: 0.3rem 0.6rem;
   margin-bottom: 0.4rem;
 }
+
+.attach-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  padding-bottom: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.attach-item {
+  position: relative;
+  flex-shrink: 0;
+  width: 4rem;
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  transition: border-color 0.12s, transform 0.08s;
+}
+.attach-item:hover { border-color: var(--accent); }
+.attach-item:active { transform: scale(0.97); }
+
+.attach-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attach-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.attach-item:hover .attach-remove { opacity: 1; }
+.attach-remove:hover { background: var(--danger); }
 
 .plain-editor {
   width: 100%;
@@ -606,6 +900,38 @@ export default {
   resize: none;
   font-size: 0.95rem;
   line-height: 1.7;
+  color: var(--text-2);
+  font-family: inherit;
+  background: transparent;
+  padding: 0.25rem 0;
+  box-sizing: border-box;
+}
+
+/* Scratch pad — hidden until toggled from the toolbar */
+.scratch-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 0.3rem;
+}
+.scratch-label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.scratch-editor {
+  width: 100%;
+  min-height: 5rem;
+  max-height: 14rem;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font-size: 0.9rem;
+  line-height: 1.6;
   color: var(--text-2);
   font-family: inherit;
   background: transparent;
@@ -647,13 +973,15 @@ export default {
   text-decoration-color: var(--text-muted);
 }
 
+.note-timestamp-row {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: 0.1rem 0.1rem 0.05rem;
+}
 .note-timestamp {
-  position: absolute;
-  bottom: 0.4rem;
-  right: 0.5rem;
   font-size: 0.72rem;
   color: var(--text-muted);
-  pointer-events: auto;
   cursor: default;
   user-select: none;
 }
@@ -843,6 +1171,43 @@ export default {
 
 .btn-danger  { background: transparent; color: var(--danger); }
 .btn-danger:hover { background: var(--danger-bg); }
+
+/* Image lightbox */
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.85);
+  padding: 2rem;
+  animation: backdrop-in 0.15s ease forwards;
+}
+.lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5);
+}
+.lightbox-close {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.lightbox-close:hover { background: rgba(255,255,255,.25); }
 
 @media (max-width: 640px) {
   .modal-backdrop {
