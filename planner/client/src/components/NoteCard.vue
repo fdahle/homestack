@@ -110,6 +110,12 @@
       </span>
     </div>
 
+    <!-- Source-view chip (shown for global-search results) -->
+    <div v-if="showViewTag" class="note-card-view-tag" :title="`In ${viewLabel}`">
+      <AppIcon :name="note.viewId ? 'folder' : 'home'" :size="11" />
+      <span class="note-card-view-tag-name">{{ viewLabel }}</span>
+    </div>
+
     <div v-if="expiryLabel" class="note-card-expiry">{{ expiryLabel }}</div>
 
     <!-- Check button overlaid top-left (masonry / trello only) -->
@@ -145,6 +151,7 @@ export default {
     renderedContent: { type: String, default: '' },
     selectMode: { type: Boolean, default: false },
     selected:   { type: Boolean, default: false },
+    showViewTag: { type: Boolean, default: false }, // show source-view chip (global search)
   },
 
   emits: ['open', 'select', 'toggle-done', 'checkbox-change', 'pin', 'delete', 'contextmenu', 'dragstart', 'dragover', 'dragleave', 'drop', 'dragend'],
@@ -176,9 +183,11 @@ export default {
       const iso = this.note.dueDate
       if (!iso) return ''
       const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
-      if (iso === this.today)    return 'Today'
-      if (iso === tomorrow)      return 'Tomorrow'
-      return new Date(iso + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
+      let label
+      if (iso === this.today)    label = 'Today'
+      else if (iso === tomorrow) label = 'Tomorrow'
+      else label = new Date(iso + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
+      return this.note.dueTime ? `${label} ${this.note.dueTime}` : label
     },
 
     formattedDate() {
@@ -193,7 +202,9 @@ export default {
 
     expiryLabel() {
       if (!this.inTrash || !this.note.deletedAt) return null
-      const expiresAt = new Date(new Date(this.note.deletedAt).getTime() + 7 * 24 * 60 * 60 * 1000)
+      const days = this.notesStore.trashRetentionDays
+      if (!days) return null // kept until manually deleted
+      const expiresAt = new Date(new Date(this.note.deletedAt).getTime() + days * 24 * 60 * 60 * 1000)
       const msLeft = expiresAt - Date.now()
       if (msLeft <= 0) return 'Deleting…'
       const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000))
@@ -214,6 +225,12 @@ export default {
 
     hasScratch() {
       return !!(this.note.scratch && this.note.scratch.trim())
+    },
+
+    // Name of the view this note lives in ('Home' when unfiled / view deleted).
+    viewLabel() {
+      if (!this.note.viewId) return 'Home'
+      return this.notesStore.views.find(v => v._id === this.note.viewId)?.name || 'Home'
     },
   },
 
@@ -300,5 +317,23 @@ export default {
   gap: 0.15rem;
   font-size: 0.72rem;
   color: var(--text-3);
+}
+
+.note-card-view-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+.note-card-view-tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

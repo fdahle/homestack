@@ -205,4 +205,22 @@ export default {
   color: var(--danger);
 }
 .np-btn--remove:hover { background: var(--danger-bg); }
+
+/* On mobile the picker becomes a bottom sheet so it never overflows the edge. */
+@media (max-width: 640px) {
+  .np-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 16px;
+    z-index: 320;
+  }
+}
 </style>

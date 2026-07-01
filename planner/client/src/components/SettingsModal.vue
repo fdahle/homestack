@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div class="settings-backdrop" @click.self="$emit('close')" @keydown.escape.window="$emit('close')">
     <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
 
@@ -73,6 +74,28 @@
               <span class="settings-select-note">after marking done</span>
             </div>
           </section>
+
+          <hr class="settings-divider" />
+
+          <section class="settings-section">
+            <h3 class="settings-section-title">Trash</h3>
+            <p class="settings-description">How long to keep notes in Trash before permanently deleting them?</p>
+            <div class="settings-select-row">
+              <select
+                class="settings-select"
+                :value="notesStore.trashRetentionDays"
+                @change="notesStore.setTrashRetentionDays($event.target.value)"
+              >
+                <option value="0">Never (keep until I delete)</option>
+                <option value="7">7 days</option>
+                <option value="14">14 days</option>
+                <option value="30">30 days</option>
+                <option value="60">60 days</option>
+                <option value="90">90 days</option>
+              </select>
+              <span class="settings-select-note">after moving to trash</span>
+            </div>
+          </section>
         </template>
 
         <!-- Appearance -->
@@ -128,6 +151,31 @@
               </div>
               <p v-if="pushError" class="settings-notice settings-notice--error">{{ pushError }}</p>
             </template>
+
+            <div class="settings-toggle-row">
+              <span class="settings-toggle-label">Daily digest</span>
+              <button
+                class="settings-toggle"
+                :class="{ active: notesStore.dailyDigestEnabled }"
+                @click="notesStore.setDailyDigestEnabled(!notesStore.dailyDigestEnabled)"
+                :aria-pressed="notesStore.dailyDigestEnabled"
+              >
+                <span class="settings-toggle-thumb" />
+              </button>
+            </div>
+            <p class="settings-description">
+              A once-a-day summary of tasks due today and overdue.
+            </p>
+            <div v-if="notesStore.dailyDigestEnabled" class="settings-toggle-row">
+              <span class="settings-toggle-label">Digest time</span>
+              <input
+                class="settings-input settings-digest-time"
+                type="time"
+                :value="digestTime"
+                step="3600"
+                @change="onDigestTimeChange"
+              />
+            </div>
           </section>
 
           <hr class="settings-divider" />
@@ -135,33 +183,56 @@
           <section class="settings-section">
             <h3 class="settings-section-title">Password</h3>
             <p v-if="authStore.encryptionEnabled" class="settings-notice settings-notice--warn">
-              Encryption is on — changing your password will re-encrypt all notes with the new password.
+              Encryption is on. If you forget your password your notes cannot be recovered.
             </p>
             <form class="settings-pw-form" @submit.prevent="changePassword">
-              <input
-                v-model="pwCurrent"
-                class="settings-input"
-                type="password"
-                placeholder="Current password"
-                autocomplete="current-password"
-              />
-              <input
-                v-model="pwNew"
-                class="settings-input"
-                type="password"
-                placeholder="New password (min. 12 chars)"
-                autocomplete="new-password"
-              />
-              <input
-                v-model="pwConfirm"
-                class="settings-input"
-                type="password"
-                placeholder="Confirm new password"
-                autocomplete="new-password"
-              />
+              <label class="settings-field">
+                <span class="settings-field-label">Current password</span>
+                <input
+                  v-model="pwCurrent"
+                  class="settings-input"
+                  :type="pwShow ? 'text' : 'password'"
+                  autocomplete="current-password"
+                />
+              </label>
+              <label class="settings-field">
+                <span class="settings-field-label">New password</span>
+                <input
+                  v-model="pwNew"
+                  class="settings-input"
+                  :type="pwShow ? 'text' : 'password'"
+                  autocomplete="new-password"
+                />
+              </label>
+              <label class="settings-field">
+                <span class="settings-field-label">Confirm new password</span>
+                <input
+                  v-model="pwConfirm"
+                  class="settings-input"
+                  :type="pwShow ? 'text' : 'password'"
+                  autocomplete="new-password"
+                />
+              </label>
+
+              <ul class="settings-pw-reqs">
+                <li :class="{ ok: pwNew.length >= 12 }">
+                  <AppIcon :name="pwNew.length >= 12 ? 'circle-check' : 'circle'" :size="13" />
+                  At least 12 characters
+                </li>
+                <li :class="{ ok: pwNew.length > 0 && pwNew === pwConfirm }">
+                  <AppIcon :name="pwNew.length > 0 && pwNew === pwConfirm ? 'circle-check' : 'circle'" :size="13" />
+                  New passwords match
+                </li>
+              </ul>
+
+              <label class="settings-pw-show">
+                <input type="checkbox" v-model="pwShow" />
+                Show passwords
+              </label>
+
               <p v-if="pwError" class="settings-notice settings-notice--error">{{ pwError }}</p>
               <p v-if="pwSuccess" class="settings-notice settings-notice--success">{{ pwSuccess }}</p>
-              <button type="submit" class="settings-btn" :disabled="pwLoading">
+              <button type="submit" class="settings-btn" :disabled="pwLoading || !pwValid">
                 {{ pwLoading ? 'Changing…' : 'Change password' }}
               </button>
             </form>
@@ -207,7 +278,18 @@
                     {{ user.roles.includes('admin') ? 'Admin' : 'User' }}
                   </span>
                 </div>
-                <div v-if="adminDeleteConfirm === user.username" class="settings-admin-confirm">
+                <div v-if="adminResetUser === user.username" class="settings-admin-confirm">
+                  <input
+                    v-model="adminResetPassword"
+                    class="settings-input settings-admin-reset-input"
+                    type="password"
+                    placeholder="New password (min. 12 chars)"
+                    autocomplete="new-password"
+                  />
+                  <button class="settings-admin-action" @click="cancelAdminReset">Cancel</button>
+                  <button class="settings-admin-action" :disabled="adminActionLoading === user.username || adminResetPassword.length < 12" @click="executeAdminReset(user)">Save</button>
+                </div>
+                <div v-else-if="adminDeleteConfirm === user.username" class="settings-admin-confirm">
                   <span class="settings-admin-confirm-label">Delete?</span>
                   <button class="settings-admin-action" @click="adminDeleteConfirm = null">Cancel</button>
                   <button class="settings-admin-action settings-admin-action--danger" :disabled="adminActionLoading === user.username" @click="executeAdminDelete(user)">Delete</button>
@@ -215,6 +297,9 @@
                 <div v-else-if="user.username !== authStore.username" class="settings-admin-actions">
                   <button class="settings-admin-action" :disabled="adminActionLoading === user.username" @click="toggleAdminRole(user)">
                     {{ user.roles.includes('admin') ? 'Revoke admin' : 'Make admin' }}
+                  </button>
+                  <button v-if="!authStore.encryptionEnabled" class="settings-admin-action" :disabled="adminActionLoading === user.username" @click="startAdminReset(user)">
+                    Reset password
                   </button>
                   <button class="settings-admin-action settings-admin-action--danger" :disabled="adminActionLoading === user.username" @click="adminDeleteConfirm = user.username">
                     Delete
@@ -258,6 +343,7 @@
 
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -266,7 +352,7 @@ import { useRouter } from 'vue-router'
 import { useNotesStore } from '../stores/notes.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useTheme } from '../composables/useTheme.js'
-import { subscribeToPush, unsubscribeFromPush } from '../composables/usePushNotifications.js'
+import { subscribeToPush, unsubscribeFromPush, getPushSubscription } from '../composables/usePushNotifications.js'
 import ExportImportPanel from './ExportImportPanel.vue'
 
 const emit = defineEmits(['close'])
@@ -274,6 +360,13 @@ const router = useRouter()
 const notesStore = useNotesStore()
 const authStore  = useAuthStore()
 const { theme, toggle } = useTheme()
+
+// ── Daily digest ────────────────────────────────────────────────────────────
+const digestTime = computed(() => `${String(notesStore.dailyDigestHour).padStart(2, '0')}:00`)
+function onDigestTimeChange(e) {
+  const hour = parseInt((e.target.value || '08:00').split(':')[0])
+  notesStore.setDailyDigestHour(hour)
+}
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 const ALL_TABS = [
@@ -301,9 +394,7 @@ const pushError     = ref('')
 
 async function checkPushState() {
   if (!pushSupported) return
-  const reg = await navigator.serviceWorker.ready
-  const sub = await reg.pushManager.getSubscription()
-  pushEnabled.value = !!sub
+  pushEnabled.value = !!(await getPushSubscription())
 }
 
 async function togglePush() {
@@ -315,15 +406,12 @@ async function togglePush() {
       pushEnabled.value = false
     } else {
       await subscribeToPush()
-      const reg = await navigator.serviceWorker.ready
-      const sub = await reg.pushManager.getSubscription()
-      pushEnabled.value = !!sub
-      if (!pushEnabled.value) {
-        pushError.value = 'Permission denied — allow notifications in your browser settings and try again.'
-      }
+      pushEnabled.value = true
     }
   } catch (err) {
-    pushError.value = err.message
+    pushError.value = err.code === 'denied'
+      ? 'Permission denied — allow notifications in your browser settings and try again.'
+      : (err.message || 'Could not enable push notifications.')
   } finally {
     pushLoading.value = false
   }
@@ -338,6 +426,9 @@ const pwConfirm = ref('')
 const pwLoading = ref(false)
 const pwError   = ref('')
 const pwSuccess = ref('')
+const pwShow    = ref(false)
+const pwValid   = computed(() =>
+  !!pwCurrent.value && pwNew.value.length >= 12 && pwNew.value === pwConfirm.value)
 
 async function changePassword() {
   pwError.value   = ''
@@ -356,23 +447,33 @@ async function changePassword() {
   }
   pwLoading.value = true
   try {
+    // Envelope encryption: the notes key (DEK) never changes — we just re-wrap it
+    // under the new password's KEK and persist the new wrapper atomically with the
+    // password change. Notes are never re-encrypted, so there's no failure window.
+    let wrappedDek
+    if (authStore.encryptionEnabled) {
+      const { deriveKek, exportDekBytes, wrapDek } = await import('../utils/crypto.js')
+      const newKek   = await deriveKek(pwNew.value, authStore.encSalt)
+      const dekBytes = await exportDekBytes(authStore.encryptionKey)
+      wrappedDek     = await wrapDek(newKek, dekBytes)
+    }
+
     const res  = await fetch('/api/auth/change-password', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ currentPassword: pwCurrent.value, newPassword: pwNew.value }),
+      body:    JSON.stringify({
+        currentPassword: pwCurrent.value,
+        newPassword:     pwNew.value,
+        ...(wrappedDek !== undefined ? { wrappedDek } : {}),
+      }),
     })
     const body = await res.json()
     if (!res.ok) {
       pwError.value = body.error || 'Failed to change password.'
       return
     }
-    if (authStore.encryptionEnabled) {
-      const { deriveKey } = await import('../utils/crypto.js')
-      // Same per-user salt, new password → new key; re-encrypt everything below.
-      const newKey = await deriveKey(pwNew.value, authStore.encSalt)
-      await notesStore.reEncryptAllNotes(newKey)
-      authStore.encryptionKey = newKey
-    }
+    if (wrappedDek !== undefined) authStore.wrappedDek = wrappedDek
+
     pwCurrent.value = ''
     pwNew.value     = ''
     pwConfirm.value = ''
@@ -390,6 +491,8 @@ const adminLoading       = ref(false)
 const adminActionLoading = ref(null)
 const adminError         = ref('')
 const adminDeleteConfirm = ref(null)
+const adminResetUser     = ref(null)
+const adminResetPassword = ref('')
 
 watch(activeTab, (val) => {
   if (val === 'admin' && adminUsers.value.length === 0) loadAdminUsers()
@@ -446,9 +549,40 @@ async function executeAdminDelete(user) {
   }
 }
 
+function startAdminReset(user) {
+  adminResetUser.value     = user.username
+  adminResetPassword.value = ''
+  adminDeleteConfirm.value = null
+  adminError.value         = ''
+}
+
+function cancelAdminReset() {
+  adminResetUser.value     = null
+  adminResetPassword.value = ''
+}
+
+async function executeAdminReset(user) {
+  adminActionLoading.value = user.username
+  adminError.value = ''
+  try {
+    const res  = await fetch(`/api/admin/users/${encodeURIComponent(user.username)}/password`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ newPassword: adminResetPassword.value }),
+    })
+    const body = await res.json()
+    if (!res.ok) throw new Error(body.error || 'Failed to reset password')
+    cancelAdminReset()
+  } catch (err) {
+    adminError.value = err.message
+  } finally {
+    adminActionLoading.value = null
+  }
+}
+
 // ── Logout ────────────────────────────────────────────────────────────────────
 async function logout() {
-  notesStore.reset()
+  await notesStore.reset()
   await authStore.logout()
   router.push('/login')
 }
@@ -865,9 +999,54 @@ async function logout() {
 .settings-pw-form {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.625rem;
   margin-top: 0.5rem;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
 }
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.settings-field-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+.settings-pw-reqs {
+  list-style: none;
+  margin: 0.1rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.settings-pw-reqs li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  transition: color 0.12s;
+}
+.settings-pw-reqs li.ok { color: var(--success); }
+
+.settings-pw-show {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.settings-pw-show input { accent-color: var(--accent); cursor: pointer; }
+/* Inputs sit on the card's surface-2 background — lift them for contrast. */
+.settings-pw-form .settings-input { background: var(--surface); }
 
 .settings-input {
   border: 1px solid var(--border);
@@ -901,17 +1080,15 @@ async function logout() {
 
 .settings-notice--success { background: var(--success-bg); color: var(--success); }
 
-/* ── Mobile ── */
+/* ── Mobile: keep it a centered card (like the shortcuts modal) ── */
 @media (max-width: 640px) {
   .settings-modal {
-    width: 100%;
-    max-width: 100%;
-    max-height: 100dvh;
-    border-radius: 0;
-    margin: 0;
-  }
-  .settings-backdrop {
-    align-items: flex-end;
+    width: calc(100vw - 1.5rem);
+    max-width: calc(100vw - 1.5rem);
+    /* Fixed height so the modal doesn't re-center (and appear to jump) as each
+       tab's content height changes. Capped to the viewport on short screens. */
+    height: calc(100dvh - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
   }
 }
 </style>

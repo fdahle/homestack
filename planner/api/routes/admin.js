@@ -1,24 +1,9 @@
 const express = require('express')
-const fetch   = (...args) => import('node-fetch').then(({ default: f }) => f(...args))
-const { listUsers, updateUserRoles, deleteUser } = require('../lib/couchdb')
+const { listUsers, updateUserRoles, deleteUser, getUserMeta, changeUserPassword } = require('../lib/couchdb')
+const { requireAdmin } = require('../lib/session')
+const { validPassword } = require('../lib/validate')
 
-const router  = express.Router()
-const DB_BASE = process.env.COUCHDB_URL || 'http://localhost:5984'
-
-async function requireAdmin(req, res, next) {
-  const cookie = req.headers.cookie || ''
-  try {
-    const couchRes = await fetch(`${DB_BASE}/_session`, { headers: { Cookie: cookie } })
-    const body     = await couchRes.json()
-    if (!body?.userCtx?.name || !(body.userCtx.roles || []).includes('admin')) {
-      return res.status(403).json({ error: 'Admin access required' })
-    }
-    req.adminUsername = body.userCtx.name
-    next()
-  } catch {
-    return res.status(502).json({ error: 'Auth backend unavailable' })
-  }
-}
+const router = express.Router()
 
 // GET /api/admin/users
 router.get('/users', requireAdmin, async (_req, res) => {
@@ -57,6 +42,29 @@ router.patch('/users/:username', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[admin] update roles failed:', err.message)
     return res.status(500).json({ error: 'Could not update user roles' })
+  }
+})
+
+// POST /api/admin/users/:username/password — reset a user's password.
+// Refused for encrypted accounts: their notes key is wrapped by the user's own
+// password, which the admin doesn't know, so a reset would make data unrecoverable.
+router.post('/users/:username/password', requireAdmin, async (req, res) => {
+  const { username } = req.params
+  const { newPassword } = req.body || {}
+  if (!validPassword(newPassword)) {
+    return res.status(400).json({ error: 'Password must be at least 12 characters' })
+  }
+  try {
+    const { dbId, wrappedDek } = await getUserMeta(username)
+    if (!dbId) return res.status(404).json({ error: 'User not found' })
+    if (wrappedDek) {
+      return res.status(400).json({ error: 'Cannot reset password for an encrypted account — its notes would become unrecoverable' })
+    }
+    await changeUserPassword(username, newPassword)
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error('[admin] reset password failed:', err.message)
+    return res.status(500).json({ error: 'Could not reset password' })
   }
 })
 

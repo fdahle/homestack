@@ -108,6 +108,9 @@ export default {
   justify-content: center;
   transition: transform 0.1s;
   outline: none;
+  overflow: hidden; 
+  background-clip: padding-box;
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 .cp-swatch:hover { transform: scale(1.18); }
 .cp-swatch--active { border-color: var(--text-1); }
@@ -122,15 +125,20 @@ export default {
 
 .cp-swatch--wheel {
   background: conic-gradient(
-    hsl(0,   85%, 65%),
-    hsl(45,  85%, 62%),
-    hsl(90,  75%, 60%),
-    hsl(135, 75%, 58%),
-    hsl(180, 75%, 55%),
-    hsl(225, 85%, 65%),
-    hsl(270, 80%, 68%),
-    hsl(315, 80%, 65%),
-    hsl(360, 85%, 65%)
+    from 90deg,
+    hsl(0,   90%, 62%),
+    hsl(30,  90%, 60%),
+    hsl(60,  85%, 58%),
+    hsl(90,  72%, 54%),
+    hsl(120, 68%, 52%),
+    hsl(150, 70%, 52%),
+    hsl(180, 75%, 52%),
+    hsl(210, 85%, 60%),
+    hsl(240, 85%, 64%),
+    hsl(270, 80%, 64%),
+    hsl(300, 80%, 62%),
+    hsl(330, 85%, 62%),
+    hsl(360, 90%, 62%)
   );
   cursor: pointer;
 }
@@ -149,5 +157,26 @@ export default {
   cursor: pointer;
   padding: 0;
   border: none;
+}
+
+/* On mobile the picker becomes a bottom sheet so it never overflows the edge. */
+@media (max-width: 640px) {
+  .cp-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 16px 16px 0 0;
+    white-space: normal;
+    z-index: 320;
+  }
+  .cp-swatch { width: 32px; height: 32px; }
 }
 </style>

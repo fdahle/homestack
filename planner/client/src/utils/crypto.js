@@ -19,6 +19,42 @@ export async function deriveKey(password, saltB64) {
   )
 }
 
+// ── Envelope encryption ───────────────────────────────────────────────────────
+// Notes are encrypted with a random Data Encryption Key (DEK). The DEK itself is
+// wrapped (encrypted) with a Key Encryption Key (KEK) derived from the password.
+// Because the DEK never changes, a password change only re-wraps it — notes are
+// never re-encrypted, so there is no bulk-rewrite / data-loss window.
+//
+// The KEK is derived exactly like the old direct key (PBKDF2 over the password +
+// per-user salt); it's just used to wrap the DEK instead of encrypting notes.
+export const deriveKek = deriveKey
+
+// A fresh 256-bit DEK as raw bytes.
+export function generateDekBytes() {
+  return crypto.getRandomValues(new Uint8Array(32))
+}
+
+// Import raw DEK bytes as an AES-GCM key for note encryption. Extractable so it
+// can be re-exported and re-wrapped on password change.
+export function importDek(rawBytes) {
+  return crypto.subtle.importKey('raw', rawBytes, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt'])
+}
+
+export async function exportDekBytes(dek) {
+  return new Uint8Array(await crypto.subtle.exportKey('raw', dek))
+}
+
+// Wrap/unwrap the DEK as a field blob (reusing AES-GCM field encryption over the
+// base64-encoded raw key bytes). Returns / accepts the JSON blob string stored
+// server-side as the user's `encWrappedDek`.
+export async function wrapDek(kek, dekBytes) {
+  return encryptField(kek, bufToB64(dekBytes))
+}
+
+export async function unwrapDek(kek, wrappedBlob) {
+  return b64ToBuf(await decryptField(kek, wrappedBlob))
+}
+
 export async function encryptField(key, plaintext) {
   const iv         = crypto.getRandomValues(new Uint8Array(12))
   const enc        = new TextEncoder()

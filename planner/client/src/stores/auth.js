@@ -32,8 +32,9 @@ export const useAuthStore = defineStore('auth', {
       username:          savedUsername,
       dbId:              savedDbId,
       isAuthenticated:   !!savedUsername,
-      encryptionKey:     null, // CryptoKey | null — kept only in memory
-      encSalt:           null, // base64 per-user salt from the server — needed to (re)derive the key
+      encryptionKey:     null, // CryptoKey | null (the DEK) — kept only in memory
+      encSalt:           null, // base64 per-user salt from the server — needed to derive the KEK
+      wrappedDek:        null, // the DEK wrapped under the password's KEK (opaque blob from the server)
       encryptionEnabled: localStorage.getItem(ENCRYPTION_KEY) === 'true',
       isAdmin:           false,
       allowSignup:       true,
@@ -63,6 +64,7 @@ export const useAuthStore = defineStore('auth', {
           this.username        = body.username
           this.dbId            = body.dbId || null
           this.encSalt         = body.encSalt || null
+          this.wrappedDek      = body.wrappedDek || null
           this.isAuthenticated = true
           this.isAdmin         = body.isAdmin || false
           // Preserve whichever storage was already used (don't change rememberMe semantics)
@@ -94,14 +96,14 @@ export const useAuthStore = defineStore('auth', {
       this.username        = username
       this.dbId            = body.dbId || null
       this.encSalt         = body.encSalt || null
+      this.wrappedDek      = body.wrappedDek || null
       this.isAuthenticated = true
       this.isAdmin         = body.isAdmin || false
       writeStorage(USERNAME_KEY, username, rememberMe)
       if (body.dbId) writeStorage(DBID_KEY, body.dbId, rememberMe)
 
       if (this.encryptionEnabled) {
-        const { deriveKey } = await import('../utils/crypto.js')
-        this.encryptionKey = await deriveKey(password, this.encSalt)
+        this.encryptionKey = await this._establishDek(password)
       }
     },
 
@@ -117,6 +119,7 @@ export const useAuthStore = defineStore('auth', {
       this.username        = username
       this.dbId            = body.dbId || null
       this.encSalt         = body.encSalt || null
+      this.wrappedDek      = body.wrappedDek || null
       this.isAuthenticated = true
       this.isAdmin         = body.isAdmin || false
       // Registration auto-logs in with persistent session
@@ -124,9 +127,33 @@ export const useAuthStore = defineStore('auth', {
       if (body.dbId) writeStorage(DBID_KEY, body.dbId, true)
 
       if (this.encryptionEnabled) {
-        const { deriveKey } = await import('../utils/crypto.js')
-        this.encryptionKey = await deriveKey(password, this.encSalt)
+        this.encryptionKey = await this._establishDek(password)
       }
+    },
+
+    // Envelope encryption: derive the KEK from the password, then either unwrap
+    // the stored DEK or — for a brand-new user with no DEK yet — generate one,
+    // wrap it, and persist it server-side. Returns the DEK (used to encrypt notes).
+    async _establishDek(password) {
+      const { deriveKek, importDek, generateDekBytes, wrapDek, unwrapDek } = await import('../utils/crypto.js')
+      const kek = await deriveKek(password, this.encSalt)
+      if (this.wrappedDek) {
+        return importDek(await unwrapDek(kek, this.wrappedDek))
+      }
+      const dekBytes = generateDekBytes()
+      const wrapped  = await wrapDek(kek, dekBytes)
+      await this._saveWrappedDek(wrapped)
+      this.wrappedDek = wrapped
+      return importDek(dekBytes)
+    },
+
+    async _saveWrappedDek(wrappedDek) {
+      const res = await fetch('/api/auth/enc-key', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ wrappedDek }),
+      })
+      if (!res.ok) throw new Error('Could not store encryption key')
     },
 
     async logout() {
@@ -140,6 +167,7 @@ export const useAuthStore = defineStore('auth', {
       this.username        = null
       this.dbId            = null
       this.encSalt         = null
+      this.wrappedDek      = null
       this.isAuthenticated = false
       this.encryptionKey   = null
       this.isAdmin         = false

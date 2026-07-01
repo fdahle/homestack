@@ -1,4 +1,5 @@
 <template>
+  <Teleport to="body">
   <div class="shortcuts-backdrop" @click.self="$emit('close')" @keydown.escape.window="$emit('close')">
     <div class="shortcuts-modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
       <div class="shortcuts-header">
@@ -21,6 +22,7 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup>

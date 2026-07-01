@@ -7,12 +7,23 @@
       </div>
 
       <div v-if="store.currentViewId !== 'trash'" class="search-wrap">
+        <!-- Scope toggle lives inside the field so the toolbar never shifts. -->
+        <button
+          class="search-scope-affix"
+          :class="{ 'scope-all': searchScope === 'all' }"
+          :title="searchScope === 'all'
+            ? 'Search scope: all views — click to search only this view'
+            : 'Search scope: this view — click to search all views'"
+          @click="setSearchScope(searchScope === 'all' ? 'view' : 'all')"
+        >
+          <AppIcon :name="searchScope === 'all' ? 'globe' : 'folder'" :size="14" />
+        </button>
         <input
           ref="searchInput"
           v-model="searchQuery"
           class="search-input"
           type="search"
-          placeholder="Search notes…"
+          :placeholder="searchScope === 'all' ? 'Search all views…' : 'Search this view…'"
           @keydown.escape="searchQuery = ''"
         />
         <span v-if="searchActive" class="search-count">
@@ -21,36 +32,65 @@
         <button v-if="searchActive" class="search-clear" title="Clear search" @click="searchQuery = ''">×</button>
       </div>
 
-      <div v-if="store.currentViewId !== 'trash'" class="view-toggle">
-        <button class="vtb" :class="{ active: viewMode === 'masonry' }" title="Masonry" @click="setViewMode('masonry')">
-          <AppIcon name="masonry-view" :size="16" />
-        </button>
-        <button class="vtb" :class="{ active: viewMode === 'list' }" title="List" @click="setViewMode('list')">
-          <AppIcon name="list-view" :size="16" />
-        </button>
-        <button v-if="!isSmartView" class="vtb" :class="{ active: viewMode === 'trello' }" title="Trello" @click="setViewMode('trello')">
-          <AppIcon name="trello-view" :size="16" />
-        </button>
-      </div>
+      <!-- Content controls: view modes · filter + sort -->
+      <div v-if="store.currentViewId !== 'trash'" class="header-tools">
+        <span class="header-divider" />
 
-      <!-- Tasks-only filter toggle -->
-      <button
-        v-if="store.currentViewId !== 'trash'"
-        class="vtb vtb--task-filter"
-        :class="{ active: showTasksOnly }"
-        title="Tasks only"
-        @click="showTasksOnly = !showTasksOnly"
-      >
-        <AppIcon name="task-check" :size="16" />
-      </button>
+        <div class="view-toggle">
+          <button class="vtb" :class="{ active: viewMode === 'masonry' }" title="Masonry" @click="setViewMode('masonry')">
+            <AppIcon name="masonry-view" :size="16" />
+          </button>
+          <button class="vtb" :class="{ active: viewMode === 'list' }" title="List" @click="setViewMode('list')">
+            <AppIcon name="list-view" :size="16" />
+          </button>
+          <button v-if="!isSmartView" class="vtb" :class="{ active: viewMode === 'trello' }" title="Trello" @click="setViewMode('trello')">
+            <AppIcon name="trello-view" :size="16" />
+          </button>
+          <button class="vtb" :class="{ active: viewMode === 'calendar' }" title="Calendar" @click="setViewMode('calendar')">
+            <AppIcon name="calendar" :size="16" />
+          </button>
+        </div>
 
-      <div v-if="store.currentViewId !== 'trash' && !isSmartView" class="sort-dropdown-wrap">
-        <select class="sort-select" :value="store.sortBy" @change="store.setSortBy($event.target.value)">
-          <option value="default">Order</option>
-          <option value="createdAt">Created</option>
-          <option value="updatedAt">Modified</option>
-          <option value="title">Title</option>
-        </select>
+        <span class="header-divider" />
+
+        <!-- Tasks-only filter toggle -->
+        <button
+          class="header-btn"
+          :class="{ active: showTasksOnly }"
+          title="Show tasks only"
+          @click="showTasksOnly = !showTasksOnly"
+        >
+          <AppIcon name="task-check" :size="15" />
+          <span class="header-btn-label">Tasks</span>
+        </button>
+
+        <!-- Sort (not meaningful in calendar/trello, where order is fixed) -->
+        <div v-if="!isSmartView" class="sort-menu-wrap">
+          <button
+            class="header-btn"
+            :class="{ active: sortMenuOpen }"
+            :disabled="!sortAvailable"
+            :title="sortAvailable ? `Sort: ${sortLabel}` : `Sorting isn't available in ${effectiveViewMode} view`"
+            @mousedown.stop
+            @click="sortAvailable && (sortMenuOpen = !sortMenuOpen)"
+          >
+            <AppIcon name="sort" :size="15" />
+            <span class="header-btn-label">{{ sortLabel }}</span>
+            <AppIcon name="chevron-right" :size="11" class="header-btn-caret" />
+          </button>
+          <div v-if="sortMenuOpen && sortAvailable" class="header-menu" @mousedown.stop>
+            <button
+              v-for="opt in sortOptions"
+              :key="opt.value"
+              class="header-menu-item"
+              :class="{ active: store.sortBy === opt.value }"
+              @click="selectSort(opt.value)"
+            >
+              <AppIcon name="check" :size="13" :style="{ opacity: store.sortBy === opt.value ? 1 : 0 }" />
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Mobile: cancel search (shown only in search-active mode) -->
@@ -62,10 +102,20 @@
           <AppIcon name="search" :size="16" />
         </button>
         <div class="mobile-more-wrap">
-          <button class="vtb" title="More options" @click.stop="mobileMenuOpen = !mobileMenuOpen">
+          <button class="vtb" title="More options" @mousedown.stop @click.stop="toggleMobileMenu">
             <AppIcon name="more-vertical" :size="16" />
           </button>
-          <div v-if="mobileMenuOpen" class="mobile-more-panel" @mousedown.stop @click.stop>
+          <!-- Teleported to <body> so the panel lives in the root stacking
+               context — otherwise mobile WebKit paints the scrolling content
+               (e.g. the calendar month strip) on top of it. -->
+          <Teleport to="body">
+          <div
+            v-if="mobileMenuOpen"
+            class="mobile-more-panel mobile-more-panel--float"
+            :style="mobileMenuPos ? { top: mobileMenuPos.top + 'px', right: mobileMenuPos.right + 'px' } : null"
+            @mousedown.stop
+            @click.stop
+          >
             <div class="mobile-more-row">
               <span class="mobile-more-label">View</span>
               <div class="view-toggle">
@@ -77,6 +127,9 @@
                 </button>
                 <button v-if="!isSmartView" class="vtb" :class="{ active: viewMode === 'trello' }" title="Trello" @click="setViewMode('trello')">
                   <AppIcon name="trello-view" :size="16" />
+                </button>
+                <button class="vtb" :class="{ active: viewMode === 'calendar' }" title="Calendar" @click="setViewMode('calendar')">
+                  <AppIcon name="calendar" :size="16" />
                 </button>
               </div>
             </div>
@@ -102,6 +155,7 @@
               </div>
             </template>
           </div>
+          </Teleport>
         </div>
       </div>
 
@@ -130,9 +184,9 @@
       <SideMenu :collapsed="sidebarCollapsed" @navigate="onSideMenuNavigate" />
 
       <div class="app-main" @mousedown="onAppMainMousedown">
-        <!-- Add note / task (not shown in trash) -->
+        <!-- Add note / task (not shown in trash or calendar — calendar adds via day cells) -->
         <AddNoteForm
-          v-if="store.currentViewId !== 'trash'"
+          v-if="store.currentViewId !== 'trash' && effectiveViewMode !== 'calendar'"
           ref="addNoteForm"
           :default-is-task="taskFilterActive"
           :default-due-date="store.currentViewId === 'smart:today' ? today : null"
@@ -144,13 +198,20 @@
         <!-- Trash info banner -->
         <div v-if="store.currentViewId === 'trash'" class="trash-info">
           <AppIcon name="info" :size="15" />
-          Notes in trash are permanently deleted after 7 days.
+          {{ store.trashRetentionDays
+            ? `Notes in trash are permanently deleted after ${store.trashRetentionDays} days.`
+            : 'Notes in trash are kept until you delete them permanently.' }}
         </div>
 
         <p v-if="store.error" class="error">{{ store.error }}</p>
 
+        <!-- ── Calendar ───────────────────────────────────────────────── -->
+        <div v-if="effectiveViewMode === 'calendar'" class="calendar-wrap">
+          <CalendarView :notes="displayedNotes" @open="openNote" @create-on-day="onCalendarCreateDay" />
+        </div>
+
         <!-- ── Masonry & List ─────────────────────────────────────────── -->
-        <template v-if="effectiveViewMode !== 'trello'">
+        <template v-else-if="effectiveViewMode !== 'trello'">
           <template v-if="pinnedNotes.length || activeNotes.length || doneNotes.length">
 
             <!-- Pinned notes section -->
@@ -170,6 +231,7 @@
                 :open="editingNote?._id === note._id"
                 :in-trash="store.currentViewId === 'trash'"
                 :rendered-content="renderedContentMap[note._id] || ''"
+                :show-view-tag="showSearchViewTag"
                 :select-mode="selectMode"
                 :selected="selectedIds.has(note._id)"
                 @open="openNote"
@@ -209,6 +271,7 @@
                 :open="editingNote?._id === note._id"
                 :in-trash="store.currentViewId === 'trash'"
                 :rendered-content="renderedContentMap[note._id] || ''"
+                :show-view-tag="showSearchViewTag"
                 :select-mode="selectMode"
                 :selected="selectedIds.has(note._id)"
                 @open="openNote"
@@ -244,6 +307,7 @@
                   :draggable="false"
                   :open="editingNote?._id === note._id"
                   :rendered-content="renderedContentMap[note._id] || ''"
+                  :show-view-tag="showSearchViewTag"
                   :select-mode="selectMode"
                   :selected="selectedIds.has(note._id)"
                   @open="openNote"
@@ -285,13 +349,20 @@
       <!-- Mobile add-note bottom-sheet backdrop -->
       <div v-if="mobileFormOpen" class="mobile-form-backdrop" />
 
-      <!-- Mobile FAB: add note -->
+      <!-- Mobile FAB: add note (hidden in calendar, where there's no add form) -->
       <button
-        v-if="store.currentViewId !== 'trash'"
+        v-if="store.currentViewId !== 'trash' && effectiveViewMode !== 'calendar'"
         class="add-fab"
         @click="$refs.addNoteForm?.openAsNote()"
         title="Add note"
       ><AppIcon name="plus" :size="24" /></button>
+
+      <!-- Undo toast -->
+      <div v-if="toast" class="undo-toast" role="status">
+        <span class="undo-toast-msg">{{ toast.message }}</span>
+        <button v-if="toast.undo" class="undo-toast-btn" @click="runUndo">Undo</button>
+        <button class="undo-toast-close" title="Dismiss" @click="dismissToast">×</button>
+      </div>
 
       <div
         v-if="contextMenu"
@@ -325,6 +396,10 @@
         <button class="context-menu-item" @click="contextMenuPin">
           <AppIcon :name="contextMenu.note?.pinned ? 'pin-off' : 'pin'" :size="15" />
           {{ contextMenu.note?.pinned ? 'Unpin' : 'Pin' }}
+        </button>
+        <button class="context-menu-item" @click="contextMenuArchive">
+          <AppIcon name="archive" :size="15" />
+          {{ contextMenu.note?.archivedAt ? 'Unarchive' : 'Archive' }}
         </button>
         <div class="context-menu-divider"></div>
         <button class="context-menu-item danger" @click="contextMenuDelete">
@@ -372,6 +447,7 @@ import NoteCard from '../components/NoteCard.vue'
 import AddNoteForm from '../components/AddNoteForm.vue'
 import NoteModal from '../components/NoteModal.vue'
 import TrelloBoard from '../components/TrelloBoard.vue'
+import CalendarView from '../components/CalendarView.vue'
 import DebugPanel from '../components/DebugPanel.vue'
 import SettingsModal from '../components/SettingsModal.vue'
 import NotificationPicker from '../components/NotificationPicker.vue'
@@ -380,7 +456,7 @@ import KeyboardShortcutsModal from '../components/KeyboardShortcutsModal.vue'
 export default {
   name: 'AppView',
 
-  components: { SideMenu, NoteCard, AddNoteForm, NoteModal, TrelloBoard, DebugPanel, SettingsModal, NotificationPicker, KeyboardShortcutsModal },
+  components: { SideMenu, NoteCard, AddNoteForm, NoteModal, TrelloBoard, CalendarView, DebugPanel, SettingsModal, NotificationPicker, KeyboardShortcutsModal },
 
   setup() {
     const store     = useNotesStore()
@@ -411,13 +487,17 @@ export default {
       mobileFormOpen:   false,
       mobileSearchOpen: false,
       mobileMenuOpen:   false,
+      mobileMenuPos:    null, // { top, right } fixed coords for the teleported ⋮ panel
       editingNote:      null,
       viewMode:         localStorage.getItem('notesViewMode') || 'masonry',
       searchQuery:      '',
+      searchScope:      localStorage.getItem('searchScope') || 'all', // 'all' | 'view'
+      sortMenuOpen:     false,
       showTasksOnly:    false,
       showDone:         false,
       drag: { noteId: null, overId: null, position: 'after' },
       contextMenu:   null,
+      toast:         null, // { message, undo } | null
       selectedIds:   new Set(),
       bulkMoveOpen:  false,
       selectionDrag: null,
@@ -432,6 +512,9 @@ export default {
     this.shortcuts.openShortcuts = () => { this.showShortcuts = true }
     document.addEventListener('mousedown', this._closeContextMenu)
     document.addEventListener('keydown',   this._closeContextMenuOnEscape)
+    this._handleLaunchQuery()
+    // Keep the app-icon badge in sync with the overdue-task count.
+    this._unwatchBadge = this.$watch(() => this.store.overdueCount, (n) => this._setAppBadge(n), { immediate: true })
   },
 
   beforeUnmount() {
@@ -439,6 +522,7 @@ export default {
     document.removeEventListener('keydown',   this._closeContextMenuOnEscape)
     document.removeEventListener('mousemove', this._onSelectionDragMove)
     document.removeEventListener('mouseup',   this._onSelectionDragEnd)
+    this._unwatchBadge?.()
   },
 
   watch: {
@@ -514,8 +598,9 @@ export default {
     viewTitle() {
       const smartTitles = { 'smart:today': 'Today', 'smart:upcoming': 'Upcoming', 'smart:all-tasks': 'All Tasks', 'smart:overdue': 'Overdue' }
       if (smartTitles[this.store.currentViewId]) return smartTitles[this.store.currentViewId]
-      if (this.store.currentViewId === 'home')  return 'Home'
-      if (this.store.currentViewId === 'trash') return 'Trash'
+      if (this.store.currentViewId === 'home')    return 'Home'
+      if (this.store.currentViewId === 'trash')   return 'Trash'
+      if (this.store.currentViewId === 'archive') return 'Archive'
       return this.store.views.find(v => v._id === this.store.currentViewId)?.name ?? ''
     },
     searchActive() {
@@ -526,16 +611,61 @@ export default {
       if (!this.searchActive) {
         notes = this.store.filteredNotes
       } else {
+        // Search matches title, content, scratch, the note's view + label names,
+        // and attachment filenames.
         const q = this.searchQuery.trim().toLowerCase()
-        notes = this.store.filteredNotes.filter(n =>
-          (n.title || '').toLowerCase().includes(q) ||
-          (n.content || '').toLowerCase().includes(q)
-        )
+        const viewName = (id) => this.store.views.find(v => v._id === id)?.name || ''
+        const matches = (n) => {
+          const haystack = [
+            n.title, n.content, n.scratch,
+            viewName(n.viewId),
+            ...(n.labels || []).map(viewName),
+            ...(n.attachments || []).map(a => a?.name),
+          ].filter(Boolean).join(' ').toLowerCase()
+          return haystack.includes(q)
+        }
+        if (this.searchScope === 'view') {
+          // Scoped search: only the notes already visible in the current view,
+          // preserving that view's own ordering.
+          notes = this.store.filteredNotes.filter(matches)
+        } else {
+          // Global search: span every note (any view), not just the current one.
+          // Stays within Trash when the Trash view is active.
+          const base = this.store.currentViewId === 'trash'
+            ? this.store.notes.filter(n => n.deletedAt)
+            : this.store.notes.filter(n => !n.deletedAt)
+          notes = base
+            .filter(matches)
+            .sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''))
+        }
       }
       if (this.showTasksOnly) {
         notes = notes.filter(n => this.isTaskNote(n))
       }
       return notes
+    },
+
+    // Show each result's source view only when a global search spans views —
+    // redundant when scoped to the current view.
+    showSearchViewTag() {
+      return this.searchActive && this.searchScope === 'all' && this.store.currentViewId !== 'trash'
+    },
+
+    sortOptions() {
+      return [
+        { value: 'default',   label: 'Manual' },   // drag-and-drop order
+        { value: 'createdAt', label: 'Created' },
+        { value: 'updatedAt', label: 'Modified' },
+        { value: 'title',     label: 'Title' },
+      ]
+    },
+    sortLabel() {
+      return this.sortOptions.find(o => o.value === this.store.sortBy)?.label || 'Manual'
+    },
+    // Sort order only drives the masonry/list layouts; calendar & trello impose
+    // their own ordering, so the control is disabled there.
+    sortAvailable() {
+      return this.effectiveViewMode === 'masonry' || this.effectiveViewMode === 'list'
     },
     pinnedNotes() {
       if (this.store.currentViewId === 'trash') return []
@@ -551,7 +681,8 @@ export default {
     },
     emptyLabel() {
       if (this.searchActive) return 'No notes match your search.'
-      if (this.store.currentViewId === 'trash') return 'Trash is empty.'
+      if (this.store.currentViewId === 'trash')   return 'Trash is empty.'
+      if (this.store.currentViewId === 'archive') return 'No archived notes.'
       if (this.store.currentViewId === 'smart:today')     return 'No tasks due today.'
       if (this.store.currentViewId === 'smart:upcoming')  return 'No upcoming tasks.'
       if (this.store.currentViewId === 'smart:all-tasks') return 'No tasks yet. Mark a note as a task to see it here.'
@@ -559,10 +690,15 @@ export default {
       if (this.showTasksOnly) return 'No tasks yet.'
       return 'No notes yet. Add one above.'
     },
-    // Trello doesn't make sense in trash or smart views — fall back to list
+    // Trello/Calendar don't apply everywhere — fall back to list where needed.
     effectiveViewMode() {
-      if ((this.store.currentViewId === 'trash' || this.isSmartView) && this.viewMode === 'trello') return 'list'
-      return this.viewMode
+      const id = this.store.currentViewId
+      const mode = this.viewMode
+      // Trash: only list/masonry make sense.
+      if (id === 'trash') return (mode === 'trello' || mode === 'calendar') ? 'list' : mode
+      // Trello needs real board columns — not available in archive/smart views.
+      if ((id === 'archive' || this.isSmartView) && mode === 'trello') return 'list'
+      return mode
     },
 
     renderedContentMap() {
@@ -584,13 +720,30 @@ export default {
       this.$nextTick(() => this.$refs.searchInput?.focus())
     },
 
+    // The ⋮ panel is teleported to <body>, so position it under the button via
+    // fixed coords computed from the trigger's rect.
+    toggleMobileMenu(event) {
+      if (this.mobileMenuOpen) { this.mobileMenuOpen = false; return }
+      const rect = event.currentTarget.getBoundingClientRect()
+      // Sit a touch closer to the screen edge than the button — feels more natural.
+      this.mobileMenuPos = { top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right - 8) }
+      this.mobileMenuOpen = true
+    },
+
     closeMobileSearch() {
       this.mobileSearchOpen = false
       this.searchQuery = ''
     },
 
-    async addNote({ title, content, isTask, dueDate, contentType }) {
-      await this.store.addNote({ title, content, isTask, dueDate, contentType })
+    async addNote({ attachments = [], ...fields }) {
+      const note = await this.store.addNote(fields)
+      // Staged files are attached once the note doc exists.
+      if (note) {
+        for (const file of attachments) {
+          try { await this.store.addAttachment(note, file) }
+          catch { /* surfaced via store.error; keep the note + other files */ }
+        }
+      }
     },
 
     openNote(note) {
@@ -598,12 +751,85 @@ export default {
       this.editingNote = note
     },
 
+    // Clicking an empty calendar day starts a new task due that day.
+    onCalendarCreateDay(iso) {
+      if (this.store.currentViewId === 'trash' || this.store.currentViewId === 'archive') return
+      this.$refs.addNoteForm?.prefill({ isTask: true, dueDate: iso })
+    },
+
+    // Handle launch query params: push/notification deep-link (`?open=<id>`),
+    // PWA share target (`?share_title/share_text/share_url`), manifest shortcuts
+    // (`?new=note|task`, `?view=<id>`). Params are stripped after handling so a
+    // refresh doesn't repeat the action.
+    _handleLaunchQuery() {
+      const params  = new URLSearchParams(window.location.search)
+      const openId  = params.get('open')
+      const newKind = params.get('new')
+      const view    = params.get('view')
+      const sTitle  = params.get('share_title')
+      const sText   = params.get('share_text')
+      const sUrl    = params.get('share_url')
+      const hasShare = !!(sTitle || sText || sUrl)
+
+      if (!openId && !newKind && !view && !hasShare) return
+
+      for (const k of ['open', 'new', 'view', 'share_title', 'share_text', 'share_url']) params.delete(k)
+      const qs = params.toString()
+      window.history.replaceState({}, '',
+        window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash)
+
+      if (view) this.store.setView(view)
+
+      if (hasShare) {
+        const content = [sText, sUrl].filter(Boolean).join('\n')
+        this.$nextTick(() => this.$refs.addNoteForm?.prefill({ title: sTitle || '', content }))
+        return
+      }
+      if (newKind === 'task') { this.$nextTick(() => this.$refs.addNoteForm?.openAsTask()); return }
+      if (newKind === 'note') { this.$nextTick(() => this.$refs.addNoteForm?.openAsNote()); return }
+
+      if (openId) {
+        // Notes load asynchronously — open now if present, otherwise wait.
+        const tryOpen = () => {
+          const note = this.store.notes.find(n => n._id === openId && !n.deletedAt)
+          if (note) { this.editingNote = note; return true }
+          return false
+        }
+        if (tryOpen()) return
+        const unwatch = this.$watch(() => this.store.notes.length, () => { if (tryOpen()) unwatch() })
+        setTimeout(unwatch, 10_000) // give up if it never loads
+      }
+    },
+
+    // Reflect the overdue-task count on the app icon (where supported).
+    _setAppBadge(count) {
+      if (!('setAppBadge' in navigator)) return
+      if (count > 0) navigator.setAppBadge(count).catch(() => {})
+      else navigator.clearAppBadge?.().catch(() => {})
+    },
+
     onNotePin(note) {
       this.store.pinNote(note)
     },
 
+    // ── Toast / undo ──────────────────────────────────────────────────────────
+    showToast(message, undo) {
+      clearTimeout(this._toastTimer)
+      this.toast = { message, undo }
+      this._toastTimer = setTimeout(() => { this.toast = null }, 6000)
+    },
+    runUndo() {
+      this.toast?.undo?.()
+      this.dismissToast()
+    },
+    dismissToast() {
+      clearTimeout(this._toastTimer)
+      this.toast = null
+    },
+
     onNoteDelete(note) {
       this.store.deleteNote(note)
+      this.showToast('Note moved to Trash', () => this.store.undeleteNotes([note._id]))
     },
 
     onNoteContextMenu(event, note) {
@@ -612,7 +838,22 @@ export default {
 
     contextMenuDelete() {
       if (this.contextMenu) {
-        this.store.deleteNote(this.contextMenu.note)
+        const note = this.contextMenu.note
+        this.store.deleteNote(note)
+        this.showToast('Note moved to Trash', () => this.store.undeleteNotes([note._id]))
+        this.contextMenu = null
+      }
+    },
+
+    contextMenuArchive() {
+      if (this.contextMenu) {
+        const note = this.contextMenu.note
+        if (note.archivedAt) {
+          this.store.unarchiveNotes([note._id])
+        } else {
+          this.store.archiveNote(note)
+          this.showToast('Note archived', () => this.store.unarchiveNotes([note._id]))
+        }
         this.contextMenu = null
       }
     },
@@ -700,6 +941,8 @@ export default {
       const ids = [...this.selectedIds]
       this.clearSelection()
       await this.store.bulkDelete(ids)
+      this.showToast(`${ids.length} note${ids.length !== 1 ? 's' : ''} moved to Trash`,
+        () => this.store.undeleteNotes(ids))
     },
 
     async bulkMoveToView(viewId) {
@@ -716,6 +959,7 @@ export default {
       this.contextMenu = null
       this.bulkMoveOpen = false
       this.mobileMenuOpen = false
+      this.sortMenuOpen = false
     },
 
     _closeContextMenuOnEscape(e) {
@@ -737,6 +981,16 @@ export default {
     setViewMode(mode) {
       this.viewMode = mode
       localStorage.setItem('notesViewMode', mode)
+    },
+
+    setSearchScope(scope) {
+      this.searchScope = scope
+      localStorage.setItem('searchScope', scope)
+    },
+
+    selectSort(value) {
+      this.store.setSortBy(value)
+      this.sortMenuOpen = false
     },
 
     // ── Drag & drop (masonry / list) ────────────────────────────────
@@ -881,7 +1135,7 @@ header h1 {
   height: 32px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0 2rem 0 0.75rem;
+  padding: 0 2rem 0 2.5rem; /* left room for the scope affix, right for count/clear */
   font-size: 0.875rem;
   font-family: inherit;
   color: var(--text-1);
@@ -915,10 +1169,105 @@ header h1 {
 }
 .search-clear:hover { background: var(--surface-3); color: var(--text-3); }
 
-/* ── Sort dropdown ───────────────────────────────────────────────── */
+/* ── Search scope affix (inside the search field) ────────────────── */
 
-.sort-dropdown-wrap { display: flex; align-items: center; }
+.search-scope-affix {
+  position: absolute;
+  left: 0.3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 0.4rem;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent); /* always accent — it's an active scope control */
+  cursor: pointer;
+  transition: color 0.12s, opacity 0.12s;
+}
+.search-scope-affix:hover { opacity: 0.7; }
 
+/* ── Header tool groups (view modes · filter + sort) ─────────────── */
+
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.header-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* Labeled toolbar button: tasks filter + sort menu trigger. */
+.header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 28px;
+  padding: 0 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.header-btn:hover:not(:disabled)  { background: var(--surface-3); color: var(--text-1); }
+.header-btn.active { background: var(--accent-bg); color: var(--accent-text); }
+.header-btn:disabled { opacity: 0.4; cursor: default; }
+.header-btn-label  { line-height: 1; }
+.header-btn-caret  { opacity: 0.6; transform: rotate(90deg); }
+
+.sort-menu-wrap { position: relative; display: flex; align-items: center; }
+
+.header-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.18);
+  min-width: 150px;
+  z-index: 600;
+  padding: 0.25rem 0;
+}
+.header-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.header-menu-item:hover  { background: var(--surface-3); }
+.header-menu-item.active { color: var(--accent); font-weight: 500; }
+
+/* Narrow screens: drop button labels, keep icons (mirrors view-toggle density). */
+@media (max-width: 760px) {
+  .header-btn-label { display: none; }
+  .header-btn { padding: 0 0.5rem; }
+}
+
+/* Mobile panel still uses a native sort <select>. */
 .sort-select {
   appearance: none;
   -webkit-appearance: none;
@@ -1531,6 +1880,10 @@ header h1 {
   margin-top: 3rem;
 }
 
+.calendar-wrap {
+  padding: 1rem 1.5rem 2rem;
+}
+
 .error {
   text-align: center;
   color: var(--danger);
@@ -1619,6 +1972,53 @@ header h1 {
   display: none;
 }
 
+/* ── Undo toast ──────────────────────────────────────────────────── */
+
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.6rem 0.75rem 0.6rem 1rem;
+  background: var(--surface-inverse, #1e293b);
+  color: var(--text-inverse, #f8fafc);
+  border-radius: 0.5rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.9rem;
+}
+
+.undo-toast-msg {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.undo-toast-btn {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--accent, #818cf8);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+}
+
+.undo-toast-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* ── Mobile form backdrop ────────────────────────────────────────── */
 
 .mobile-form-backdrop {
@@ -1660,8 +2060,11 @@ header h1 {
     padding: 0.5rem 0.75rem;
     gap: 0.35rem;
     position: relative;
-    /* Reset the desktop fixed height — mobile header is shorter by design. */
+    /* Reset the desktop fixed height, but pin a min-height so the bar doesn't
+       grow when search opens (the 32px search input is taller than the icon
+       buttons it replaces). Both states clamp to this height → no jump. */
     height: auto;
+    min-height: 52px;
   }
 
   .header-left {
@@ -1676,11 +2079,9 @@ header h1 {
     white-space: nowrap;
   }
 
-  /* Desktop controls hidden on mobile */
+  /* Desktop controls hidden on mobile (their actions live in the ⋮ More menu) */
   .search-wrap,
-  .view-toggle,
-  .vtb--task-filter,
-  .sort-dropdown-wrap,
+  .header-tools,
   .sync-badge {
     display: none;
   }
@@ -1714,6 +2115,12 @@ header h1 {
     min-width: 230px;
     z-index: 500;
     overflow: hidden;
+  }
+
+  /* Teleported to <body>: pin with fixed viewport coords (top/right come from
+     an inline style computed off the ⋮ button). */
+  .mobile-more-panel.mobile-more-panel--float {
+    position: fixed;
   }
 
   .mobile-more-row {
@@ -1833,6 +2240,22 @@ header h1 {
     padding: 1.25rem !important;
     z-index: 300;
     overflow-y: auto;
+    /* Full-screen column so the action bar can sit at the bottom. */
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Pin the action row to the bottom of the full-screen form, and let it wrap
+     so enabling "Task" (which reveals the due-date field) can't push Close/Add
+     off-screen. */
+  .add-note-box.expanded .form-actions {
+    margin-top: auto;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.5rem;
+    padding-top: 0.75rem;
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
   }
 
   /* Notes: 2-column masonry on mobile */
@@ -1849,6 +2272,11 @@ header h1 {
   /* Extra bottom padding in list view too (FAB) */
   .notes-list {
     padding-bottom: 5rem;
+  }
+
+  /* Calendar: trim the side gutters so the 7-column grid has room to breathe. */
+  .calendar-wrap {
+    padding: 0.75rem 0.5rem 5rem;
   }
 
   /* Bulk bar: full-width on mobile */

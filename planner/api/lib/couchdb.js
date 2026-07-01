@@ -5,6 +5,18 @@ const BASE    = process.env.COUCHDB_URL      || 'http://localhost:5984'
 const DB_USER = process.env.COUCHDB_USER     || 'admin'
 const DB_PASS = process.env.COUCHDB_PASSWORD || 'password'
 
+// Identifying info is only logged outside production.
+function debug(...args) { if (process.env.NODE_ENV !== 'production') console.log(...args) }
+
+// CouchDB stores users as docs keyed `org.couchdb.user:<name>`. These bound an
+// _all_docs range query over just the user docs (%EF%BF%BD = U+FFFD, sorts last).
+const USER_DOC_PREFIX  = 'org.couchdb.user:'
+const USER_RANGE_QUERY = 'startkey=%22org.couchdb.user%3A%22&endkey=%22org.couchdb.user%3A%EF%BF%BD%22'
+
+function userDocPath(username) {
+  return `/_users/${USER_DOC_PREFIX}${encodeURIComponent(username)}`
+}
+
 function adminAuth() {
   return 'Basic ' + Buffer.from(`${DB_USER}:${DB_PASS}`).toString('base64')
 }
@@ -20,18 +32,30 @@ async function couch(method, path, body) {
 }
 
 async function userExists(username) {
-  const res = await couch('HEAD', `/_users/org.couchdb.user:${encodeURIComponent(username)}`)
+  const res = await couch('HEAD', userDocPath(username))
   return res.status === 200
 }
 
 async function hasAnyUsers() {
-  const res  = await couch('GET', '/_users/_all_docs?startkey=%22org.couchdb.user%3A%22&endkey=%22org.couchdb.user%3A%EF%BF%BD%22&limit=1')
+  const res  = await couch('GET', `/_users/_all_docs?${USER_RANGE_QUERY}&limit=1`)
   const body = await res.json()
   return Array.isArray(body.rows) && body.rows.length > 0
 }
 
+// GET → mutate(doc) → PUT a single user doc. Shared by the password/roles updates.
+async function updateUserDoc(username, mutate) {
+  const res = await couch('GET', userDocPath(username))
+  if (!res.ok) throw new Error('User not found')
+  const doc = mutate(await res.json())
+  const putRes = await couch('PUT', userDocPath(username), doc)
+  if (!putRes.ok) {
+    const body = await putRes.json().catch(() => ({}))
+    throw new Error(body.reason || `CouchDB error ${putRes.status}`)
+  }
+}
+
 async function createUser(username, password, roles = [], dbId) {
-  const res = await couch('PUT', `/_users/org.couchdb.user:${encodeURIComponent(username)}`, {
+  const res = await couch('PUT', userDocPath(username), {
     name:     username,
     password,
     roles,
@@ -70,64 +94,65 @@ async function setSecurityDoc(username, dbId) {
 }
 
 async function getUserDbId(username) {
-  const res = await couch('GET', `/_users/org.couchdb.user:${encodeURIComponent(username)}`)
+  const res = await couch('GET', userDocPath(username))
   if (!res.ok) {
-    console.log(`[getUserDbId] user doc not found for "${username}" — status ${res.status}`)
+    debug(`[getUserDbId] user doc not found for "${username}" — status ${res.status}`)
     return null
   }
   const doc = await res.json()
   const dbId = doc.dbId || null
-  console.log(`[getUserDbId] username="${username}" dbId=${dbId}`)
+  debug(`[getUserDbId] username="${username}" dbId=${dbId}`)
   return dbId
 }
 
 // Returns the bits the client needs after authenticating: the notes DB id and
 // the encryption salt. The salt is non-secret (see createUser).
 async function getUserMeta(username) {
-  const res = await couch('GET', `/_users/org.couchdb.user:${encodeURIComponent(username)}`)
+  const res = await couch('GET', userDocPath(username))
   if (!res.ok) {
-    console.log(`[getUserMeta] user doc not found for "${username}" — status ${res.status}`)
+    debug(`[getUserMeta] user doc not found for "${username}" — status ${res.status}`)
     return { dbId: null, encSalt: null }
   }
   const doc = await res.json()
-  return { dbId: doc.dbId || null, encSalt: doc.encSalt || null }
+  return {
+    dbId:       doc.dbId || null,
+    encSalt:    doc.encSalt || null,
+    // Wrapped Data Encryption Key (envelope encryption). Opaque to the server —
+    // it can only be unwrapped client-side with the password-derived KEK.
+    wrappedDek: doc.encWrappedDek || null,
+  }
 }
 
 // ── Admin helpers ─────────────────────────────────────────────────────────────
 
 async function listUsers() {
-  const res = await couch('GET', '/_users/_all_docs?include_docs=true&startkey=%22org.couchdb.user%3A%22&endkey=%22org.couchdb.user%3A%EF%BF%BD%22')
+  const res = await couch('GET', `/_users/_all_docs?include_docs=true&${USER_RANGE_QUERY}`)
   if (!res.ok) return []
   const body = await res.json()
   return (body.rows || []).map(r => r.doc).filter(Boolean)
 }
 
-async function changeUserPassword(username, newPassword) {
-  const res = await couch('GET', `/_users/org.couchdb.user:${encodeURIComponent(username)}`)
-  if (!res.ok) throw new Error('User not found')
-  const doc = await res.json()
-  doc.password = newPassword
-  const putRes = await couch('PUT', `/_users/org.couchdb.user:${encodeURIComponent(username)}`, doc)
-  if (!putRes.ok) {
-    const body = await putRes.json().catch(() => ({}))
-    throw new Error(body.reason || `CouchDB error ${putRes.status}`)
-  }
+// Changes the password and, when provided, the wrapped DEK in the SAME user-doc
+// write so the two can never diverge (a password whose KEK no longer unwraps the
+// stored DEK would lock the user out of their notes).
+async function changeUserPassword(username, newPassword, wrappedDek) {
+  await updateUserDoc(username, (doc) => ({
+    ...doc,
+    password: newPassword,
+    ...(wrappedDek !== undefined ? { encWrappedDek: wrappedDek } : {}),
+  }))
+}
+
+async function setUserWrappedDek(username, wrappedDek) {
+  await updateUserDoc(username, (doc) => ({ ...doc, encWrappedDek: wrappedDek }))
 }
 
 async function updateUserRoles(username, roles) {
-  const res = await couch('GET', `/_users/org.couchdb.user:${encodeURIComponent(username)}`)
-  if (!res.ok) throw new Error('User not found')
-  const doc = await res.json()
-  doc.roles = roles
-  const putRes = await couch('PUT', `/_users/org.couchdb.user:${encodeURIComponent(username)}`, doc)
-  if (!putRes.ok) {
-    const body = await putRes.json().catch(() => ({}))
-    throw new Error(body.reason || `CouchDB error ${putRes.status}`)
-  }
+  await updateUserDoc(username, (doc) => ({ ...doc, roles }))
 }
 
 async function deleteUser(username) {
-  const res = await couch('GET', `/_users/org.couchdb.user:${encodeURIComponent(username)}`)
+  const res = await couch('GET', userDocPath(username))
   if (!res.ok) throw new Error('User not found')
   const doc = await res.json()
   if (doc.dbId) {
@@ -137,7 +162,7 @@ async function deleteUser(username) {
       throw new Error(body.reason || `Could not delete notes database: ${delDb.status}`)
     }
   }
-  const delRes = await couch('DELETE', `/_users/org.couchdb.user:${encodeURIComponent(username)}?rev=${encodeURIComponent(doc._rev)}`)
+  const delRes = await couch('DELETE', `${userDocPath(username)}?rev=${encodeURIComponent(doc._rev)}`)
   if (!delRes.ok) {
     const body = await delRes.json().catch(() => ({}))
     throw new Error(body.reason || `CouchDB error ${delRes.status}`)
@@ -226,7 +251,7 @@ async function updateSentKeys(username, sentKeys) {
 module.exports = {
   couch,
   hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, getUserDbId, getUserMeta,
-  changeUserPassword,
+  changeUserPassword, setUserWrappedDek,
   listUsers, updateUserRoles, deleteUser,
   ensurePushDb, savePushSubscription, deletePushSubscription,
   getAllPushSubscriptions, updateSentKeys,
