@@ -33,44 +33,76 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)))
 }
 
-export async function subscribeToPush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+// `navigator.serviceWorker.ready` never resolves when no service worker is
+// active (e.g. the dev server, where the PWA SW is disabled) — which would hang
+// the caller and freeze the UI (the "toggle greys out and never comes back"
+// bug). Resolve quickly via an existing registration, otherwise race `.ready`
+// against a timeout so callers always settle.
+async function getRegistration(timeoutMs = 4000) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error('Push notifications are not supported in this browser.')
+  }
+  const existing = await navigator.serviceWorker.getRegistration()
+  if (existing?.active) return existing
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error('Service worker is not active yet — push needs the built/installed app (it is disabled on the dev server).')),
+      timeoutMs,
+    )),
+  ])
+}
 
-  const registration = await navigator.serviceWorker.ready
-  if (!registration.pushManager) return
-
-  const permission = await Notification.requestPermission()
-  if (permission !== 'granted') return
-
+// Current subscription, or null — never hangs.
+export async function getPushSubscription() {
   try {
-    const vapidPublicKey    = await getVapidPublicKey()
-    const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey)
-
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey,
-    })
-
-    await fetch('/api/push/subscribe', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(subscription),
-    })
-  } catch (err) {
-    console.warn('[push] subscribeToPush failed:', err)
+    const registration = await getRegistration()
+    return await registration.pushManager.getSubscription()
+  } catch {
+    return null
   }
 }
 
+// Subscribes and persists server-side. Throws a descriptive error on failure so
+// the UI can show why (instead of silently failing). Returns the subscription.
+export async function subscribeToPush() {
+  const registration = await getRegistration()
+  if (!registration.pushManager) throw new Error('Push notifications are not supported in this browser.')
+
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') {
+    const err = new Error('Notification permission was not granted.')
+    err.code = 'denied'
+    throw err
+  }
+
+  const vapidPublicKey       = await getVapidPublicKey()
+  const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey)
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey,
+  })
+
+  const res = await fetch('/api/push/subscribe', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(subscription),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Could not save the subscription (HTTP ${res.status}).`)
+  }
+  return subscription
+}
+
 export async function unsubscribeFromPush() {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+  let registration
+  try { registration = await getRegistration() }
+  catch { return } // no active SW → nothing to unsubscribe
 
   try {
-    const registration = await navigator.serviceWorker.ready
     const subscription = await registration.pushManager.getSubscription()
-    if (!subscription) return
-
-    await subscription.unsubscribe()
-
+    if (subscription) await subscription.unsubscribe()
     await fetch('/api/push/unsubscribe', { method: 'DELETE' }).catch(() => {})
   } catch (err) {
     console.warn('[push] unsubscribeFromPush failed:', err)
@@ -87,7 +119,7 @@ export async function syncPushSubscription() {
   if (Notification.permission !== 'granted') return
 
   try {
-    const registration = await navigator.serviceWorker.ready
+    const registration = await getRegistration()
     const existing     = await registration.pushManager.getSubscription()
     if (existing) return // already subscribed
 

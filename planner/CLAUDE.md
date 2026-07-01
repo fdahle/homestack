@@ -92,7 +92,14 @@ docker compose up -d            # starts nginx + api + couchdb
 | POST | `/api/auth/login` | Login, sets `AuthSession` cookie |
 | POST | `/api/auth/logout` | Clears session |
 | GET  | `/api/auth/me` | Returns current user or 401 |
-| GET  | `/api/auth/config` | Returns `encryptionEnabled`, `allowSignup`, `setupRequired` |
+| POST | `/api/auth/change-password` | Change own password (+ re-wrapped DEK when encrypted) |
+| POST | `/api/auth/enc-key` | Store the caller's wrapped DEK (envelope encryption) |
+| GET  | `/api/auth/config` | Returns `encryptionEnabled`, `allowSignup`, `setupRequired`, `maxAttachmentMb` |
+| GET  | `/api/admin/users` | List users (admin) |
+| PATCH | `/api/admin/users/:username` | Grant/revoke admin role |
+| POST | `/api/admin/users/:username/password` | Reset a non-encrypted user's password (admin) |
+| DELETE | `/api/admin/users/:username` | Delete user + their notes DB (admin) |
+| GET  | `/api/push/vapid-key` | Public VAPID key for push |
 | POST | `/api/push/subscribe` | Save web push subscription |
 | DELETE | `/api/push/unsubscribe` | Remove push subscription |
 | GET  | `/api/health` | Health check |

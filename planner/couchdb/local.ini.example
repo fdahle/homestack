@@ -15,8 +15,12 @@ require_valid_user = true
 ; Max-Age set by the API (30 days = 2592000) or remembered logins expire early.
 session_timeout = 2592000
 
+; CORS is only needed for direct browser → CouchDB access (i.e. local dev, where
+; vite proxies /db). In production all traffic is same-origin through nginx, so
+; CORS is effectively unused — set `origins` to your deployment URL if you ever
+; expose CouchDB directly, otherwise leave it as the dev origin.
 [cors]
-origins = http://localhost
+origins = http://localhost:5173
 credentials = true
 methods = GET, PUT, POST, HEAD, DELETE
 headers = accept, authorization, content-type, origin, referer

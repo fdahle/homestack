@@ -21,6 +21,9 @@
 
         <!-- Title row with three-dot menu -->
         <div class="modal-title-row" @click.stop>
+          <button class="modal-back-btn" title="Back" @click="close">
+            <AppIcon name="chevron-right" :size="20" />
+          </button>
           <span v-if="effectiveIsTask" class="task-status-icon" :class="{ done: editDone }" @click="toggleDone" title="Toggle done">
             <AppIcon :name="editDone ? 'circle-check' : 'circle'" :size="16" />
           </span>
@@ -38,6 +41,7 @@
             <div v-if="moreMenuOpen" class="dropdown-panel dropdown-panel-right">
               <button class="dropdown-item" @click="togglePin">{{ note.pinned ? 'Unpin' : 'Pin' }}</button>
               <button class="dropdown-item" @click="duplicateNote">Duplicate</button>
+              <button class="dropdown-item" :disabled="editContentType !== 'plain'" @click="splitNote">{{ effectiveIsTask ? 'Split into tasks' : 'Split into notes' }}</button>
               <button class="dropdown-item" :disabled="editContentType === 'markdown'" @click="toggleCheckboxMode">{{ editContentType === 'checklist' ? 'Disable checkboxes' : 'Enable checkboxes' }}</button>
               <button class="dropdown-item" :disabled="editContentType === 'checklist'" @click="toggleMarkdownMode">{{ editContentType === 'markdown'  ? 'Disable markdown'  : 'Enable markdown'  }}</button>
               <button class="dropdown-item danger" @click="deleteNote">Move to trash</button>
@@ -45,247 +49,104 @@
           </div>
         </div>
 
-        <!-- Editor / preview with timestamp overlay -->
-        <div class="editor-wrap" @paste="handleEditorPaste">
-          <template v-if="!inTrash">
-            <MarkdownEditor
-              v-if="editContentType === 'markdown'"
-              ref="mdEditor"
-              v-model="editContent"
-            />
-            <ChecklistEditor
-              v-else-if="editContentType === 'checklist'"
-              v-model="editContent"
-            />
-            <textarea
-              v-else
-              v-model="editContent"
-              class="plain-editor"
-              placeholder="Note…"
-            />
-          </template>
-          <div v-else class="modal-preview" v-html="renderedContent" />
-        </div>
+        <!-- Scrollable content area -->
+        <div class="modal-scroll">
 
-        <!-- Scratch pad — hidden until toggled from the toolbar -->
-        <div v-if="scratchOpen" class="scratch-section" @click.stop>
-          <div class="scratch-label-row">
-            <AppIcon name="edit" :size="12" />
-            <span class="scratch-title">Scratch pad</span>
-          </div>
-          <textarea
-            v-model="editScratch"
-            class="scratch-editor"
-            placeholder="Working notes, links, sub-steps…"
-            :readonly="inTrash"
-          />
-        </div>
-
-        <!-- Attachment bar -->
-        <div v-if="editAttachments.length || attachError" class="attach-bar" @click.stop>
-          <div v-if="attachError" class="attach-error">{{ attachError }}</div>
-          <div v-if="editAttachments.length" class="attach-row">
-            <div
-              v-for="att in editAttachments"
-              :key="att.id"
-              class="attach-item"
-              :title="att.name"
-              @click="openAttachment(att)"
-            >
-              <img
-                v-if="isImage(att) && attachmentUrl(att)"
-                class="attach-thumb"
-                :src="attachmentUrl(att)"
-                :alt="att.name"
+          <!-- Editor / preview with timestamp overlay -->
+          <div class="editor-wrap" @paste="handleEditorPaste">
+            <template v-if="!inTrash">
+              <MarkdownEditor
+                v-if="editContentType === 'markdown'"
+                ref="mdEditor"
+                v-model="editContent"
               />
-              <FileTypeIcon v-else-if="!isImage(att)" :name="att.name" :type="att.type" :size="44" />
-              <button
-                v-if="!inTrash"
-                class="attach-remove"
-                title="Remove"
-                @click.stop="removeAttachment(att)"
+              <ChecklistEditor
+                v-else-if="editContentType === 'checklist'"
+                v-model="editContent"
+              />
+              <textarea
+                v-else
+                ref="plainEditor"
+                v-model="editContent"
+                class="plain-editor"
+                placeholder="Note…"
+                @input="growPlainEditor"
+              />
+            </template>
+            <div v-else class="modal-preview" v-html="renderedContent" />
+          </div>
+
+          <!-- Scratch pad — hidden until toggled from the toolbar -->
+          <div v-if="scratchOpen" class="scratch-section" @click.stop>
+            <div class="scratch-label-row">
+              <AppIcon name="edit" :size="12" />
+              <span class="scratch-title">Scratch pad</span>
+            </div>
+            <textarea
+              v-model="editScratch"
+              class="scratch-editor"
+              placeholder="Working notes, links, sub-steps…"
+              :readonly="inTrash"
+            />
+          </div>
+
+          <!-- Attachment bar -->
+          <div v-if="editAttachments.length || attachError" class="attach-bar" @click.stop>
+            <div v-if="attachError" class="attach-error">{{ attachError }}</div>
+            <div v-if="editAttachments.length" class="attach-row">
+              <div
+                v-for="att in editAttachments"
+                :key="att.id"
+                class="attach-item"
+                :title="att.name"
+                @click="openAttachment(att)"
               >
-                <AppIcon name="x" :size="12" />
-              </button>
+                <img
+                  v-if="isImage(att) && attachmentUrl(att)"
+                  class="attach-thumb"
+                  :src="attachmentUrl(att)"
+                  :alt="att.name"
+                />
+                <FileTypeIcon v-else-if="!isImage(att)" :name="att.name" :type="att.type" :size="44" />
+                <button
+                  v-if="!inTrash"
+                  class="attach-remove"
+                  title="Remove"
+                  @click.stop="removeAttachment(att)"
+                >
+                  <AppIcon name="x" :size="12" />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Timestamp row (below attachments) -->
-        <div v-if="timestampLabel" class="note-timestamp-row">
-          <span class="note-timestamp" :title="timestampTitle">{{ timestampLabel }}</span>
-        </div>
+          <!-- Timestamp row (below attachments) -->
+          <div v-if="timestampLabel" class="note-timestamp-row">
+            <span class="note-timestamp" :title="timestampTitle">{{ timestampLabel }}</span>
+          </div>
+
+        </div><!-- /.modal-scroll -->
 
         <!-- Bottom bar -->
         <div class="modal-bottom-bar">
           <template v-if="!inTrash">
-            <!-- Task toggle -->
-            <button
-              class="toolbar-btn"
-              :class="{ 'toolbar-btn--active': effectiveIsTask }"
-              :title="effectiveIsTask ? (editIsTask ? 'Remove task flag' : 'Task (auto-detected via due date)') : 'Mark as task'"
-              @click.stop="toggleTaskFlag"
-            >
-              <AppIcon name="task-check" :size="18" />
-            </button>
-
-            <!-- Attach file -->
-            <button
-              class="toolbar-btn"
-              title="Attach image or file"
-              @click.stop="triggerAttachInput"
-            >
-              <AppIcon name="paperclip" :size="18" />
-            </button>
-            <input
-              ref="attachInput"
-              type="file"
-              multiple
-              style="display: none"
-              @change="onAttachFilesSelected"
+            <NoteToolbar
+              v-model:is-task="editIsTask"
+              v-model:due-date="editDueDate"
+              v-model:due-time="editDueTime"
+              v-model:priority="editPriority"
+              v-model:recurrence="editRecurrence"
+              v-model:view-id="editViewId"
+              v-model:labels="editLabels"
+              :color="editColor"
+              :notification-at="editNotification"
+              :scratch-open="scratchOpen"
+              :scratch-has-text="!!editScratch.trim()"
+              @update:color="onColorChange"
+              @update:notification-at="onNotifChange"
+              @update:scratch-open="scratchOpen = $event"
+              @attach-files="addFiles"
             />
-
-            <!-- Scratch pad toggle -->
-            <button
-              class="toolbar-btn"
-              :class="{ 'toolbar-btn--active': scratchOpen }"
-              title="Scratch pad"
-              @click.stop="scratchOpen = !scratchOpen"
-            >
-              <AppIcon name="edit" :size="18" />
-              <span v-if="editScratch.trim()" class="toolbar-notif-dot" />
-            </button>
-
-            <!-- Color -->
-            <div class="toolbar-dropdown-wrap">
-              <button
-                class="toolbar-btn"
-                :class="{ 'toolbar-btn--tinted': editColor }"
-                title="Color"
-                @click.stop="toggleDropdown('colorOpen')"
-              >
-                <AppIcon name="palette" :size="18" />
-              </button>
-              <ColorPicker
-                v-if="colorOpen"
-                :model-value="editColor"
-                @update:model-value="onColorChange"
-              />
-            </div>
-
-            <!-- Notification / reminder -->
-            <div class="toolbar-dropdown-wrap">
-              <button
-                class="toolbar-btn"
-                :class="{ 'toolbar-btn--active': editNotification }"
-                title="Reminder"
-                @click.stop="toggleDropdown('notifOpen')"
-              >
-                <AppIcon name="bell" :size="18" />
-                <span v-if="editNotification" class="toolbar-notif-dot" />
-              </button>
-              <template v-if="notifOpen">
-                <div v-if="store.notificationPermission === 'denied'" class="dropdown-panel dropdown-panel-up np-panel" @click.stop>
-                  <p class="np-blocked">Notifications blocked. Enable them in your browser settings.</p>
-                </div>
-                <NotificationPicker
-                  v-else
-                  :model-value="editNotification"
-                  @update:model-value="onNotifChange"
-                />
-              </template>
-            </div>
-
-            <!-- View assignment -->
-            <div class="toolbar-dropdown-wrap">
-              <button class="toolbar-btn" :class="{ active: viewDropdownOpen }" title="Move to view" @click.stop="toggleDropdown('viewDropdownOpen')">
-                <AppIcon name="layers" :size="18" />
-              </button>
-              <div v-if="viewDropdownOpen" class="dropdown-panel dropdown-panel-up">
-                <p class="np-label dropdown-title">Move to</p>
-                <button class="dropdown-item" :class="{ selected: editViewId === null && editLabels.length === 0 }" @click="setHome()">Home</button>
-                <button
-                  v-for="v in store.flatViewTree"
-                  :key="v._id"
-                  class="dropdown-item"
-                  :class="{ selected: isViewAssigned(v._id) }"
-                  :style="{ paddingLeft: (1 + v.depth * 0.75) + 'rem' }"
-                  @click="toggleViewAssignment(v._id)"
-                >{{ v.name }}</button>
-              </div>
-            </div>
-
-            <!-- Task-specific icons -->
-            <template v-if="effectiveIsTask">
-              <span class="toolbar-sep" />
-
-              <!-- Due date -->
-              <div class="toolbar-dropdown-wrap">
-                <button
-                  class="toolbar-btn"
-                  :class="{ 'toolbar-btn--active': editDueDate }"
-                  title="Due date"
-                  @click.stop="toggleDropdown('dueDateOpen')"
-                >
-                  <AppIcon name="calendar" :size="18" />
-                  <span v-if="editDueDate" class="toolbar-notif-dot" />
-                </button>
-                <div v-if="dueDateOpen" class="dropdown-panel dropdown-panel-up np-panel" @click.stop>
-                  <p class="np-label">Due date</p>
-                  <input type="date" v-model="editDueDate" class="np-input" />
-                  <div class="np-actions">
-                    <button v-if="editDueDate" class="np-btn np-btn--remove" @click="editDueDate = null; dueDateOpen = false">Remove</button>
-                    <button class="np-btn np-btn--set" @click="dueDateOpen = false">Done</button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Priority -->
-              <div class="toolbar-dropdown-wrap">
-                <button
-                  class="toolbar-btn"
-                  :class="{ 'toolbar-btn--active': editPriority }"
-                  :title="editPriority ? `Priority: ${editPriority}` : 'Set priority'"
-                  @click.stop="toggleDropdown('priorityOpen')"
-                >
-                  <AppIcon name="flag" :size="18" />
-                  <span v-if="editPriority" class="priority-dot" :class="`priority-dot--${editPriority}`" />
-                </button>
-                <div v-if="priorityOpen" class="dropdown-panel dropdown-panel-up" @click.stop>
-                  <p class="np-label dropdown-title">Priority</p>
-                  <button class="dropdown-item priority-item" :class="{ selected: editPriority === 'high' }" @click="setPriority('high')">
-                    <span class="priority-dot priority-dot--high" /> High
-                  </button>
-                  <button class="dropdown-item priority-item" :class="{ selected: editPriority === 'medium' }" @click="setPriority('medium')">
-                    <span class="priority-dot priority-dot--medium" /> Medium
-                  </button>
-                  <button class="dropdown-item priority-item" :class="{ selected: editPriority === 'low' }" @click="setPriority('low')">
-                    <span class="priority-dot priority-dot--low" /> Low
-                  </button>
-                  <button v-if="editPriority" class="dropdown-item danger" @click="setPriority(null)">Remove priority</button>
-                </div>
-              </div>
-
-              <!-- Recurrence -->
-              <div class="toolbar-dropdown-wrap">
-                <button
-                  class="toolbar-btn"
-                  :class="{ 'toolbar-btn--active': editRecurrence }"
-                  :title="editRecurrence ? `Repeats ${editRecurrence}` : 'Set recurrence'"
-                  @click.stop="toggleDropdown('recurrenceOpen')"
-                >
-                  <AppIcon name="refresh" :size="18" />
-                  <span v-if="editRecurrence" class="toolbar-notif-dot" />
-                </button>
-                <div v-if="recurrenceOpen" class="dropdown-panel dropdown-panel-up" @click.stop>
-                  <p class="np-label dropdown-title">Repeat</p>
-                  <button class="dropdown-item" :class="{ selected: editRecurrence === 'daily' }"   @click="editRecurrence = 'daily';   recurrenceOpen = false">Daily</button>
-                  <button class="dropdown-item" :class="{ selected: editRecurrence === 'weekly' }"  @click="editRecurrence = 'weekly';  recurrenceOpen = false">Weekly</button>
-                  <button class="dropdown-item" :class="{ selected: editRecurrence === 'monthly' }" @click="editRecurrence = 'monthly'; recurrenceOpen = false">Monthly</button>
-                  <button v-if="editRecurrence" class="dropdown-item danger" @click="editRecurrence = null; recurrenceOpen = false">Remove</button>
-                </div>
-              </div>
-            </template>
           </template>
           <template v-else>
             <button class="btn-restore" @click="restore">Restore</button>
@@ -320,13 +181,12 @@ import FileTypeIcon from './FileTypeIcon.vue'
 function hasCheckboxSyntax(text) {
   return /^\s*- \[[ xX]\] /m.test(text || '')
 }
-import ColorPicker from './ColorPicker.vue'
-import NotificationPicker from './NotificationPicker.vue'
+import NoteToolbar from './NoteToolbar.vue'
 
 export default {
   name: 'NoteModal',
 
-  components: { MarkdownEditor, ChecklistEditor, ColorPicker, NotificationPicker, FileTypeIcon },
+  components: { MarkdownEditor, ChecklistEditor, NoteToolbar, FileTypeIcon },
 
   props: {
     note: { type: Object, required: true },
@@ -350,6 +210,7 @@ export default {
       editNotification: this.note.notificationAt ?? null,
       editIsTask:       this.note.isTask         ?? false,
       editDueDate:      this.note.dueDate        ?? null,
+      editDueTime:      this.note.dueTime        ?? null,
       editPriority:     this.note.priority       ?? null,
       editDone:         this.note.done           ?? false,
       editContentType:  this.note.contentType    ?? (hasCheckboxSyntax(this.note.content) ? 'checklist' : 'plain'),
@@ -360,25 +221,21 @@ export default {
       dragDepth:        0,
       lightboxUrl:      null,
       lightboxAlt:      '',
-      viewDropdownOpen: false,
       moreMenuOpen:     false,
-      colorOpen:        false,
-      notifOpen:        false,
-      dueDateOpen:      false,
-      priorityOpen:     false,
-      recurrenceOpen:   false,
     }
   },
 
+  watch: {
+    editContent() {
+      if (this.editContentType === 'plain') this.$nextTick(() => this.growPlainEditor())
+    },
+  },
+
   mounted() {
+    this.$nextTick(() => this.growPlainEditor())
+
     this._globalClose = () => {
-      this.viewDropdownOpen = false
-      this.moreMenuOpen     = false
-      this.colorOpen        = false
-      this.notifOpen        = false
-      this.dueDateOpen      = false
-      this.priorityOpen     = false
-      this.recurrenceOpen   = false
+      this.moreMenuOpen = false
     }
     window.addEventListener('click', this._globalClose)
 
@@ -386,11 +243,26 @@ export default {
       if (e.key === 'Escape') this.onEscape()
     }
     window.addEventListener('keydown', this._globalKeydown)
+
+    // Push a history entry so the Android hardware back button closes the modal
+    // (and auto-saves) instead of navigating away from the app.
+    history.pushState({ noteModal: true }, '')
+    this._historyPushed = true
+    this._onPopState = () => {
+      // The pushed entry is already gone — don't pop it again on unmount.
+      this._historyPushed = false
+      this.close()
+    }
+    window.addEventListener('popstate', this._onPopState)
   },
 
   beforeUnmount() {
     window.removeEventListener('click', this._globalClose)
     window.removeEventListener('keydown', this._globalKeydown)
+    window.removeEventListener('popstate', this._onPopState)
+    // Closed via button/Escape rather than the back action — drop our entry so
+    // the history stack stays balanced.
+    if (this._historyPushed) history.back()
   },
 
   computed: {
@@ -429,6 +301,13 @@ export default {
   },
 
   methods: {
+    growPlainEditor() {
+      const el = this.$refs.plainEditor
+      if (!el) return
+      el.style.height = 'auto'
+      el.style.height = el.scrollHeight + 'px'
+    },
+
     async close() {
       if (!this.inTrash) {
         const titleChanged       = this.editTitle.trim()    !== (this.note.title       ?? '')
@@ -439,12 +318,13 @@ export default {
         const labelsChanged      = JSON.stringify(origLabels) !== JSON.stringify([...this.editLabels].sort())
         const taskChanged        = this.editIsTask          !== (this.note.isTask      ?? false)
         const dueDateChanged     = this.editDueDate         !== (this.note.dueDate     ?? null)
+        const dueTimeChanged     = (this.editDueTime || null) !== (this.note.dueTime   ?? null)
         const priorityChanged    = this.editPriority        !== (this.note.priority    ?? null)
         const doneChanged        = this.editDone            !== (this.note.done        ?? false)
         const contentTypeChanged = this.editContentType     !== (this.note.contentType ?? 'plain')
         const recurrenceChanged  = this.editRecurrence      !== (this.note.recurrence  ?? null)
 
-        if (titleChanged || contentChanged || scratchChanged || viewChanged || labelsChanged || taskChanged || dueDateChanged || priorityChanged || doneChanged || contentTypeChanged || recurrenceChanged) {
+        if (titleChanged || contentChanged || scratchChanged || viewChanged || labelsChanged || taskChanged || dueDateChanged || dueTimeChanged || priorityChanged || doneChanged || contentTypeChanged || recurrenceChanged) {
           await this.store.updateNote(this.note, {
             title:       this.editTitle,
             content:     this.editContentType === 'checklist' ? sortCheckboxItems(this.editContent) : this.editContent,
@@ -453,6 +333,7 @@ export default {
             labels:      this.editLabels,
             isTask:      this.editIsTask,
             dueDate:     this.editDueDate,
+            dueTime:     this.editDueDate ? (this.editDueTime || null) : null,
             priority:    this.editPriority,
             done:        this.editDone,
             contentType: this.editContentType,
@@ -464,13 +345,7 @@ export default {
     },
 
     closePopups() {
-      this.colorOpen        = false
-      this.notifOpen        = false
-      this.viewDropdownOpen = false
-      this.moreMenuOpen     = false
-      this.dueDateOpen      = false
-      this.priorityOpen     = false
-      this.recurrenceOpen   = false
+      this.moreMenuOpen = false
     },
 
     toggleDropdown(name) {
@@ -479,34 +354,17 @@ export default {
       this[name] = !was
     },
 
-    toggleTaskFlag() {
-      // Only toggle the explicit flag; if auto-detected via dueDate, clear dueDate too
-      if (this.effectiveIsTask && !this.editIsTask) {
-        // Auto-detected: clearing the due date removes task status
-        this.editDueDate = null
-      } else {
-        this.editIsTask = !this.editIsTask
-      }
-    },
-
     toggleDone() {
       this.editDone = !this.editDone
     },
 
-    setPriority(value) {
-      this.editPriority = value
-      this.priorityOpen = false
-    },
-
     async onColorChange(color) {
       this.editColor = color
-      this.colorOpen = false
       await this.store.updateNoteColor(this.note, color)
     },
 
     async onNotifChange(iso) {
       this.editNotification = iso
-      if (iso) this.notifOpen = false   // keep open when removing so user sees result
       await this.store.updateNoteNotification(this.note, iso)
     },
 
@@ -525,39 +383,25 @@ export default {
       this.$emit('close')
     },
 
-    setHome() {
-      this.editViewId = null
-      this.editLabels = []
-      this.viewDropdownOpen = false
-    },
-
-    isViewAssigned(viewId) {
-      return this.editViewId === viewId || this.editLabels.includes(viewId)
-    },
-
-    toggleViewAssignment(viewId) {
-      if (this.editViewId === viewId) {
-        // Remove primary; promote first extra label, if any
-        const [first, ...rest] = this.editLabels
-        this.editViewId = first ?? null
-        this.editLabels = rest
-      } else if (this.editLabels.includes(viewId)) {
-        this.editLabels = this.editLabels.filter(id => id !== viewId)
-      } else {
-        if (!this.editViewId) {
-          this.editViewId = viewId
-        } else {
-          this.editLabels = [...this.editLabels, viewId]
-        }
-      }
-    },
-
     async togglePin() {
       await this.store.pinNote(this.note)
     },
 
     async duplicateNote() {
       await this.store.duplicateNote(this.note)
+      this.$emit('close')
+    },
+
+    async splitNote() {
+      const lines = (this.editContent || '').split('\n').map(l => l.trim()).filter(Boolean)
+      if (lines.length < 2) return
+      const type = this.effectiveIsTask ? 'tasks' : 'notes'
+      if (!window.confirm(`Split into ${lines.length} ${type}? The original will be permanently deleted.`)) return
+      this.moreMenuOpen = false
+      for (const line of lines) {
+        await this.store.addNote({ title: '', content: line, isTask: this.effectiveIsTask, contentType: 'plain' })
+      }
+      await this.store.permanentlyDelete(this.note)
       this.$emit('close')
     },
 
@@ -657,16 +501,6 @@ export default {
       this.lightboxAlt = ''
     },
 
-    triggerAttachInput() {
-      this.$refs.attachInput?.click()
-    },
-
-    onAttachFilesSelected(event) {
-      const files = Array.from(event.target.files || [])
-      if (files.length) this.addFiles(files)
-      event.target.value = ''
-    },
-
     async addFiles(files) {
       this.attachError = null
       for (const file of files) {
@@ -749,14 +583,24 @@ export default {
   box-shadow: 0 8px 32px rgba(0,0,0,.25);
   padding: 1rem;
   width: 100%;
-  max-width: 620px;
-  min-height: 16rem;
+  max-width: 740px;
+  min-height: 10rem;
   max-height: 90vh;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   transition: background 0.15s;
   animation: modal-expand 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.modal-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .modal-title-row {
@@ -766,6 +610,23 @@ export default {
   border-bottom: 1px solid var(--border);
   padding-bottom: 0.4rem;
 }
+
+.modal-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  margin-left: -0.25rem;
+  border-radius: 4px;
+  color: var(--text-3);
+  /* Back-pointing chevron (no dedicated left-arrow icon). */
+  transform: rotate(180deg);
+}
+.modal-back-btn:hover { background: var(--surface-3); }
 
 .task-status-icon {
   display: flex;
@@ -797,9 +658,6 @@ export default {
 
 .editor-wrap {
   position: relative;
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
 }
 
 /* Drag-to-attach overlay covering the whole modal */
@@ -894,10 +752,11 @@ export default {
 
 .plain-editor {
   width: 100%;
-  min-height: 8rem;
+  min-height: 4rem;
   border: none;
   outline: none;
   resize: none;
+  overflow-y: hidden;
   font-size: 0.95rem;
   line-height: 1.7;
   color: var(--text-2);
@@ -989,7 +848,9 @@ export default {
 .modal-bottom-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.25rem;
+  row-gap: 0.4rem;
   padding-top: 0.25rem;
   border-top: 1px solid var(--border);
 }
@@ -1008,43 +869,7 @@ export default {
   line-height: 1;
 }
 .toolbar-btn:hover,
-.toolbar-btn.active      { background: var(--surface-3); }
-.toolbar-btn--tinted     { color: var(--text-1); }
-.toolbar-btn--active svg { stroke: var(--accent); }
-
-/* Blue dot on the bell when a notification is active */
-.toolbar-notif-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 1.5px solid var(--surface);
-}
-
-/* Colored dot on the priority flag */
-.priority-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  border: 1.5px solid var(--surface);
-}
-.priority-dot--high   { background: var(--danger); }
-.priority-dot--medium { background: var(--warning); }
-.priority-dot--low    { background: var(--success); }
-
-/* Inline priority dot in dropdown */
-.priority-item { display: flex; align-items: center; gap: 0.5rem; }
-.priority-item .priority-dot {
-  position: static;
-  border: none;
-  flex-shrink: 0;
-}
+.toolbar-btn.active { background: var(--surface-3); }
 
 .toolbar-dropdown-wrap {
   position: relative;
@@ -1068,11 +893,6 @@ export default {
   right: 0;
 }
 
-.dropdown-panel-up {
-  top: auto;
-  bottom: calc(100% + 4px);
-}
-
 .dropdown-item {
   display: block;
   width: 100%;
@@ -1088,67 +908,8 @@ export default {
 .dropdown-item:hover { background: var(--surface-3); }
 .dropdown-item:disabled { opacity: 0.4; cursor: default; }
 .dropdown-item:disabled:hover { background: none; }
-.dropdown-item.selected { font-weight: 600; }
 .dropdown-item.danger { color: var(--danger); }
 .dropdown-item.danger:hover { background: var(--danger-bg); }
-
-/* Notification / due-date picker panel */
-.np-panel { padding: 0.75rem; min-width: 220px; }
-.np-label {
-  margin: 0 0 4px;
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.np-input {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.35rem 0.6rem;
-  font-size: 0.875rem;
-  font-family: inherit;
-  outline: none;
-  background: var(--surface);
-  color: var(--text-1);
-}
-.np-input:focus { border-color: var(--accent); }
-.np-actions { display: flex; gap: 0.4rem; margin-top: 0.5rem; justify-content: flex-end; }
-.np-btn {
-  border: none;
-  border-radius: 4px;
-  padding: 0.3rem 0.75rem;
-  font-size: 0.8rem;
-  font-family: inherit;
-  cursor: pointer;
-  font-weight: 500;
-}
-.np-btn--remove { background: transparent; color: var(--danger); }
-.np-btn--remove:hover { background: var(--danger-bg); }
-.np-btn--set { background: var(--accent); color: #fff; }
-.np-btn--set:hover { background: var(--accent-h); }
-
-.np-blocked {
-  font-size: 0.8rem;
-  color: var(--danger);
-  padding: 0.25rem 0;
-  margin: 0;
-}
-
-.dropdown-title {
-  padding: 0.3rem 1rem 0;
-  margin: 0 0 4px;
-}
-
-.toolbar-sep {
-  width: 1px;
-  height: 18px;
-  background: rgba(0,0,0,.12);
-  margin: 0 0.1rem;
-  align-self: center;
-  flex-shrink: 0;
-}
 
 
 .btn-close,
@@ -1221,6 +982,10 @@ export default {
     max-height: 100dvh;
     border-radius: 0;
     animation: none;
+  }
+
+  .modal-scroll {
+    flex: 1;
   }
 
   .editor-wrap {

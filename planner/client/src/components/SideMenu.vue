@@ -104,7 +104,7 @@
                 placeholder="Subview name"
                 @keydown.enter="submitView"
                 @keydown.escape="cancelView"
-                @blur="cancelView"
+                @blur="submitView"
               />
             </div>
           </li>
@@ -117,7 +117,7 @@
                 placeholder="View name"
                 @keydown.enter="submitView"
                 @keydown.escape="cancelView"
-                @blur="cancelView"
+                @blur="submitView"
               />
             </div>
             <button v-else class="nav-item nav-item--add" @click="startAddView(null)">
@@ -161,13 +161,24 @@
         <li>
           <button
             class="nav-item nav-item--fixed"
+            :class="{ active: store.currentViewId === 'archive' }"
+            :style="{ paddingLeft: '0.5rem' }"
+            @click="store.setView('archive')"
+          >
+            <span class="nav-chevron invisible" aria-hidden="true">
+              <AppIcon name="chevron-right" :size="12" />
+            </span>
+            <span class="nav-icon"><AppIcon name="archive" :size="16" /></span>
+            <span class="nav-label">Archive</span>
+          </button>
+        </li>
+        <li>
+          <button
+            class="nav-item nav-item--fixed"
             :class="{ active: store.currentViewId === 'trash' }"
             :style="{ paddingLeft: '0.5rem' }"
             @click="store.setView('trash')"
           >
-            <span v-if="editMode" class="nav-grip nav-grip--spacer" aria-hidden="true">
-              <AppIcon name="grip" :size="12" />
-            </span>
             <span class="nav-chevron invisible" aria-hidden="true">
               <AppIcon name="chevron-right" :size="12" />
             </span>
@@ -303,6 +314,12 @@ export default {
   watch: {
     'store.currentViewId'() {
       this.$emit('navigate')
+    },
+
+    collapsed(val) {
+      // Leaving label edit mode open while the menu is closed (e.g. on mobile)
+      // is confusing — turn it off whenever the menu collapses.
+      if (val) this.editMode = false
     },
 
     editMode(val) {
@@ -626,7 +643,7 @@ export default {
 
     async logout() {
       const { useNotesStore } = await import('../stores/notes.js')
-      useNotesStore().reset()
+      await useNotesStore().reset()
       await this.authStore.logout()
       this.$router.push('/login')
     },
@@ -864,7 +881,8 @@ nav { display: flex; flex-direction: column; height: 100%; padding: 0.5rem 0; ov
     top: 0;
     left: 0;
     height: 100dvh;
-    z-index: 200;
+    /* Above in-page content (calendar header, FAB, etc.) and its backdrop (199). */
+    z-index: 250;
     width: 280px !important;
     transform: translateX(-100%);
     transition: transform 0.25s ease, box-shadow 0.25s ease;
@@ -877,6 +895,11 @@ nav { display: flex; flex-direction: column; height: 100%; padding: 0.5rem 0; ov
   }
 
   .resize-handle { display: none; }
+
+  /* No hover on touch — reveal the drag grip and the label-options (⋮) button
+     whenever they're rendered (edit mode) so they're tappable. */
+  .nav-grip,
+  .nav-actions { opacity: 1; }
 }
 </style>
 

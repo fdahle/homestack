@@ -4,6 +4,10 @@ import { encryptField, decryptField, isEncryptedBlob, encryptBytes, decryptBytes
 import { generateAttachmentId, compressImage } from '../utils/attachments.js'
 import { useAuthStore } from './auth.js'
 import { subscribeToPush, unsubscribeFromPush, syncPushSubscription } from '../composables/usePushNotifications.js'
+import { isTaskNote, localDateStr, getNextDueDate } from '../utils/dates.js'
+
+// Re-exported for components that import it from the store.
+export { isTaskNote }
 
 const DB_BASE_URL       = import.meta.env.VITE_DB_BASE_URL || `${window.location.origin}/db`
 const RETRY_INTERVAL_MS = 10_000
@@ -20,39 +24,25 @@ function dbg(...args) {
   if (DEBUG) console.log('[sync]', ...args)
 }
 
-// A note is a "task" if explicitly flagged or if it has a due date.
-// This is a pure read-time derivation — never stored.
-export function isTaskNote(note) {
-  return note.isTask === true || (note.dueDate != null && note.dueDate !== '')
-}
-
-function getNextDueDate(currentDue, recurrence) {
-  const d = new Date(currentDue + 'T00:00:00')
-  if (recurrence === 'daily')        d.setDate(d.getDate() + 1)
-  else if (recurrence === 'weekly')  d.setDate(d.getDate() + 7)
-  else if (recurrence === 'monthly') d.setMonth(d.getMonth() + 1)
-  return d.toISOString().slice(0, 10)
-}
-
 // ── Smart-view filter helpers ─────────────────────────────────────────────────
 
 function smartToday(notes) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   return notes
-    .filter(n => !n.deletedAt && isTaskNote(n) && n.dueDate === today)
+    .filter(n => !n.deletedAt && !n.archivedAt && isTaskNote(n) && n.dueDate === today)
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
 }
 
 function smartUpcoming(notes) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   return notes
-    .filter(n => !n.deletedAt && isTaskNote(n) && n.dueDate && n.dueDate > today)
+    .filter(n => !n.deletedAt && !n.archivedAt && isTaskNote(n) && n.dueDate && n.dueDate > today)
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
 }
 
 function smartAllTasks(notes) {
   return notes
-    .filter(n => !n.deletedAt && isTaskNote(n))
+    .filter(n => !n.deletedAt && !n.archivedAt && isTaskNote(n))
     .sort((a, b) => {
       // undated tasks last, then by dueDate ascending
       if (!a.dueDate && b.dueDate) return 1
@@ -62,9 +52,9 @@ function smartAllTasks(notes) {
 }
 
 function smartOverdue(notes) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   return notes
-    .filter(n => !n.deletedAt && isTaskNote(n) && n.dueDate && n.dueDate < today && !n.done)
+    .filter(n => !n.deletedAt && !n.archivedAt && isTaskNote(n) && n.dueDate && n.dueDate < today && !n.done)
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
 }
 
@@ -83,6 +73,9 @@ export const useNotesStore = defineStore('notes', {
     sortBy: localStorage.getItem('notesSortBy') || 'default',
     dragLabelBehavior: localStorage.getItem('noteDragLabelBehavior') || 'move',
     doneAutoDeleteDays: parseInt(localStorage.getItem('doneAutoDeleteDays') ?? '') || 30,
+    trashRetentionDays: parseInt(localStorage.getItem('trashRetentionDays') ?? '') || 7, // 0 = keep forever
+    dailyDigestEnabled: localStorage.getItem('dailyDigestEnabled') === 'true',
+    dailyDigestHour: parseInt(localStorage.getItem('dailyDigestHour') ?? '') || 8,
     notificationPermission: null, // 'granted' | 'denied' | 'default' | null (unsupported)
   }),
 
@@ -97,11 +90,13 @@ export const useNotesStore = defineStore('notes', {
       let notes
       if (state.currentViewId === 'trash') {
         notes = state.notes.filter(n => !!n.deletedAt)
+      } else if (state.currentViewId === 'archive') {
+        notes = state.notes.filter(n => !n.deletedAt && !!n.archivedAt)
       } else if (state.currentViewId === 'home') {
-        notes = state.notes.filter(n => !n.deletedAt && !n.viewId)
+        notes = state.notes.filter(n => !n.deletedAt && !n.archivedAt && !n.viewId)
       } else {
         const ids = this.includedViewIds(state.currentViewId)
-        notes = state.notes.filter(n => !n.deletedAt && (
+        notes = state.notes.filter(n => !n.deletedAt && !n.archivedAt && (
           ids.has(n.viewId) ||
           (n.labels || []).some(l => ids.has(l))
         ))
@@ -176,6 +171,20 @@ export const useNotesStore = defineStore('notes', {
       return ids
     },
 
+    // Count of overdue (past-due, not done) tasks — used for the app icon badge.
+    overdueCount(state) {
+      return smartOverdue(state.notes).length
+    },
+
+    // The viewId a new note should land in given the current view: a real view's
+    // id, or null for pseudo/smart views (home, trash, archive, smart:*).
+    defaultNoteViewId(state) {
+      const pseudoViews = ['home', 'trash', 'archive']
+      return (pseudoViews.includes(state.currentViewId) || state.currentViewId.startsWith('smart:'))
+        ? null
+        : state.currentViewId
+    },
+
     // Returns sorted board columns for a given viewId ('home' or a view _id)
     boardColumnsForView: (state) => (viewId) => {
       return state.boardColumns
@@ -189,8 +198,14 @@ export const useNotesStore = defineStore('notes', {
       // Cancel any previous timers/handlers if init() is called again (e.g. hot reload)
       this._destroy()
 
-      this._local  = new PouchDB('notes')
+      // Namespace the local store per user. Using a shared local DB name would
+      // leak one user's notes into the next session on the same browser (the
+      // local IndexedDB outlives logout), and bidirectional sync would then push
+      // those notes up into the new user's remote DB. Per-user names make that
+      // impossible even if a logout-time wipe is ever missed.
       const remoteDbName = dbId ? `notes_${dbId}` : (username ? `notes_${username}` : null)
+      const localDbName  = remoteDbName || 'notes'
+      this._local  = new PouchDB(localDbName)
       const remoteUrl = remoteDbName
         ? `${DB_BASE_URL}/${remoteDbName}`
         : import.meta.env.VITE_COUCHDB_URL || 'http://localhost:5984/notes'
@@ -255,12 +270,21 @@ export const useNotesStore = defineStore('notes', {
       this._changesHandler?.cancel()
     },
 
+    // Scope a localStorage key to the current user so per-device notification
+    // dedup state (firedNotifications, lastDigestDate) doesn't bleed between
+    // accounts sharing a browser. Keyed on the stable dbId, falling back to
+    // username, then 'anon' for local dev with no auth.
+    _nsKey(base) {
+      const auth = useAuthStore()
+      return `${base}:${auth.dbId || auth.username || 'anon'}`
+    },
+
     _registerSwMessageHandler() {
       if (!('serviceWorker' in navigator) || this._swMessageHandler) return
       this._swMessageHandler = (event) => {
         if (event.data?.type !== 'NOTIFICATION_FIRED' || !event.data.key) return
         try {
-          const STORAGE_KEY = 'firedNotifications'
+          const STORAGE_KEY = this._nsKey('firedNotifications')
           const fired = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'))
           fired.add(event.data.key)
           localStorage.setItem(STORAGE_KEY, JSON.stringify([...fired].slice(-500)))
@@ -290,15 +314,25 @@ export const useNotesStore = defineStore('notes', {
     async _decryptNote(doc) {
       const key = this._cryptoCtx()
       if (!key) return doc
+      // Best-effort: a field that fails to decrypt (corruption, or a transient
+      // mixed-key state mid key-rotation) falls back to its raw value rather than
+      // throwing and aborting the entire load.
+      const safeDecrypt = async (val, fallback) => {
+        if (!isEncryptedBlob(val)) return val || fallback
+        try { return await decryptField(key, val) }
+        catch (err) { dbg('decrypt field failed', err?.message); return fallback }
+      }
       const attachments = Array.isArray(doc.attachments)
         ? await Promise.all(doc.attachments.map(async (a) =>
-            a?.enc && isEncryptedBlob(a.name) ? { ...a, name: await decryptField(key, a.name) } : a))
+            a?.enc && isEncryptedBlob(a.name)
+              ? { ...a, name: await safeDecrypt(a.name, a.name) }
+              : a))
         : doc.attachments
       return {
         ...doc,
-        title:   isEncryptedBlob(doc.title)   ? await decryptField(key, doc.title)   : (doc.title   || ''),
-        content: isEncryptedBlob(doc.content) ? await decryptField(key, doc.content) : (doc.content || ''),
-        scratch: isEncryptedBlob(doc.scratch) ? await decryptField(key, doc.scratch) : (doc.scratch || ''),
+        title:   await safeDecrypt(doc.title,   ''),
+        content: await safeDecrypt(doc.content, ''),
+        scratch: await safeDecrypt(doc.scratch, ''),
         attachments,
       }
     },
@@ -318,6 +352,7 @@ export const useNotesStore = defineStore('notes', {
         .sort((a, b) => a.name.localeCompare(b.name))
 
       this.boardColumns = docs.filter(d => d.type === 'board_column')
+
     },
 
     async _isReachable() {
@@ -338,6 +373,9 @@ export const useNotesStore = defineStore('notes', {
 
     _handleUnauthorized() {
       this.syncState = 'error'
+      // Session is gone server-side — treat as a logout: wipe local note data so
+      // it isn't left at rest for whoever logs in next on this browser.
+      this.reset().catch(() => {})
       useAuthStore().logout()
       import('../router/index.js').then(({ default: router }) => router.push('/login'))
     },
@@ -391,7 +429,10 @@ export const useNotesStore = defineStore('notes', {
         })
     },
 
-    reset() {
+    // Called on logout. Cancels sync and DESTROYS the local IndexedDB store so no
+    // note data is left at rest for the next user on this browser. Must be awaited
+    // before navigating away so the wipe completes.
+    async reset() {
       this._destroy()
       unsubscribeFromPush().catch(() => {})
       for (const url of Object.values(this.attachmentUrls)) URL.revokeObjectURL(url)
@@ -400,6 +441,12 @@ export const useNotesStore = defineStore('notes', {
       this.views          = []
       this.boardColumns   = []
       this.syncState      = 'local'
+      if (this._local) {
+        try { await this._local.destroy() }
+        catch (err) { dbg('local destroy failed', err?.message) }
+        this._local = null
+        this._remote = null
+      }
     },
 
     // ── Notifications ─────────────────────────────────────────────────────────
@@ -422,7 +469,7 @@ export const useNotesStore = defineStore('notes', {
     },
 
     _startNotificationPoller() {
-      const STORAGE_KEY = 'firedNotifications'
+      const STORAGE_KEY = this._nsKey('firedNotifications')
 
       const getFired = () => {
         try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')) }
@@ -454,10 +501,33 @@ export const useNotesStore = defineStore('notes', {
           })
           n.onclick = () => { window.focus() }
         }
+        this._checkDailyDigest(now)
       }
 
       check() // run immediately to catch missed reminders on page load
       this._notifInterval = setInterval(check, 60_000)
+    },
+
+    // Once-per-day summary of tasks due today + overdue. Fires at most once per
+    // local calendar day, on the first poll at/after the configured hour.
+    _checkDailyDigest(now = new Date()) {
+      if (!this.dailyDigestEnabled || this.notificationPermission !== 'granted') return
+      if (now.getHours() < this.dailyDigestHour) return
+      const today = localDateStr(now)
+      const STORAGE = this._nsKey('lastDigestDate')
+      if (localStorage.getItem(STORAGE) === today) return
+      localStorage.setItem(STORAGE, today) // mark first so we never double-fire
+
+      const dueToday = this.notes.filter(n =>
+        !n.deletedAt && !n.archivedAt && isTaskNote(n) && n.dueDate === today && !n.done).length
+      const overdue = smartOverdue(this.notes).length
+      if (dueToday === 0 && overdue === 0) return
+
+      const parts = []
+      if (dueToday) parts.push(`${dueToday} due today`)
+      if (overdue)  parts.push(`${overdue} overdue`)
+      const n = new Notification('Your tasks today', { body: parts.join(' · '), tag: 'daily-digest' })
+      n.onclick = () => window.focus()
     },
 
     setView(viewId) {
@@ -466,31 +536,35 @@ export const useNotesStore = defineStore('notes', {
 
     // ── Notes ────────────────────────────────────────────────────────────────
 
-    async addNote({ title, content, isTask = false, dueDate = null, priority = null, contentType = 'plain', recurrence = null }) {
+    async addNote({ title, content, isTask = false, dueDate = null, dueTime = null, priority = null, contentType = 'plain', recurrence = null, color = null, notificationAt = null, scratch = '', viewId, labels = [] }) {
       this.error = null
-      const viewId = (this.currentViewId === 'home' || this.currentViewId === 'trash' || this.currentViewId.startsWith('smart:'))
-        ? null
-        : this.currentViewId
+      if (!this._local) return
+      // viewId defaults to the current view; an explicit value (incl. null) overrides.
+      const resolvedViewId = viewId === undefined ? this.defaultNoteViewId : viewId
       const fields = await this._encryptNote({ title: title.trim(), content: content.trim() })
-      await this._local.post({
+      const res = await this._local.post({
         type:        'note',
         ...fields,
-        viewId,
+        viewId:      resolvedViewId,
         columnId:    null,
-        labels:      [],
-        scratch:     '',
+        labels:      Array.isArray(labels) ? labels : [],
+        scratch:     scratch || '',
         attachments: [],
         deletedAt:   null,
         isTask:      isTask || false,
         dueDate:     dueDate || null,
+        dueTime:     dueTime || null,
         priority:    priority || null,
+        color:       color || null,
+        notificationAt: notificationAt || null,
         contentType: contentType || 'plain',
         recurrence:  recurrence || null,
         createdAt:   new Date().toISOString(),
       })
+      return { _id: res.id }
     },
 
-    async updateNote(note, { title, content, scratch, viewId, labels, isTask, dueDate, priority, done, contentType, recurrence }) {
+    async updateNote(note, { title, content, scratch, viewId, labels, isTask, dueDate, dueTime, priority, done, contentType, recurrence }) {
       this.error = null
       const doc    = await this._local.get(note._id)
       const fields = await this._encryptNote({
@@ -505,6 +579,7 @@ export const useNotesStore = defineStore('notes', {
         labels:      labels       !== undefined ? labels       : (doc.labels ?? []),
         isTask:      isTask       !== undefined ? isTask       : doc.isTask,
         dueDate:     dueDate      !== undefined ? (dueDate     || null) : doc.dueDate,
+        dueTime:     dueTime      !== undefined ? (dueTime     || null) : (doc.dueTime ?? null),
         priority:    priority     !== undefined ? (priority    || null) : doc.priority,
         done:        done         !== undefined ? done                  : doc.done,
         contentType: contentType  !== undefined ? contentType           : (doc.contentType ?? 'plain'),
@@ -625,12 +700,13 @@ export const useNotesStore = defineStore('notes', {
     },
 
     // Single get+put for all task-related fields to avoid PouchDB 409 conflicts
-    async updateNoteTaskFields(note, { isTask, dueDate, priority, done }) {
+    async updateNoteTaskFields(note, { isTask, dueDate, dueTime, priority, done }) {
       const doc = await this._local.get(note._id)
       await this._local.put({
         ...doc,
         isTask:    isTask    ?? doc.isTask    ?? false,
         dueDate:   dueDate   !== undefined ? (dueDate   || null) : (doc.dueDate   ?? null),
+        dueTime:   dueTime   !== undefined ? (dueTime   || null) : (doc.dueTime   ?? null),
         priority:  priority  !== undefined ? (priority  || null) : (doc.priority  ?? null),
         done:      done      !== undefined ? done                : (doc.done      ?? false),
         updatedAt: new Date().toISOString(),
@@ -648,6 +724,18 @@ export const useNotesStore = defineStore('notes', {
       this.error = null
       const doc = await this._local.get(note._id)
       await this._local.put({ ...doc, deletedAt: null, viewId: null })
+    },
+
+    // Archive: hide from all active/smart views but keep forever (distinct from
+    // Trash, which auto-prunes). archivedAt doubles as the flag + timestamp.
+    async archiveNote(note) {
+      this.error = null
+      const doc = await this._local.get(note._id)
+      await this._local.put({ ...doc, archivedAt: new Date().toISOString() })
+    },
+
+    async unarchiveNotes(ids) {
+      await this._bulkUpdate(ids, (doc) => ({ ...doc, archivedAt: null }))
     },
 
     async permanentlyDelete(note) {
@@ -681,6 +769,7 @@ export const useNotesStore = defineStore('notes', {
         deletedAt:  null,
         isTask:     note.isTask     ?? false,
         dueDate:    note.dueDate    ?? null,
+        dueTime:    note.dueTime    ?? null,
         priority:   note.priority   ?? null,
         recurrence: note.recurrence ?? null,
         attachments: copiedMeta,
@@ -724,6 +813,7 @@ export const useNotesStore = defineStore('notes', {
           deletedAt:   null,
           isTask:      doc.isTask      ?? true,
           dueDate:     nextDue,
+          dueTime:     doc.dueTime     ?? null,
           priority:    doc.priority    ?? null,
           contentType: doc.contentType ?? 'plain',
           recurrence:  doc.recurrence,
@@ -761,12 +851,14 @@ export const useNotesStore = defineStore('notes', {
 
     async moveNoteToView(noteId, viewId) {
       this.error = null
+      if (!this._local) return
       const doc = await this._local.get(noteId)
       await this._local.put({ ...doc, viewId, columnId: null, updatedAt: new Date().toISOString() })
     },
 
     async addNoteLabel(noteId, viewId) {
       this.error = null
+      if (!this._local) return
       const doc = await this._local.get(noteId)
       const labels = Array.isArray(doc.labels) ? doc.labels : []
       if (!labels.includes(viewId)) {
@@ -784,9 +876,15 @@ export const useNotesStore = defineStore('notes', {
     },
 
     async pruneTrash() {
-      const cutoff  = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      if (!this.trashRetentionDays) return // 0 = keep trashed notes until manually deleted
+      const cutoff  = new Date(Date.now() - this.trashRetentionDays * 24 * 60 * 60 * 1000).toISOString()
       const ids     = this.notes.filter(n => n.deletedAt && n.deletedAt < cutoff).map(n => n._id)
       await this._bulkUpdate(ids, (doc) => ({ ...doc, _deleted: true }))
+    },
+
+    setTrashRetentionDays(days) {
+      this.trashRetentionDays = parseInt(days) || 0
+      localStorage.setItem('trashRetentionDays', String(this.trashRetentionDays))
     },
 
     async pruneDoneTasks() {
@@ -802,21 +900,28 @@ export const useNotesStore = defineStore('notes', {
       localStorage.setItem('doneAutoDeleteDays', String(this.doneAutoDeleteDays))
     },
 
-    // NOTE: re-encrypts note text only. Attachment blobs/filenames stay under
-    // the previous key, so changing the encryption key invalidates existing
-    // attachments. Avoid changing the key while encrypted attachments exist.
-    async reEncryptAllNotes(newKey) {
-      await Promise.all(this.notes.map(async (note) => {
-        const encTitle   = await encryptField(newKey, note.title   || '')
-        const encContent = await encryptField(newKey, note.content || '')
-        const encScratch = await encryptField(newKey, note.scratch || '')
-        await this._local.put({ ...note, title: encTitle, content: encContent, scratch: encScratch })
-      }))
+    setDailyDigestEnabled(enabled) {
+      this.dailyDigestEnabled = !!enabled
+      localStorage.setItem('dailyDigestEnabled', String(this.dailyDigestEnabled))
+      // Allow the digest to fire again today if just re-enabled.
+      if (this.dailyDigestEnabled) localStorage.removeItem(this._nsKey('lastDigestDate'))
+    },
+
+    setDailyDigestHour(hour) {
+      const h = Math.min(23, Math.max(0, parseInt(hour) || 0))
+      this.dailyDigestHour = h
+      localStorage.setItem('dailyDigestHour', String(h))
     },
 
     async bulkDelete(ids) {
       const now = new Date().toISOString()
       await this._bulkUpdate(ids, (doc) => ({ ...doc, deletedAt: now }))
+    },
+
+    // Immediate undo of a (soft) delete — clears deletedAt while preserving the
+    // note's view/column placement (unlike restoreNote, which sends it to Home).
+    async undeleteNotes(ids) {
+      await this._bulkUpdate(ids, (doc) => ({ ...doc, deletedAt: null }))
     },
 
     async bulkMove(ids, viewId) {
@@ -919,6 +1024,7 @@ export const useNotesStore = defineStore('notes', {
 
     async addView(name, parentId = null) {
       this.error = null
+      if (!this._local) return // DB torn down (e.g. session expired) — redirect is in flight
       const siblings = this.views.filter(v => (v.parentId ?? null) === (parentId || null))
       const maxOrder = siblings.length ? Math.max(...siblings.map(v => v.order ?? 0)) : -1
       await this._local.post({
@@ -932,12 +1038,14 @@ export const useNotesStore = defineStore('notes', {
 
     async updateView(viewId, changes) {
       this.error = null
+      if (!this._local) return
       const doc = await this._local.get(viewId)
       await this._local.put({ ...doc, ...changes })
     },
 
     async moveView(draggedId, targetId, position) {
       this.error = null
+      if (!this._local) return
       const target = this.views.find(v => v._id === targetId)
       if (!target) return
       const newParentId = position === 'inside' ? targetId : (target.parentId ?? null)
@@ -957,6 +1065,7 @@ export const useNotesStore = defineStore('notes', {
 
     async deleteView(view) {
       this.error = null
+      if (!this._local) return
       // Collect this view and all descendants
       const toDelete = []
       const collect = (id) => {

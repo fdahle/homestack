@@ -30,7 +30,16 @@ export default defineConfig({
     host: false,
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': {
+        target: 'http://localhost:3000',
+        // Strip the Basic-auth challenge so a 401 never pops the browser's
+        // native sign-in dialog (mirrors the /db handling + prod nginx).
+        configure(proxy) {
+          proxy.on('proxyRes', (proxyRes) => {
+            delete proxyRes.headers['www-authenticate']
+          })
+        },
+      },
       '/db': {
         target: 'http://localhost:5984',
         rewrite: (path) => path.replace(/^\/db/, ''),

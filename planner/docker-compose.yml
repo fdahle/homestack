@@ -13,6 +13,7 @@ services:
   api:
     build: ./api
     environment:
+      NODE_ENV: production
       PORT: 3000
       COUCHDB_URL: http://couchdb:5984
       COUCHDB_USER: ${COUCHDB_USER}
@@ -28,8 +29,12 @@ services:
 
   couchdb:
     image: couchdb:3
+    # Bind to loopback only. nginx and the api reach CouchDB over the internal
+    # Docker network (couchdb:5984); the host mapping exists purely so local dev
+    # (vite proxy + host-run API) can reach it. Never expose 5984 to the LAN /
+    # public — it bypasses nginx's rate limits and blocked admin paths.
     ports:
-      - "5984:5984"
+      - "127.0.0.1:5984:5984"
     environment:
       COUCHDB_USER: ${COUCHDB_USER}
       COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}

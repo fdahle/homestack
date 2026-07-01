@@ -7,6 +7,21 @@
   "background_color": "#0f172a",
   "theme_color": "#4f46e5",
   "orientation": "any",
+  "categories": ["productivity", "utilities"],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "share_title",
+      "text": "share_text",
+      "url": "share_url"
+    }
+  },
+  "shortcuts": [
+    { "name": "New note", "short_name": "New note", "url": "/?new=note" },
+    { "name": "New task", "short_name": "New task", "url": "/?new=task" },
+    { "name": "Today", "short_name": "Today", "url": "/?view=smart:today" }
+  ],
   "icons": [
     {
       "src": "/icon-192.png",
