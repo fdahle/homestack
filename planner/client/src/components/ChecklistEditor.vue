@@ -12,13 +12,13 @@
         class="checklist-checkbox"
         @change="toggleItem(item.id, true)"
       />
-      <input
-        type="text"
+      <textarea
         :value="item.label"
+        rows="1"
         class="checklist-label"
         placeholder="List item"
         :ref="el => setRef(item.id, el)"
-        @input="updateLabel(item.id, $event.target.value)"
+        @input="onLabelInput(item.id, $event)"
         @keydown.enter.prevent="addAfterUnchecked(localIdx)"
         @keydown.backspace="onBackspace(item.id, $event)"
         @keydown.up.prevent="onArrowKey(item.id, -1)"
@@ -40,12 +40,12 @@
           class="checklist-checkbox"
           @change="toggleItem(item.id, false)"
         />
-        <input
-          type="text"
+        <textarea
           :value="item.label"
+          rows="1"
           class="checklist-label checklist-label--checked"
           :ref="el => setRef(item.id, el)"
-          @input="updateLabel(item.id, $event.target.value)"
+          @input="onLabelInput(item.id, $event)"
           @keydown.enter.prevent="addItemAtEnd"
           @keydown.backspace="onBackspace(item.id, $event)"
           @keydown.up.prevent="onArrowKey(item.id, -1)"
@@ -112,10 +112,45 @@ export default {
     },
   },
 
+  mounted() {
+    this.$nextTick(() => this.growAll())
+  },
+
+  updated() {
+    // Keep every row sized to its (possibly wrapped) content after re-renders.
+    this.growAll()
+  },
+
   methods: {
     setRef(id, el) {
       if (el) this.inputRefs[id] = el
       else delete this.inputRefs[id]
+    },
+
+    grow(el) {
+      if (!el) return
+      el.style.height = 'auto'
+      el.style.height = el.scrollHeight + 'px'
+    },
+
+    growAll() {
+      Object.values(this.inputRefs).forEach(el => this.grow(el))
+    },
+
+    onLabelInput(id, event) {
+      this.grow(event.target)
+      this.updateLabel(id, event.target.value)
+    },
+
+    // Focus the last visible row (used when clicking empty editor space).
+    focusLast() {
+      const last = this.visibleItems[this.visibleItems.length - 1]
+      const el = last && this.inputRefs[last.id]
+      if (el) {
+        el.focus()
+        const len = el.value.length
+        try { el.setSelectionRange(len, len) } catch { /* noop */ }
+      }
     },
 
     emit() {
@@ -185,7 +220,7 @@ export default {
 
 .checklist-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   padding: 0.1rem 0;
 }
@@ -196,19 +231,25 @@ export default {
   height: 1rem;
   cursor: pointer;
   accent-color: var(--accent);
-  margin: 0;
+  /* Nudge down so it lines up with the first line of (possibly wrapped) text. */
+  margin: 0.3rem 0 0;
 }
 
 .checklist-label {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
+  resize: none;
+  overflow: hidden;
   font-size: 0.95rem;
   line-height: 1.7;
   color: var(--text-2);
   font-family: inherit;
   background: transparent;
   padding: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .checklist-label--checked {

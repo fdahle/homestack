@@ -69,6 +69,24 @@ export function hasCheckboxes(text) {
   return /^\s*- \[[ xX]\] /m.test(text || '')
 }
 
+/** Turn plain/markdown text into checklist markdown — one checkbox per non-empty line. */
+export function textToChecklist(text) {
+  return (text || '').split('\n').map(line => {
+    if (/^\s*[-*+] \[[ xX]\] /.test(line)) return line
+    const ulMatch = line.match(/^(\s*)[-*+] (.*)$/)
+    if (ulMatch) return `${ulMatch[1]}- [ ] ${ulMatch[2]}`
+    const olMatch = line.match(/^(\s*)\d+\.\s+(.*)$/)
+    if (olMatch) return `${olMatch[1]}- [ ] ${olMatch[2]}`
+    if (line.trim() !== '') return `- [ ] ${line}`
+    return line
+  }).join('\n')
+}
+
+/** Strip checkbox prefixes, returning plain text. */
+export function checklistToText(text) {
+  return (text || '').replace(/^(\s*)[-*+] \[[ xX]\] /gm, '$1')
+}
+
 /** Route a note to the correct renderer based on its contentType. */
 export function renderNoteContent(note) {
   const type = note.contentType ?? (hasCheckboxes(note.content) ? 'checklist' : 'plain')

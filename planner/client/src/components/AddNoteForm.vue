@@ -108,6 +108,7 @@ import FileTypeIcon from './FileTypeIcon.vue'
 import { useNotesStore } from '../stores/notes.js'
 import { useAuthStore } from '../stores/auth.js'
 import { isImageType } from '../utils/attachments.js'
+import { textToChecklist, checklistToText } from '../utils/markdown.js'
 
 export default {
   name: 'AddNoteForm',
@@ -250,7 +251,13 @@ export default {
     },
 
     setMode(mode) {
-      this.contentType = this.contentType === mode ? 'plain' : mode
+      const next = this.contentType === mode ? 'plain' : mode
+      // Convert the existing text so nothing is lost, and so leaving checklist
+      // mode drops the raw "- [ ]" prefixes.
+      if (mode === 'checklist') {
+        this.content = next === 'checklist' ? textToChecklist(this.content) : checklistToText(this.content)
+      }
+      this.contentType = next
     },
 
     handlePaste(event) {

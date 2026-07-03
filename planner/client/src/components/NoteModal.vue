@@ -50,7 +50,7 @@
         </div>
 
         <!-- Scrollable content area -->
-        <div class="modal-scroll">
+        <div class="modal-scroll" @click="onEditorAreaClick">
 
           <!-- Editor / preview with timestamp overlay -->
           <div class="editor-wrap" @paste="handleEditorPaste">
@@ -62,6 +62,7 @@
               />
               <ChecklistEditor
                 v-else-if="editContentType === 'checklist'"
+                ref="checklistEditor"
                 v-model="editContent"
               />
               <textarea
@@ -172,7 +173,7 @@
 
 <script>
 import { useNotesStore } from '../stores/notes.js'
-import { renderPlain, renderChecklist, renderCheckableMarkdown, sortCheckboxItems } from '../utils/markdown.js'
+import { renderPlain, renderChecklist, renderCheckableMarkdown, sortCheckboxItems, textToChecklist, checklistToText } from '../utils/markdown.js'
 import { isImageType } from '../utils/attachments.js'
 import MarkdownEditor from './MarkdownEditor.vue'
 import ChecklistEditor from './ChecklistEditor.vue'
@@ -308,6 +309,27 @@ export default {
       el.style.height = el.scrollHeight + 'px'
     },
 
+    // Clicking anywhere in the (often mostly empty) editor area should drop the
+    // caret into the editor, not just a precise click on the text line itself.
+    onEditorAreaClick(event) {
+      if (this.inTrash) return
+      if (this.editContentType === 'plain') {
+        const el = this.$refs.plainEditor
+        if (!el || event.target === el) return
+        el.focus()
+        const len = el.value.length
+        try { el.setSelectionRange(len, len) } catch { /* noop */ }
+      } else if (this.editContentType === 'markdown') {
+        // Let clicks that land on the text position the caret themselves.
+        if (event.target.closest?.('.ProseMirror')) return
+        this.$refs.mdEditor?.focusEnd()
+      } else if (this.editContentType === 'checklist') {
+        if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT') return
+        if (event.target.closest?.('.checklist-add')) return
+        this.$refs.checklistEditor?.focusLast()
+      }
+    },
+
     async close() {
       if (!this.inTrash) {
         const titleChanged       = this.editTitle.trim()    !== (this.note.title       ?? '')
@@ -407,20 +429,10 @@ export default {
 
     toggleCheckboxMode() {
       if (this.editContentType === 'checklist') {
-        // Strip checkbox prefixes from every line
-        this.editContent = (this.editContent || '').replace(/^(\s*)- \[[ xX]\] /gm, '$1')
+        this.editContent = checklistToText(this.editContent)
         this.editContentType = 'plain'
       } else {
-        const lines = (this.editContent || '').split('\n')
-        this.editContent = lines.map(line => {
-          if (/^- \[[ xX]\] /.test(line)) return line
-          const ulMatch = line.match(/^(\s*)[\-\*\+] (.*)$/)
-          if (ulMatch) return `${ulMatch[1]}- [ ] ${ulMatch[2]}`
-          const olMatch = line.match(/^(\s*)\d+\.\s+(.*)$/)
-          if (olMatch) return `${olMatch[1]}- [ ] ${olMatch[2]}`
-          if (line.trim() !== '') return `- [ ] ${line}`
-          return line
-        }).join('\n')
+        this.editContent = textToChecklist(this.editContent)
         this.editContentType = 'checklist'
       }
       this.moreMenuOpen = false
@@ -612,7 +624,9 @@ export default {
 }
 
 .modal-back-btn {
-  display: flex;
+  /* Only shown on mobile (see the max-width media query); the desktop modal has
+     Close/Escape/backdrop-click, so a back button is redundant there. */
+  display: none;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
@@ -623,10 +637,14 @@ export default {
   margin-left: -0.25rem;
   border-radius: 4px;
   color: var(--text-3);
-  /* Back-pointing chevron (no dedicated left-arrow icon). */
-  transform: rotate(180deg);
 }
 .modal-back-btn:hover { background: var(--surface-3); }
+/* Back-pointing chevron (no dedicated left-arrow icon); rotate the icon only so
+   the flex box itself stays centered with the title. */
+.modal-back-btn :deep(svg) {
+  display: block;
+  transform: rotate(180deg);
+}
 
 .task-status-icon {
   display: flex;
@@ -986,6 +1004,10 @@ export default {
 
   .modal-scroll {
     flex: 1;
+  }
+
+  .modal-back-btn {
+    display: flex;
   }
 
   .editor-wrap {

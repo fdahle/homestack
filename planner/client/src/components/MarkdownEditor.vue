@@ -116,6 +116,10 @@ export default {
   },
 
   methods: {
+    focusEnd() {
+      this.editor?.commands.focus('end')
+    },
+
     insertImage(file) {
       this._insertImageFile(file)
     },
