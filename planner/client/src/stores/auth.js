@@ -21,6 +21,24 @@ function clearStorage(key) {
   sessionStorage.removeItem(key)
 }
 
+// Parse a response as JSON, but fail loudly and clearly when the body isn't
+// JSON at all. This happens when the request never reaches the API and the
+// proxy falls back to serving the SPA's index.html (an HTML page) — otherwise
+// res.json() throws a cryptic "Unexpected token '<'" that hides the real cause.
+async function parseJson(res) {
+  const text = await res.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    const looksLikeHtml = /^\s*<(?:!doctype|html)/i.test(text)
+    throw new Error(
+      looksLikeHtml
+        ? `The server (HTTP ${res.status}) returned a web page instead of data — the API is likely unreachable. Check that the API service is running.`
+        : `Unexpected server response (HTTP ${res.status}).`
+    )
+  }
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => {
     // Rehydrate from storage so the router can skip a network round-trip
@@ -90,7 +108,7 @@ export const useAuthStore = defineStore('auth', {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ username, password, rememberMe }),
       })
-      const body = await res.json()
+      const body = await parseJson(res)
       if (!res.ok) throw new Error(body.error || 'Login failed')
 
       this.username        = username
@@ -113,7 +131,7 @@ export const useAuthStore = defineStore('auth', {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ username, password }),
       })
-      const body = await res.json()
+      const body = await parseJson(res)
       if (!res.ok) throw new Error(body.error || 'Registration failed')
 
       this.username        = username

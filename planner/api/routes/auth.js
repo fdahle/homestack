@@ -187,7 +187,15 @@ router.post('/enc-key', requireAuth, async (req, res) => {
 
 // GET /api/auth/config
 router.get('/config', async (_req, res) => {
-  const setupRequired = !(await hasAnyUsers())
+  let setupRequired
+  try {
+    setupRequired = !(await hasAnyUsers())
+  } catch (err) {
+    // A transient CouchDB failure here must not crash the process (this call
+    // runs unauthenticated on every app load). Surface it as a 503 instead.
+    console.error('[config] failed:', err.message)
+    return res.status(503).json({ error: 'Auth backend unavailable' })
+  }
   res.json({
     encryptionEnabled: process.env.ENCRYPTION_ENABLED === 'true',
     allowSignup:       signupsAllowed(),

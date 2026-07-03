@@ -12,6 +12,16 @@ const { couch, ensurePushDb, getAllPushSubscriptions, updateSentKeys, deletePush
 
 const PORT = process.env.PORT || 3000
 
+// Last-resort safety net: a stray rejection (e.g. a transient CouchDB DNS blip
+// on an unguarded code path) must not take the whole process down. Log it and
+// keep serving — individual requests still fail, but the server stays up.
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] Unhandled promise rejection:', reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] Uncaught exception:', err)
+})
+
 const app = express()
 
 app.use(helmet())
