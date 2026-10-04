@@ -12,9 +12,18 @@ try {
   const page = await fetch(base)
   assert.equal(page.status, 200)
   assert.ok(page.headers.get('content-security-policy'))
+  assert.equal(page.headers.get('referrer-policy'), 'strict-origin-when-cross-origin')
+  assert.equal(page.headers.get('cache-control'), 'no-cache')
   const html = await page.text()
   const script = html.match(/src="([^"]+\.js)"/)[1]
-  assert.equal((await fetch(base + script)).status, 200)
+  const asset = await fetch(base + script)
+  assert.equal(asset.status, 200)
+  assert.match(asset.headers.get('cache-control'), /immutable/)
+  // An outdated chunk after a redeploy must fail loudly instead of returning index.html.
+  assert.equal((await fetch(base + '/assets/MapView-outdated.js')).status, 404)
+  assert.equal((await fetch(base + '/share/some-token')).status, 200)
+  const oversized = JSON.stringify({ password: 'x'.repeat(3 * 1024 * 1024) })
+  assert.equal((await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: oversized })).status, 413)
   assert.equal((await fetch(base + '/api/unknown')).status, 404)
   assert.equal((await fetch(base + '/api/markers')).status, 401)
   const setup = await fetch(base + '/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'smoke-test-password' }) })
@@ -24,7 +33,7 @@ try {
   const markers = await fetch(base + '/api/markers', { headers: { Cookie: cookie } })
   assert.equal(markers.status, 200)
   assert.deepEqual(await markers.json(), [])
-  console.log('Production HTTP smoke check passed: HTML/assets, CSP, secure auth cookie, protected API and JSON 404.')
+  console.log('Production HTTP smoke check passed: HTML/assets, caching, referrer policy, body limit, CSP, secure auth cookie, protected API and JSON 404.')
 } finally {
   server.closeAllConnections()
   await new Promise(resolve => server.close(resolve))

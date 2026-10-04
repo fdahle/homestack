@@ -2,10 +2,14 @@ services:
   app:
     build: .
     ports:
-      - "3063:3000"
+      # Only reachable through the reverse proxy on this host. Set BIND_ADDRESS=0.0.0.0 to expose it
+      # (then also set TRUST_PROXY=false, otherwise clients can spoof X-Forwarded-For).
+      - "${BIND_ADDRESS:-127.0.0.1}:3063:3000"
     volumes:
       - ./data:/app/data
     environment:
       - NODE_ENV=production
       - SESSION_SECRET=${SESSION_SECRET}
+      - TRUST_PROXY=${TRUST_PROXY:-1}
+    init: true
     restart: unless-stopped

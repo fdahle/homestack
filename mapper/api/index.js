@@ -13,11 +13,10 @@ import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import rateLimit from 'express-rate-limit'
 
-import db from './db.js'
+import './db.js' // opens the database and runs migrations before any route loads
 
 if (process.env.RESET_PASSWORD) {
-  db.prepare('DELETE FROM users').run()
-  console.log('RESET_PASSWORD set — all users cleared. Remove the env var and set a new password via the UI.')
+  console.warn('RESET_PASSWORD is no longer supported. Run "node api/reset-password.js" once instead (see README).')
 }
 
 import authRoutes from './routes/auth.js'
@@ -32,7 +31,10 @@ import backupRoutes from './routes/backup.js'
 const app = express()
 const PORT = process.env.PORT || 3000
 
-app.set('trust proxy', 1)
+// Number of reverse proxies in front of the app (default 1, e.g. nginx). Only correct when the
+// app port is not reachable directly — docker-compose binds it to 127.0.0.1 for that reason.
+const trustProxy = process.env.TRUST_PROXY ?? '1'
+app.set('trust proxy', /^d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy === 'true' ? true : trustProxy === 'false' ? false : trustProxy)
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -47,11 +49,16 @@ app.use(helmet({
       frameAncestors: ["'self'"],
     },
   },
+  // OSM tile and Nominatim usage policies require a referrer; helmet's default sends none.
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }))
-app.use(express.json({ limit: '10mb' }))
+// Backups can be large; everything else, including unauthenticated routes, gets a small limit.
+const largeJson = express.json({ limit: '100mb' })
+const smallJson = express.json({ limit: '2mb' })
+app.use((req, res, next) => (req.path === '/api/backup/restore' ? largeJson : smallJson)(req, res, next))
 app.use(cookieParser())
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 })
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Too many sign-in attempts. Please wait 15 minutes.' }) })
 app.use('/api/auth', (req, res, next) => req.method === 'POST' && req.path !== '/logout' ? authLimiter(req, res, next) : next())
 
 const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Write limit reached. Please wait before retrying.' }) })
@@ -72,8 +79,10 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
 const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'dist')
 app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }))
-app.use(express.static(DIST))
-app.get('*', (_req, res) => res.sendFile(join(DIST, 'index.html')))
+// Hashed build assets never change; a missing one (old tab after a redeploy) must 404, not get index.html.
+app.use('/assets', express.static(join(DIST, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }))
+app.use(express.static(DIST, { index: false }))
+app.get('*', (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(join(DIST, 'index.html')))
 
 app.use((err, _req, res, _next) => {
   if (process.env.NODE_ENV === 'production') console.error(err.message)

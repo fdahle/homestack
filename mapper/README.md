@@ -45,7 +45,9 @@ echo "SESSION_SECRET=$(openssl rand -base64 32)" > .env
 docker compose up -d
 ```
 
-The app listens on port **3063**. Point your reverse proxy at `localhost:3063`.
+The app listens on port **3063**, bound to `127.0.0.1` so it is only reachable through the reverse proxy on the same host. Point your reverse proxy at `localhost:3063`.
+
+If your proxy runs elsewhere (another host or container), set `BIND_ADDRESS` in `.env` and make sure `TRUST_PROXY` matches the number of proxies in front of the app. Never expose the port directly while `TRUST_PROXY` is set: clients could then fake their IP address and bypass the sign-in rate limit.
 
 ### nginx example
 
@@ -61,6 +63,10 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    # The app does not compress responses itself.
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
 }
 ```
 
@@ -69,6 +75,14 @@ server {
 The SQLite database is stored in `./data/mapper.db` (mounted as a Docker volume). For a live backup, use Settings → Backup. JSON backups include markers, categories, collections, persons, and trip routes; they exclude the account, share links, and browser preferences. Restoring revokes existing share links.
 
 For a complete database backup including the account and share links, stop the app (`docker compose stop`), copy the entire `data` directory (including any SQLite WAL files), then restart it (`docker compose start`). Do not copy just the main database file while the app is writing to it.
+
+### Forgotten password
+
+```bash
+docker compose exec app node api/reset-password.js
+```
+
+This removes the account (markers and all other data stay). Open the app right away and set a new password; until then, anyone who can reach the app could claim it.
 
 ### Updates
 
@@ -86,6 +100,8 @@ docker compose up -d --build
 | `SESSION_SECRET` | Yes | Random string ≥ 32 characters, used to sign JWT tokens |
 | `PORT` | No | API port inside the container (default: `3000`) |
 | `NODE_ENV` | No | Set to `production` in production (enables Secure cookie flag) |
+| `BIND_ADDRESS` | No | Host address docker-compose publishes port 3063 on (default: `127.0.0.1`) |
+| `TRUST_PROXY` | No | Number of reverse proxies in front of the app, or `false` when there is none (default: `1`) |
 
 ---
 
