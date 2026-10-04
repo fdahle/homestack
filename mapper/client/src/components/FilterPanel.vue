@@ -214,7 +214,7 @@
               <AppIcon name="close" />
             </button>
           </div>
-          <div v-if="detailGroup?.type === 'category'" class="header-row2">
+          <div v-if="detailGroup?.type === 'category' || detailGroup?.type === 'person'" class="header-row2">
             <div class="segmented">
               <button class="seg-btn" :class="{ active: markersStore.visitedFilter === 'all' }"       @click="markersStore.setVisitedFilter('all')">All</button>
               <button class="seg-btn" :class="{ active: markersStore.visitedFilter === 'visited' }"   @click="markersStore.setVisitedFilter('visited')">✓</button>
@@ -358,7 +358,6 @@ function drillInto(group) {
   detailFilter.value = { type: group.type, id: group.id }
   pane.value = 'detail'
   detailQuery.value = ''
-  if (group.type === 'collection') markersStore.setVisitedFilter('all')
   markersStore.setGroupFilter({ type: group.type, id: group.id })
 }
 
@@ -377,7 +376,6 @@ watch(() => markersStore.activeGroupFilter, (filter) => {
     detailFilter.value = { type: filter.type, id: filter.id }
     pane.value = 'detail'
     detailQuery.value = ''
-    if (filter.type === 'collection') markersStore.setVisitedFilter('all')
   }
 })
 

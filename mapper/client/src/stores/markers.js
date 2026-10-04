@@ -156,8 +156,13 @@ export const useMarkersStore = defineStore('markers', {
       }
     },
 
-    setGroupFilter(filter) { this.activeGroupFilter = filter },
-    clearGroupFilter() { this.activeGroupFilter = null },
+    // The visited filter belongs to one group view; leaving that view must not keep it hidden-active.
+    setGroupFilter(filter) {
+      const current = this.activeGroupFilter
+      if (current?.type !== filter?.type || current?.id !== filter?.id) this.visitedFilter = 'all'
+      this.activeGroupFilter = filter
+    },
+    clearGroupFilter() { this.activeGroupFilter = null; this.visitedFilter = 'all' },
     setVisitedFilter(value) { this.visitedFilter = value },
   },
 })

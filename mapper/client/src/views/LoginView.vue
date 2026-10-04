@@ -28,6 +28,9 @@
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
+        <p v-if="configError && !loading" class="error">
+          Could not reach the server. <button type="button" class="retry-link" @click="loadConfig">Retry</button>
+        </p>
 
         <button type="submit" class="btn-primary" :disabled="loading">
           {{ loading ? '...' : authStore.setupRequired ? 'Create Account' : 'Sign In' }}
@@ -54,14 +57,29 @@ const password = ref('')
 const showPassword = ref(false)
 const error = ref(null)
 const loading = ref(true)
+const configError = ref(false)
 
-onMounted(async () => {
-  await authStore.fetchConfig()
-  loading.value = false
-})
+async function loadConfig() {
+  loading.value = true
+  try {
+    await authStore.fetchConfig()
+    configError.value = false
+  } catch {
+    configError.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadConfig)
 
 async function submit() {
   error.value = null
+  // Without the config we do not know whether this is setup or sign-in.
+  if (configError.value) {
+    await loadConfig()
+    if (configError.value) return
+  }
   loading.value = true
   try {
     if (authStore.setupRequired) {
@@ -77,6 +95,18 @@ async function submit() {
   }
 }
 </script>
+
+<style scoped>
+.retry-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+</style>
 
 <style scoped>
 .login-page {

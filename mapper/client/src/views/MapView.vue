@@ -288,6 +288,15 @@ const tripRouteMarkers = computed(() => {
     .map(({ m }) => m)
 })
 
+// Re-route only when the trip's stops, their coordinates or the route settings change,
+// not whenever any marker object is replaced.
+const tripRouteKey = computed(() => {
+  const markers = tripRouteMarkers.value
+  if (!markers) return ''
+  const col = collectionsStore.items.find((c) => c.id === markersStore.activeGroupFilter?.id)
+  return JSON.stringify([col?.id, col?.color, col?.show_route_line, col?.show_exact_route, markers.map((m) => [m.id, m.lat, m.lng])])
+})
+
 function clearRouteLayer() {
   routePolylines.forEach(p => p.remove())
   routeHandles.forEach(h => h.remove())
@@ -645,10 +654,8 @@ watch(() => styleStore.colorMode, () => {
 
 watch(() => markersStore.revision, () => { undoStack.value = []; closeModal(); manageOpen.value = false; renderTripRoute() })
 
-watch(tripRouteMarkers, () => {
-  undoStack.value = []
-  renderTripRoute()
-})
+watch(tripRouteKey, () => renderTripRoute())
+watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 </script>
 
 <style scoped>

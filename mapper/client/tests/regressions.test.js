@@ -282,3 +282,17 @@ test('Nominatim requests are spaced at least one second apart', async () => {
   assert.ok(times[1] - times[0] >= 1000)
 })
 
+test('leaving a group view resets the visited filter', () => {
+  const store = useMarkersStore()
+  store.items = [{ id: 1, visited_at: null, categories: [{ id: 3 }], collections: [], persons: [] }]
+  store.setGroupFilter({ type: 'category', id: 3 })
+  store.setVisitedFilter('visited')
+  assert.equal(store.filtered.length, 0)
+  store.clearGroupFilter()
+  assert.equal(store.visitedFilter, 'all')
+  assert.equal(store.filtered.length, 1)
+  store.setGroupFilter({ type: 'category', id: 3 })
+  store.setVisitedFilter('visited')
+  store.setGroupFilter({ type: 'person', id: 9 })
+  assert.equal(store.visitedFilter, 'all')
+})

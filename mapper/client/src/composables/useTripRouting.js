@@ -19,11 +19,19 @@ export async function saveSegment(collectionId, fromId, toId, mode, viaPoints) {
   if (!res.ok) throw new Error((await res.json()).error || 'Failed to save segment')
 }
 
+// Routed paths are cached so re-rendering a trip does not query the routing service again.
+const ROUTE_CACHE_SIZE = 200
+const routeCache = new Map()
+
 export async function fetchSegmentRoute(from, to, viaPoints, mode, signal) {
   const orsKey = getOrsApiKey()
   const all = [{ lat: from.lat, lng: from.lng }, ...(viaPoints || []), { lat: to.lat, lng: to.lng }]
-  if (orsKey) return fetchOrsRoute(all, mode, orsKey, signal)
-  return fetchOsrmRoute(all, mode, signal)
+  const key = JSON.stringify([orsKey ? 'ors' : 'osrm', mode, all.map(p => [+p.lat.toFixed(6), +p.lng.toFixed(6)])])
+  if (routeCache.has(key)) return routeCache.get(key)
+  const route = await (orsKey ? fetchOrsRoute(all, mode, orsKey, signal) : fetchOsrmRoute(all, mode, signal))
+  routeCache.set(key, route)
+  if (routeCache.size > ROUTE_CACHE_SIZE) routeCache.delete(routeCache.keys().next().value)
+  return route
 }
 
 async function fetchOsrmRoute(points, mode, signal) {
