@@ -11,6 +11,9 @@
   "engines": {
     "node": ">=22"
   },
+  "overrides": {
+    "qs": "^6.16.0"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",

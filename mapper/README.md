@@ -45,7 +45,7 @@ echo "SESSION_SECRET=$(openssl rand -base64 32)" > .env
 docker compose up -d
 ```
 
-The app listens on port **3082**. Point your reverse proxy at `localhost:3082`.
+The app listens on port **3063**. Point your reverse proxy at `localhost:3063`.
 
 ### nginx example
 
@@ -55,7 +55,7 @@ server {
     server_name your-domain.example;
 
     location / {
-        proxy_pass http://localhost:3082;
+        proxy_pass http://localhost:3063;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -66,7 +66,9 @@ server {
 
 ### Data persistence
 
-The SQLite database is stored in `./data/mapper.db` (mounted as a Docker volume). Back it up by copying that file.
+The SQLite database is stored in `./data/mapper.db` (mounted as a Docker volume). For a live backup, use Settings → Backup. JSON backups include markers, categories, collections, persons, and trip routes; they exclude the account, share links, and browser preferences. Restoring revokes existing share links.
+
+For a complete database backup including the account and share links, stop the app (`docker compose stop`), copy the entire `data` directory (including any SQLite WAL files), then restart it (`docker compose start`). Do not copy just the main database file while the app is writing to it.
 
 ### Updates
 
@@ -90,3 +92,11 @@ docker compose up -d --build
 ## License
 
 Do whatever you want with it.
+
+## Development checks
+
+Use Node.js 22.13+ or 24+. Install dependencies with `npm ci`, `npm ci --prefix api`, and `npm ci --prefix client`. Run `npm run check` for linting, regression tests, a production build and an isolated HTTP smoke test. Tests use an in-memory database and never open `data/mapper.db`.
+
+Stop the app before running `npm run reset`; this deletes the local database. Database upgrades run transactionally and are recorded in `schema_migrations`. Existing sessions are invalidated once on this upgrade and whenever the password is changed or reset.
+
+Shared maps include the selected markers and all their associated category/collection/person names. Person address references are excluded. Treat marker descriptions and images as public to anyone holding the link.

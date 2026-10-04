@@ -1,3 +1,4 @@
+import { validateBackup, MARKER_BACKUP_FIELDS } from '../utils/backup.js'
 import { Router } from 'express'
 import db from '../db.js'
 import { requireAuth } from '../middleware/auth.js'
@@ -9,7 +10,7 @@ router.get('/', (_req, res) => {
   const categories = db.prepare('SELECT id, name, color, created_at FROM categories').all()
   const collections = db.prepare('SELECT id, name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route, created_at FROM collections').all()
   const persons = db.prepare('SELECT id, name, first_name, last_name, color, address_marker_id, created_at FROM persons').all()
-  const rawMarkers = db.prepare('SELECT id, lat, lng, label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, source, created_at, updated_at FROM markers').all()
+  const rawMarkers = db.prepare('SELECT ' + MARKER_BACKUP_FIELDS.join(',') + ' FROM markers').all()
 
   const catLinks = db.prepare('SELECT marker_id, category_id FROM marker_categories').all()
   const colLinks = db.prepare('SELECT marker_id, collection_id, position FROM marker_collections').all()
@@ -44,6 +45,7 @@ router.get('/', (_req, res) => {
 
   res.json({
     type: 'backup',
+    version: 2,
     created_at: new Date().toISOString(),
     categories,
     collections,
@@ -55,9 +57,7 @@ router.get('/', (_req, res) => {
 
 router.post('/restore', (req, res) => {
   const data = req.body
-  if (data?.type !== 'backup' || !Array.isArray(data.markers)) {
-    return res.status(400).json({ error: 'Invalid backup file' })
-  }
+  validateBackup(data)
 
   const categories    = data.categories    ?? []
   const collections   = data.collections   ?? []
@@ -91,7 +91,7 @@ router.post('/restore', (req, res) => {
     for (const c of collections) {
       const { lastInsertRowid } = insCollection.run(
         c.name, c.description ?? null, c.start_date ?? null, c.end_date ?? null,
-        c.color ?? '#10b981', c.is_trip ?? 0, c.show_route_line ?? 0, c.show_exact_route ?? 0, c.created_at ?? null
+        c.color ?? '#10b981', c.is_trip ? 1 : 0, c.show_route_line ? 1 : 0, c.show_exact_route ? 1 : 0, c.created_at ?? null
       )
       colMap[c.id] = lastInsertRowid
     }
@@ -99,25 +99,20 @@ router.post('/restore', (req, res) => {
     const perMap = {}
     const insPerson = db.prepare('INSERT INTO persons (name, first_name, last_name, color, created_at) VALUES (?, ?, ?, ?, ?)')
     for (const p of persons) {
-      const { lastInsertRowid } = insPerson.run(p.name, p.first_name ?? null, p.last_name ?? null, p.color ?? '#8b5cf6', p.created_at ?? null)
+      const { lastInsertRowid } = insPerson.run(p.name, p.first_name ?? p.name, p.last_name ?? null, p.color ?? '#8b5cf6', p.created_at ?? null)
       perMap[p.id] = lastInsertRowid
     }
 
     const markerMap = {}
-    const insMarker = db.prepare(
-      'INSERT INTO markers (lat, lng, label, description, visited_at, planned_at, color, image_url, address, country, rating, is_favorite, external_url, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    )
+    const markerFields = MARKER_BACKUP_FIELDS.filter(field => field !== 'id')
+    const insMarker = db.prepare(`INSERT INTO markers (${markerFields.join(',')}) VALUES (${markerFields.map(() => '?').join(',')})`)
     const insMarkerCat = db.prepare('INSERT OR IGNORE INTO marker_categories (marker_id, category_id) VALUES (?, ?)')
     const insMarkerCol = db.prepare('INSERT OR IGNORE INTO marker_collections (marker_id, collection_id, position) VALUES (?, ?, ?)')
     const insMarkerPer = db.prepare('INSERT OR IGNORE INTO marker_persons (marker_id, person_id) VALUES (?, ?)')
 
     for (const m of markers) {
-      const { lastInsertRowid } = insMarker.run(
-        m.lat, m.lng, m.label ?? null, m.description ?? null, m.visited_at ?? null, m.planned_at ?? null,
-        m.color ?? null, m.image_url ?? null, m.address ?? null, m.country ?? null,
-        m.rating ?? null, m.is_favorite ?? 0, m.external_url ?? null, m.source ?? 'manual',
-        m.created_at ?? new Date().toISOString(), m.updated_at ?? null
-      )
+      const row = { ...m, is_favorite: m.is_favorite ? 1 : 0, use_coords: m.use_coords ? 1 : 0, source: m.source ?? 'manual', created_at: m.created_at ?? new Date().toISOString() }
+      const { lastInsertRowid } = insMarker.run(...markerFields.map(field => row[field] ?? null))
       markerMap[m.id] = lastInsertRowid
 
       for (const cid of (m.category_ids ?? [])) {
@@ -146,7 +141,7 @@ router.post('/restore', (req, res) => {
       const newFrom = markerMap[w.from_marker_id]
       const newTo   = markerMap[w.to_marker_id]
       if (newCol != null && newFrom != null && newTo != null) {
-        insWaypoint.run(newCol, newFrom, newTo, w.mode ?? 'walk', w.via_points ?? '[]')
+        insWaypoint.run(newCol, newFrom, newTo, w.mode ?? 'walk', typeof w.via_points === 'string' ? w.via_points : JSON.stringify(w.via_points ?? []))
       }
     }
 

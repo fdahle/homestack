@@ -300,7 +300,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -315,8 +315,10 @@ const props = defineProps({
   latlng: { type: Object, default: null },
   suggestedLabel: { type: String, default: '' },
   readOnly: { type: Boolean, default: false },
+  saveMarker: { type: Function, default: null },
+  deleteMarker: { type: Function, default: null },
 })
-const emit = defineEmits(['save', 'delete', 'close'])
+const emit = defineEmits(['close'])
 
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
@@ -337,9 +339,6 @@ const addressLoading = ref(false)
 
 // Image state
 const imageError = ref(false)
-const imageEditMode = ref(false)
-const imageUrlDraft = ref('')
-const imageUrlInputRef = ref(null)
 const imageSearchQuery = ref('')
 const imageSearchLoading = ref(false) // false | 'wiki' | 'commons'
 const imageResults = ref(null) // null | [{ url, title }]
@@ -407,6 +406,10 @@ watch(visitedDate, (val) => {
   if (visitedChecked.value) form.value.visited_at = val || 'yes'
 })
 
+watch(useCoordLink, (val) => {
+  if (val) form.value.address = ''
+})
+
 onMounted(async () => {
   imageChangeMode.value = false
   if (props.marker) {
@@ -443,7 +446,7 @@ onMounted(async () => {
         const parts = [street, [a.postcode, city].filter(Boolean).join(' '), a.country].filter(Boolean)
         const geocoded = parts.join(', ') || null
         addressLine.value = geocoded
-        if (!form.value.address && geocoded) form.value.address = geocoded
+        if (!useCoordLink.value && !form.value.address && geocoded) form.value.address = geocoded
       }
 
       // Pre-fill the image search query with the place name for later use
@@ -514,14 +517,6 @@ function filterBy(type, id) {
   emit('close')
 }
 
-function startImageEdit() {
-  imageUrlDraft.value = form.value.image_url || ''
-  if (!imageSearchQuery.value) imageSearchQuery.value = form.value.label || ''
-  imageResults.value = null
-  imageEditMode.value = true
-  nextTick(() => imageUrlInputRef.value?.focus())
-}
-
 async function searchWiki() {
   if (imageResultsSource.value === 'wiki') {
     imageResults.value = null
@@ -588,35 +583,9 @@ async function searchCommons() {
   finally { imageSearchLoading.value = false }
 }
 
-async function selectImage(url) {
+function selectImage(url) {
   form.value.image_url = url
-  imageUrlDraft.value = url
   imageResults.value = null
-  if (viewing.value) await saveImage()
-}
-
-async function saveImage() {
-  const newUrl = imageUrlDraft.value.trim() || null
-  form.value.image_url = newUrl || ''
-  imageEditMode.value = false
-  if (props.marker) {
-    await markersStore.update(props.marker.id, {
-      ...form.value,
-      image_url: newUrl,
-      color: form.value.color || null,
-    })
-  }
-}
-
-async function clearImage() {
-  form.value.image_url = ''
-  if (props.marker) {
-    await markersStore.update(props.marker.id, {
-      ...form.value,
-      image_url: null,
-      color: form.value.color || null,
-    })
-  }
 }
 
 async function save() {
@@ -633,8 +602,9 @@ async function save() {
   }
   saving.value = true
   try {
-    await emit('save', {
+    await props.saveMarker({
       ...form.value,
+      collection_positions: Object.fromEntries(form.value.collection_ids.map(id => [id, form.value.collection_positions[id] ?? null])),
       color: form.value.color || null,
       image_url: form.value.image_url || null,
       address: form.value.address || null,
@@ -642,13 +612,15 @@ async function save() {
     })
   } catch (err) {
     error.value = err.message
-    saving.value = false
-  }
+  } finally { saving.value = false }
 }
 
 async function del() {
   saving.value = true
-  await emit('delete', props.marker.id)
+  error.value = null
+  try { await props.deleteMarker(props.marker.id) }
+  catch (err) { error.value = err.message }
+  finally { saving.value = false }
 }
 </script>
 

@@ -29,8 +29,10 @@ router.get('/', (_req, res) => {
 
 router.post('/', (req, res) => {
   const { first_name, last_name, color, address_marker_id } = req.body
-  if (!first_name?.trim()) return res.status(400).json({ error: 'First name required' })
+  if (typeof first_name !== 'string' || !first_name.trim()) return res.status(400).json({ error: 'First name required' })
 
+  if ((last_name != null && typeof last_name !== 'string') || (color && !/^#[\da-f]{6}$/i.test(color))) return res.status(400).json({ error: 'Invalid name or color' })
+  if (address_marker_id != null && (!Number.isSafeInteger(address_marker_id) || !db.prepare('SELECT id FROM markers WHERE id=?').get(address_marker_id))) return res.status(400).json({ error: 'Address marker not found' })
   const displayName = [first_name.trim(), last_name?.trim()].filter(Boolean).join(' ')
 
   const { lastInsertRowid } = db
@@ -46,8 +48,10 @@ router.put('/:id', (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Not found' })
 
   const { first_name, last_name, color, address_marker_id } = req.body
-  if (!first_name?.trim()) return res.status(400).json({ error: 'First name required' })
+  if (typeof first_name !== 'string' || !first_name.trim()) return res.status(400).json({ error: 'First name required' })
 
+  if ((last_name != null && typeof last_name !== 'string') || (color && !/^#[\da-f]{6}$/i.test(color))) return res.status(400).json({ error: 'Invalid name or color' })
+  if (address_marker_id != null && (!Number.isSafeInteger(address_marker_id) || !db.prepare('SELECT id FROM markers WHERE id=?').get(address_marker_id))) return res.status(400).json({ error: 'Address marker not found' })
   const displayName = [first_name.trim(), last_name?.trim()].filter(Boolean).join(' ')
 
   db.prepare('UPDATE persons SET name=?, first_name=?, last_name=?, color=?, address_marker_id=? WHERE id=?')

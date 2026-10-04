@@ -15,8 +15,6 @@ export function useModals() {
 
   const settingsOpen = ref(false)
 
-  const markerListOpen = ref(false)
-
   const markerTableOpen = ref(false)
 
   const csvImportOpen = ref(false)
@@ -71,7 +69,6 @@ export function useModals() {
     manageType,
     manageItem,
     settingsOpen,
-    markerListOpen,
     markerTableOpen,
     csvImportOpen,
     closeModal,

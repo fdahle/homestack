@@ -7,6 +7,7 @@ COPY client/package*.json ./client/
 RUN npm ci --prefix client
 
 COPY client/ ./client/
+COPY shared/ ./shared/
 RUN npm run --prefix client build
 
 # ── Stage 2: run the API (which serves the built client) ─────────────────────
@@ -20,6 +21,7 @@ COPY api/package*.json ./api/
 RUN npm ci --prefix api --omit=dev
 
 COPY api/ ./api/
+COPY shared/ ./shared/
 COPY --from=builder /build/client/dist ./client/dist
 
 RUN mkdir -p /app/data && chown -R node:node /app

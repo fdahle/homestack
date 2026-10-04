@@ -3,9 +3,21 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -n api,client -c blue,green \"npm --prefix api run dev\" \"npm --prefix client run dev\"",
-    "reset": "rm -f data/mapper.db data/mapper.db-wal data/mapper.db-shm && echo 'Database reset. Run npm run dev to set up again.'"
+    "reset": "node scripts/reset.mjs",
+    "test": "node --test api/tests/regressions.test.js client/tests/regressions.test.js",
+    "lint": "eslint api client/src client/tests shared scripts",
+    "build": "npm --prefix client run build",
+    "check": "npm run lint && npm test && npm run build && npm run smoke",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0"
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.0.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
+    "globals": "^17.12.0"
+  },
+  "engines": {
+    "node": "^22.13.0 || >=24"
   }
 }

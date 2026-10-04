@@ -26,7 +26,7 @@
             <span class="marker-name">{{ item.marker.label || coords(item.marker) }}</span>
             <button type="button" class="exclude-btn" :class="{ active: item.excluded }" @click="toggleExclude(item)" title="Exclude from route">⊘</button>
           </div>
-          <div v-if="index < localItems.length - 1 && !item.excluded && !localItems[index + 1].excluded" class="segment-row">
+          <div v-if="!item.excluded && nextStop(index)" class="segment-row">
             <div class="seg-line" :style="{ background: collection.color || '#10b981' }" />
             <div class="mode-pills">
               <button
@@ -47,7 +47,7 @@
       <div class="modal-actions">
         <div class="spacer" />
         <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
-        <button type="button" class="btn-primary" @click="save" :disabled="saving">
+        <button type="button" class="btn-primary" @click="save" :disabled="saving || loading || loadError">
           {{ saving ? '…' : 'Save' }}
         </button>
       </div>
@@ -57,6 +57,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { loadSegments } from '../composables/useTripRouting.js'
 import { useMarkersStore } from '../stores/markers.js'
 import AppIcon from './AppIcon.vue'
 
@@ -77,6 +78,8 @@ const saving = ref(false)
 const error = ref(null)
 const localItems = ref([])
 const segments = ref({})
+const loading = ref(true)
+const loadError = ref(false)
 
 onMounted(async () => {
   localItems.value = markersStore.items
@@ -87,36 +90,21 @@ onMounted(async () => {
     })
     .sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity))
 
-  try {
-    const res = await fetch(`/api/collections/${props.collection.id}/segments`)
-    if (res.ok) {
-      const rows = await res.json()
-      segments.value = Object.fromEntries(rows.map(r => [`${r.from_marker_id}-${r.to_marker_id}`, r]))
-    }
-  } catch {}
+  try { segments.value = await loadSegments(props.collection.id) }
+  catch (err) { error.value = err.message + '. Close and reopen to retry.'; loadError.value = true }
+  finally { loading.value = false }
 })
 
+function nextStop(index) { return localItems.value.slice(index + 1).find(item => !item.excluded) }
 function getSegMode(index) {
-  const from = localItems.value[index]
-  const to   = localItems.value[index + 1]
-  if (!from || !to) return 'walk'
-  return segments.value[`${from.markerId}-${to.markerId}`]?.mode || 'walk'
+  const from = localItems.value[index], to = nextStop(index)
+  return to ? segments.value[from.markerId + '-' + to.markerId]?.mode || 'walk' : 'walk'
 }
-
-async function setSegMode(index, mode) {
-  const from = localItems.value[index]
-  const to   = localItems.value[index + 1]
-  if (!from || !to) return
-  const key = `${from.markerId}-${to.markerId}`
-  const existing = segments.value[key]
-  segments.value = { ...segments.value, [key]: { ...(existing || {}), mode } }
-  try {
-    await fetch(`/api/collections/${props.collection.id}/segments/${from.markerId}/${to.markerId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode, via_points: existing?.via_points || [] }),
-    })
-  } catch {}
+function setSegMode(index, mode) {
+  const from = localItems.value[index], to = nextStop(index)
+  if (!to) return
+  const key = from.markerId + '-' + to.markerId
+  segments.value = { ...segments.value, [key]: { ...(segments.value[key] || {}), mode } }
 }
 
 // ── Drag and drop ────────────────────────────────────────────────────────────
@@ -159,12 +147,19 @@ async function save() {
   saving.value = true
   try {
     let pos = 0
+    const included = localItems.value.filter(item => !item.excluded)
+    const route = included.slice(0, -1).map((from, i) => {
+      const to = included[i + 1]
+      const segment = segments.value[from.markerId + '-' + to.markerId]
+      return { from_marker_id: from.markerId, to_marker_id: to.markerId, mode: segment?.mode || 'walk', via_points: segment?.via_points || [] }
+    })
     await markersStore.updateTripPositions(
       props.collection.id,
       localItems.value.map((item) => ({
         marker_id: item.markerId,
         position: item.excluded ? null : ++pos,
-      }))
+      })),
+      route,
     )
     emit('close')
   } catch (err) {

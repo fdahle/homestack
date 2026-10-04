@@ -1,9 +1,12 @@
+import { usePersonsStore } from './persons.js'
+import { apiFetch, apiList } from '../api.js'
 import { defineStore } from 'pinia'
 
 export const useMarkersStore = defineStore('markers', {
   state: () => ({
     items: [],
     activeGroupFilter: null, // null | { type: 'category'|'collection', id }
+    revision: 0,
     visitedFilter: 'all', // 'all' | 'visited' | 'unvisited'
   }),
 
@@ -34,58 +37,57 @@ export const useMarkersStore = defineStore('markers', {
 
   actions: {
     async fetch() {
-      const res = await fetch('/api/markers')
-      this.items = await res.json()
+      this.items = await apiList('/api/markers')
     },
 
-    async create(data) {
-      const res = await fetch('/api/markers', {
+    async create(data, options = {}) {
+      const res = await apiFetch('/api/markers', {
+        ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
       const created = await res.json()
       this.items.unshift(created)
       return created
     },
 
     async update(id, data) {
-      const res = await fetch(`/api/markers/${id}`, {
+      const res = await apiFetch(`/api/markers/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
       const updated = await res.json()
       const idx = this.items.findIndex((m) => m.id === id)
       if (idx !== -1) this.items[idx] = updated
+      this.patchPersonAddresses(id, updated)
       return updated
     },
 
     async remove(id) {
-      const res = await fetch(`/api/markers/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error((await res.json()).error)
+      await apiFetch(`/api/markers/${id}`, { method: 'DELETE' })
       this.items = this.items.filter((m) => m.id !== id)
+      this.patchPersonAddresses(id, null)
     },
 
     async patchCountry(id, country) {
-      await fetch(`/api/markers/${id}/country`, {
+      const res = await apiFetch(`/api/markers/${id}/country`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ country }),
       })
+      const updated = await res.json()
       const idx = this.items.findIndex((m) => m.id === id)
-      if (idx !== -1) this.items[idx] = { ...this.items[idx], country }
+      if (idx !== -1) this.items[idx] = updated
     },
 
-    async updateTripPositions(collectionId, positions) {
-      const res = await fetch(`/api/collections/${collectionId}/positions`, {
+    async updateTripPositions(collectionId, positions, segments) {
+      await apiFetch(`/api/collections/${collectionId}/${segments ? 'route' : 'positions'}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positions }),
+        body: JSON.stringify({ positions, segments }),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
       for (const { marker_id, position } of positions) {
         const idx = this.items.findIndex((m) => m.id === marker_id)
         if (idx === -1) continue
@@ -93,6 +95,23 @@ export const useMarkersStore = defineStore('markers', {
           c.id === collectionId ? { ...c, position: position ?? null } : c
         )
         this.items[idx] = { ...this.items[idx], collections: cols }
+      }
+    },
+
+    async importBatch(markers, options = {}) {
+      const res = await apiFetch('/api/markers/import', { ...options, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markers }) })
+      const { results } = await res.json()
+      for (const result of results) if (result.marker) this.items.unshift(result.marker)
+      return results
+    },
+
+    patchPersonAddresses(id, marker) {
+      const persons = usePersonsStore()
+      for (const person of persons.items) {
+        if (person.address_marker_id !== id) continue
+        person.address_marker_id = marker ? id : null
+        person.address_marker = marker ? { id, lat: marker.lat, lng: marker.lng, label: marker.label, address: marker.address } : null
+        this.patchEmbeddedPerson(person.id, person)
       }
     },
 

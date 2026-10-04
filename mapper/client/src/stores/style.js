@@ -1,17 +1,6 @@
 import { defineStore } from 'pinia'
 
-const SETTINGS_KEY = 'mapper_settings'
-
-function loadSettings() {
-  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') } catch { return {} }
-}
-
-function saveSettings(patch) {
-  try {
-    const s = loadSettings()
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, ...patch }))
-  } catch {}
-}
+import { loadSettings, saveSettings } from '../utils/settings.js'
 
 export const useStyleStore = defineStore('style', {
   state: () => {

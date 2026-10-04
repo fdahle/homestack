@@ -35,24 +35,10 @@ router.get('/:token/data', shareLimiter, async (req, res, next) => {
     const markerIds = resolveMarkerIds(filter)
     const markers = buildMarkersPayload(markerIds)
 
-    const categoryIds = new Set()
-    const collectionIds = new Set()
-    const personIds = new Set()
-    for (const m of markers) {
-      for (const c of m.categories) categoryIds.add(c.id)
-      for (const c of m.collections) collectionIds.add(c.id)
-      for (const p of m.persons) personIds.add(p.id)
-    }
-
-    const categories = categoryIds.size
-      ? db.prepare(`SELECT * FROM categories WHERE id IN (${[...categoryIds].map(() => '?').join(',')})`).all(...categoryIds)
-      : []
-    const collections = collectionIds.size
-      ? db.prepare(`SELECT * FROM collections WHERE id IN (${[...collectionIds].map(() => '?').join(',')})`).all(...collectionIds)
-      : []
-    const persons = personIds.size
-      ? db.prepare(`SELECT * FROM persons WHERE id IN (${[...personIds].map(() => '?').join(',')})`).all(...personIds)
-      : []
+    const unique = key => [...new Map(markers.flatMap(m => m[key]).map(item => [item.id, item])).values()]
+    const categories = unique('categories')
+    const collections = unique('collections').map(({ position: _position, ...c }) => c)
+    const persons = unique('persons')
 
     res.json({ meta, markers, categories, collections, persons })
   } catch (err) {

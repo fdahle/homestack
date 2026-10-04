@@ -141,6 +141,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { parseDate, normDate } from '../../../shared/dates.js'
 import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -245,23 +246,7 @@ onMounted(() => {
 
 const store = computed(() => props.type === 'category' ? categoriesStore : props.type === 'collection' ? collectionsStore : personsStore)
 
-function parseDate(input) {
-  if (!input) return ''
-  const s = input.trim()
-  if (/^\d{4}$/.test(s)) return s
-  if (/^\d{4}[-/]\d{1,2}$/.test(s)) { const [y, m] = s.split(/[-/]/); return `${y}-${m.padStart(2, '0')}` }
-  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(s)) { const [y, m, d] = s.split(/[-/]/); return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}` }
-  if (/^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$/.test(s)) { const [d, m, y] = s.split(/[-/.]/); return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}` }
-  if (/^\d{1,2}[-/.]\d{4}$/.test(s)) { const [m, y] = s.split(/[-/.]/); return `${y}-${m.padStart(2, '0')}` }
-  return null
-}
 function isValidDate(d) { return !d || parseDate(d) !== null }
-function normDate(d, isEnd = false) {
-  if (!d) return ''
-  if (/^\d{4}$/.test(d)) return d + (isEnd ? '-12-31' : '-01-01')
-  if (/^\d{4}-\d{2}$/.test(d)) return d + (isEnd ? '-31' : '-01')
-  return d
-}
 
 async function save() {
   error.value = null

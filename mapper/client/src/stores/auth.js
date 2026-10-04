@@ -1,3 +1,4 @@
+import { apiFetch } from '../api.js'
 import { defineStore } from 'pinia'
 
 export const useAuthStore = defineStore('auth', {
@@ -9,7 +10,7 @@ export const useAuthStore = defineStore('auth', {
 
   actions: {
     async fetchConfig() {
-      const res = await fetch('/api/auth/config')
+      const res = await apiFetch('/api/auth/config')
       const data = await res.json()
       this.setupRequired = data.setupRequired
     },
@@ -17,7 +18,7 @@ export const useAuthStore = defineStore('auth', {
     async checkSession() {
       if (this._sessionChecked && this.isAuthenticated) return true
       try {
-        const res = await fetch('/api/auth/me')
+        const res = await apiFetch('/api/auth/me')
         this.isAuthenticated = res.ok
         this._sessionChecked = true
         return this.isAuthenticated
@@ -28,7 +29,7 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async setup(password) {
-      const res = await fetch('/api/auth/setup', {
+      const res = await apiFetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
@@ -43,7 +44,7 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async login(password) {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
@@ -57,13 +58,13 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async logout() {
-      await fetch('/api/auth/logout', { method: 'POST' })
+      await apiFetch('/api/auth/logout', { method: 'POST' })
       this.isAuthenticated = false
       this._sessionChecked = false
     },
 
     async changePassword(currentPassword, newPassword) {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword }),

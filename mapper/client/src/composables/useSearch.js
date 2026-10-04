@@ -23,6 +23,22 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
   const searchError = ref(null)
   const searchJustClosed = ref(false)
   let searchTimer = null
+  let controller = null
+  let requestId = 0
+  function cancelPending() {
+    requestId++
+    clearTimeout(searchTimer)
+    controller?.abort()
+    controller = null
+    searchLoading.value = false
+  }
+  function clearSearch() {
+    cancelPending()
+    searchQuery.value = ''
+    searchResults.value = []
+    searchError.value = null
+    searchOpen.value = false
+  }
 
   function buildMarkerResults(q) {
     if (!getMarkers) return []
@@ -45,7 +61,8 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
   }
 
   function onSearchInput() {
-    clearTimeout(searchTimer)
+    cancelPending()
+    const currentId = requestId
     searchError.value = null
     const q = searchQuery.value.trim()
     if (!q) { searchResults.value = []; searchLoading.value = false; return }
@@ -74,17 +91,21 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
 
     searchLoading.value = true
     searchTimer = setTimeout(async () => {
+      controller = new AbortController()
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=7&addressdetails=1`
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=7&addressdetails=1`, { signal: controller.signal }
         )
         if (!res.ok) throw new Error(`Nominatim ${res.status}`)
-        searchResults.value = [...markerResults, ...await res.json()]
+        const results = await res.json()
+        if (currentId !== requestId) return
+        searchResults.value = [...markerResults, ...results]
       } catch {
+        if (currentId !== requestId) return
         searchResults.value = [...markerResults]
         searchError.value = 'Search is temporarily unavailable — the geocoding service didn’t respond.'
       }
-      searchLoading.value = false
+      if (currentId === requestId) searchLoading.value = false
     }, 400)
   }
 
@@ -97,6 +118,7 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
   }
 
   function selectResult(r) {
+    cancelPending()
     const map = getMap()
     if (map) {
       const zoom = r._coord ? 16 : r._marker ? Math.max(map.getZoom(), 14) : zoomForResult(r)
@@ -110,8 +132,8 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
   }
 
   function cleanup() {
-    clearTimeout(searchTimer)
+    cancelPending()
   }
 
-  return { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup }
+  return { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, onSearchInput, onSearchBlur, selectResult, clearSearch, cleanup }
 }

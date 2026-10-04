@@ -261,7 +261,7 @@ const phone = computed(() => {
 
 const safePhone = computed(() => {
   if (!phone.value) return null
-  const stripped = phone.value.replace(/[^+\d\s\-() ]/g, '')
+  const stripped = phone.value.replace(/[^+\d\s\-()\u00a0]/g, '')
   return stripped || null
 })
 

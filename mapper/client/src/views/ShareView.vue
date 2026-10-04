@@ -33,7 +33,7 @@
     <div v-else-if="state === 'error'" class="gate">
       <div class="gate-card">
         <div class="gate-logo">MapMarker</div>
-        <p class="gate-error-big">{{ errorMessage }}</p>
+        <p class="gate-error-big">{{ errorMessage }}</p><button @click="requestShare()">Retry</button>
       </div>
     </div>
 
@@ -140,7 +140,10 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, watch, onUnmounted, nextTick } from 'vue'
+import { tileOptions, TILES } from '../utils/mapStyle.js'
+import { loadSettings } from '../utils/settings.js'
+import { useStyleStore } from '../stores/style.js'
 import { useRoute } from 'vue-router'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -154,22 +157,8 @@ import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 
-const SETTINGS_KEY = 'mapper_settings'
-const TILES = {
-  osm:             { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
-  'carto-voyager': { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-  'carto-light':   { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://carto.com/">CARTO</a>' },
-  topo:            { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>' },
-  satellite:       { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri' },
-}
-const TILE_LABELS = {
-  osm: 'OSM',
-  'carto-voyager': 'Voyager',
-  'carto-light': 'Light',
-  topo: 'Topo',
-  satellite: 'Satellite',
-}
-
+const TILE_LABELS = Object.fromEntries(Object.entries(TILES).map(([key, tile]) => [key, tile.label]))
+const styleStore = useStyleStore()
 const route = useRoute()
 const markersStore = useMarkersStore()
 const categoriesStore = useCategoriesStore()
@@ -202,15 +191,15 @@ watch(tileMenuOpen, (open) => {
 function switchTile(key) {
   currentTile.value = key
   if (!map) return
-  const t = TILES[key] ?? TILES.osm
-  const maxNative = key === 'topo' ? 17 : 19
-  const maxZoom = key === 'topo' ? 17 : 21
+  const t = tileOptions(key)
   if (tileLayer) tileLayer.remove()
-  tileLayer = L.tileLayer(t.url, { attribution: t.attribution, maxNativeZoom: maxNative, maxZoom }).addTo(map)
+  tileLayer = L.tileLayer(t.url, t).addTo(map)
+  map.options.maxZoom = t.maxZoom
+  if (map.getZoom() > t.maxZoom) map.setZoom(t.maxZoom)
 }
 
 const getMap = () => map
-const { renderMarkers, initClusterGroup } = useMarkerLayer(getMap, (marker) => {
+const { renderMarkers, initClusterGroup, clearAll } = useMarkerLayer(getMap, (marker) => {
   openedMarker.value = marker
 })
 
@@ -225,14 +214,19 @@ function handleSearchSelect(r) {
   selectResult(r)
 }
 
-async function fetchData(password) {
+let requestId = 0
+let requestAbort = null
+async function fetchData(password, signal) {
   const headers = {}
   if (password) headers['X-Share-Password'] = password
-  const res = await fetch(`/api/public/share/${route.params.token}/data`, { headers })
+  const res = await fetch(`/api/public/share/${route.params.token}/data`, { headers, signal })
   return { status: res.status, data: await res.json() }
 }
 
-async function loadMap(data) {
+async function loadMap(data, id) {
+  shareMeta.value = data.meta
+  clearAll()
+  if (map) { map.remove(); map = null }
   markersStore.items = data.markers
   markersStore.activeGroupFilter = null
   markersStore.visitedFilter = 'all'
@@ -242,17 +236,15 @@ async function loadMap(data) {
 
   state.value = 'loaded'
   await nextTick()
+  if (id !== requestId) return
 
-  const s = (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) } catch { return null } })()
+  const s = loadSettings()
   map = L.map(mapEl.value, { zoomControl: false, maxZoom: 21 }).setView([s?.lat ?? 20, s?.lng ?? 0], s?.zoom ?? 2)
   if (window.innerWidth > 1024) L.control.zoom({ position: 'bottomright' }).addTo(map)
 
   const tileKey = s?.tile ?? 'osm'
   currentTile.value = tileKey
-  const t = TILES[tileKey] ?? TILES.osm
-  const maxNative = tileKey === 'topo' ? 17 : 19
-  const maxZoom = tileKey === 'topo' ? 17 : 21
-  tileLayer = L.tileLayer(t.url, { attribution: t.attribution, maxNativeZoom: maxNative, maxZoom }).addTo(map)
+  switchTile(tileKey)
 
   initClusterGroup(s?.cluster !== false)
   renderMarkers(markersStore.filtered)
@@ -263,35 +255,52 @@ async function loadMap(data) {
   }
 }
 
-onMounted(async () => {
-  const { status, data } = await fetchData(null)
-  if (status === 404) { errorMessage.value = 'This share link does not exist.'; state.value = 'error'; return }
-  if (status === 410) { errorMessage.value = 'This share link has expired.'; state.value = 'error'; return }
-  if (status === 401 && data.requiresPassword) { shareMeta.value = data.meta; state.value = 'password'; return }
-  if (status !== 200) { errorMessage.value = 'Failed to load shared map.'; state.value = 'error'; return }
-  await loadMap(data)
-})
+async function requestShare(password = null) {
+  const id = ++requestId
+  requestAbort?.abort()
+  requestAbort = new AbortController()
+  loading.value = true
+  gateError.value = ''
+  try {
+    const { status, data } = await fetchData(password, requestAbort.signal)
+    if (id !== requestId) return
+    if (status === 401 && data.requiresPassword) { shareMeta.value = data.meta; state.value = 'password'; return }
+    if (status === 403) { gateError.value = 'Incorrect password. Try again.'; state.value = 'password'; return }
+    if (status !== 200) throw new Error(status === 404 ? 'This share link does not exist.' : status === 410 ? 'This share link has expired.' : 'Failed to load shared map. Please retry.')
+    await loadMap(data, id)
+  } catch (err) {
+    if (id !== requestId || err.name === 'AbortError') return
+    if (password) gateError.value = 'Could not load the map. Check your connection and retry.'
+    else { errorMessage.value = err.message; state.value = 'error' }
+  } finally { if (id === requestId) loading.value = false }
+}
+
+watch(() => route.params.token, () => {
+  state.value = 'loading'
+  openedMarker.value = null
+  passwordInput.value = ''
+  clearAll()
+  if (map) { map.remove(); map = null }
+  markersStore.$reset()
+  categoriesStore.items = []; collectionsStore.items = []; personsStore.items = []
+  requestShare()
+}, { immediate: true })
 
 onUnmounted(() => {
+  requestId++
+  requestAbort?.abort()
+  clearAll()
   if (map) { map.remove(); map = null }
   cleanupSearch()
-  markersStore.items = []
-  markersStore.activeGroupFilter = null
-  categoriesStore.items = []
-  collectionsStore.items = []
-  personsStore.items = []
+  markersStore.$reset()
+  categoriesStore.items = []; collectionsStore.items = []; personsStore.items = []
 })
 
 async function submitPassword() {
-  if (!passwordInput.value) return
-  gateError.value = ''
-  loading.value = true
-  const { status, data } = await fetchData(passwordInput.value)
-  loading.value = false
-  if (status === 403) { gateError.value = 'Incorrect password. Try again.'; return }
-  if (status !== 200) { gateError.value = 'Something went wrong. Try again.'; return }
-  await loadMap(data)
+  if (passwordInput.value && !loading.value) await requestShare(passwordInput.value)
 }
+
+watch(() => styleStore.colorMode, () => { if (map) renderMarkers(markersStore.filtered) })
 
 function openMarker(marker) {
   openedMarker.value = marker

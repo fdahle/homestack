@@ -11,7 +11,8 @@ router.get('/', (_req, res) => {
 
 router.post('/', (req, res) => {
   const { name, color } = req.body
-  if (!name?.trim()) return res.status(400).json({ error: 'Name required' })
+  if (color && !/^#[\da-f]{6}$/i.test(color)) return res.status(400).json({ error: 'Invalid color' })
+  if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name required' })
 
   const { lastInsertRowid } = db
     .prepare("INSERT INTO categories (name, color, created_at) VALUES (?, ?, datetime('now'))")
@@ -26,7 +27,8 @@ router.put('/:id', (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Not found' })
 
   const { name, color } = req.body
-  if (!name?.trim()) return res.status(400).json({ error: 'Name required' })
+  if (color && !/^#[\da-f]{6}$/i.test(color)) return res.status(400).json({ error: 'Invalid color' })
+  if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name required' })
 
   db.prepare('UPDATE categories SET name=?, color=? WHERE id=?').run(name.trim(), color || '#3b82f6', id)
   res.json(db.prepare('SELECT * FROM categories WHERE id = ?').get(id))

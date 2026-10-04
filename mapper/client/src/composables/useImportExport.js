@@ -1,4 +1,7 @@
-import { ref } from 'vue'
+import { ref, getCurrentScope, onScopeDispose } from 'vue'
+import { apiFetch } from '../api.js'
+import { markerFields, validLatLng } from '../../../shared/markers.js'
+import { useShareLinksStore } from '../stores/shareLinks.js'
 
 const COORD_EPSILON = 0.00001
 
@@ -78,6 +81,20 @@ function parseGoogleCsv(text) {
 // ── Composable ────────────────────────────────────────────────────────────────
 
 export function useImportExport(markersStore, categoriesStore, collectionsStore, personsStore) {
+  const controller = new AbortController()
+  if (getCurrentScope()) onScopeDispose(() => controller.abort())
+  const requestOptions = { signal: controller.signal, retryRateLimit: true, onRetry: seconds => {
+    const message = 'Write limit reached. Continuing in ' + seconds + ' seconds…'
+    if (importing.value) importStatus.value = message
+    if (csvImporting.value) csvStatus.value = message
+  } }
+  async function importBatches(rows, onResult) {
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      const batch = rows.slice(offset, offset + 100)
+      const results = await markersStore.importBatch(batch.map(r => r.payload), requestOptions)
+      for (const result of results) onResult(batch[result.index], result)
+    }
+  }
   // ── Backup ──────────────────────────────────────────────
   const backingUp   = ref(false)
   const backupError = ref(null)
@@ -86,7 +103,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     backingUp.value   = true
     backupError.value = null
     try {
-      const res = await fetch('/api/backup')
+      const res = await apiFetch('/api/backup')
       if (!res.ok) throw new Error(`Backup failed (${res.status})`)
       const data = await res.json()
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -148,7 +165,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     restoreError.value  = null
     restoreStatus.value = null
     try {
-      const res = await fetch('/api/backup/restore', {
+      const res = await apiFetch('/api/backup/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(restoreData.value),
@@ -160,7 +177,12 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       restoreData.value = null
       restoreFile.value = null
       if (restoreInput.value) restoreInput.value.value = ''
-      await markersStore.fetch()
+      markersStore.clearGroupFilter()
+      markersStore.setVisitedFilter('all')
+      markersStore.revision++
+      useShareLinksStore().items = []
+      for (const store of [markersStore, categoriesStore, collectionsStore, personsStore]) if (store) store.items = []
+      await Promise.all([markersStore, categoriesStore, collectionsStore, personsStore].filter(Boolean).map(store => store.fetch()))
     } catch (err) {
       restoreError.value = err.message
     } finally {
@@ -174,30 +196,18 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
   async function doExport() {
     exporting.value = true
     try {
-      const res = await fetch('/api/markers')
+      const res = await apiFetch('/api/markers')
       if (!res.ok) throw new Error(`Export failed (${res.status})`)
       const markers = await res.json()
       const payload = {
-        version: 3,
+        version: 4,
         type: 'export',
         exported_at: new Date().toISOString(),
         markers: markers.map((m) => ({
-          lat: m.lat, lng: m.lng,
-          label: m.label || null,
-          description: m.description || null,
-          visited_at: m.visited_at || null,
-          planned_at: m.planned_at || null,
-          color: m.color || null,
-          image_url: m.image_url || null,
-          address: m.address || null,
-          country: m.country || null,
-          rating: m.rating ?? null,
-          is_favorite: m.is_favorite ?? 0,
-          external_url: m.external_url || null,
-          source: m.source || null,
+          ...markerFields(m),
           categories: m.categories?.map((c) => c.name) ?? [],
           collections: m.collections?.map((c) => ({ name: c.name, position: c.position ?? null })) ?? [],
-          persons: m.persons?.map((p) => p.name) ?? [],
+          persons: m.persons?.map(p => ({ name: p.name, first_name: p.first_name || p.name, last_name: p.last_name || null })) ?? [],
         })),
       }
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
@@ -207,6 +217,8 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       a.download = 'mapmarker-export.json'
       a.click()
       URL.revokeObjectURL(url)
+    } catch (err) {
+      importError.value = err.message
     } finally {
       exporting.value = false
     }
@@ -233,6 +245,8 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     reader.onload = (ev) => {
       try {
         const data = JSON.parse(ev.target.result)
+        if (data?.type === 'backup') throw new Error('Use Restore for backup files')
+        if (data?.version != null && ![1,2,3,4].includes(data.version)) throw new Error('Unsupported export version')
         const list = Array.isArray(data) ? data : data.markers
         if (!Array.isArray(list)) throw new Error('Expected an array of markers')
         importMarkers.value = list
@@ -246,78 +260,66 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
   async function doImport() {
     importing.value = true
     importProgress.value = 0
-    importError.value  = null
+    importError.value = null
     importStatus.value = null
     importFailed.value = []
-
-    // Build name→id maps from current store state
-    const catNameToId = Object.fromEntries((categoriesStore?.items ?? []).map(c => [c.name, c.id]))
-    const colNameToId = Object.fromEntries((collectionsStore?.items ?? []).map(c => [c.name, c.id]))
-    const perNameToId = Object.fromEntries((personsStore?.items ?? []).map(p => [p.name, p.id]))
-
-    // Pre-create any categories/collections/persons not yet in the store
-    const allCatNames = new Set(importMarkers.value.flatMap(m => m.categories ?? []))
-    const allColNames = new Set(importMarkers.value.flatMap(m => (m.collections ?? []).map(c => typeof c === 'string' ? c : c.name)))
-    const allPerNames = new Set(importMarkers.value.flatMap(m => m.persons ?? []))
-
-    for (const name of allCatNames) {
-      if (!catNameToId[name] && categoriesStore) {
-        try { catNameToId[name] = (await categoriesStore.create({ name })).id } catch {}
-      }
-    }
-    for (const name of allColNames) {
-      if (!colNameToId[name] && collectionsStore) {
-        try { colNameToId[name] = (await collectionsStore.create({ name })).id } catch {}
-      }
-    }
-    for (const name of allPerNames) {
-      if (!perNameToId[name] && personsStore) {
-        try { perNameToId[name] = (await personsStore.create({ name })).id } catch {}
-      }
-    }
-
     let ok = 0
-    for (let i = 0; i < importMarkers.value.length; i++) {
-      const m = importMarkers.value[i]
-      try {
-        const category_ids = (m.categories ?? []).map(n => catNameToId[n]).filter(Boolean)
-        const colEntries   = (m.collections ?? []).map(c => typeof c === 'string' ? { name: c, position: null } : c)
-        const collection_ids = colEntries.map(c => colNameToId[c.name]).filter(Boolean)
-        const collection_positions = Object.fromEntries(
-          colEntries.filter(c => colNameToId[c.name]).map(c => [colNameToId[c.name], c.position ?? null])
-        )
-        const person_ids = (m.persons ?? []).map(n => perNameToId[n]).filter(Boolean)
-
-        await markersStore.create({
-          lat: m.lat, lng: m.lng,
-          label: m.label || null,
-          description: m.description || null,
-          visited_at: m.visited_at || null,
-          planned_at: m.planned_at || null,
-          color: m.color || null,
-          image_url: m.image_url || null,
-          address: m.address || null,
-          country: m.country || null,
-          rating: m.rating ?? null,
-          is_favorite: m.is_favorite ?? 0,
-          external_url: m.external_url || null,
-          category_ids,
-          collection_ids,
-          collection_positions,
-          person_ids,
-        })
-        ok++
-      } catch {
-        importFailed.value.push({ label: m.label || `Line ${i + 1}` })
+    try {
+      const maps = [categoriesStore, collectionsStore, personsStore].map(store => new Map((store?.items ?? []).map(item => [item.name, item.id])))
+      const failedNames = new Map()
+      async function resolve(items, index) {
+        if (!Array.isArray(items)) throw new Error('Invalid marker relationships')
+        const store = [categoriesStore, collectionsStore, personsStore][index]
+        const ids = []
+        for (const item of items) {
+          const name = typeof item === 'string' ? item : item?.name
+          if (typeof name !== 'string' || !name.trim()) throw new Error('A relationship has no name')
+          const key = index + ':' + name
+          if (failedNames.has(key)) throw new Error(failedNames.get(key))
+          if (!maps[index].has(name)) {
+            try {
+              const data = index === 2 ? { first_name: typeof item === 'object' ? item.first_name || name : name, last_name: typeof item === 'object' ? item.last_name || null : null } : { name }
+              maps[index].set(name, (await store.create(data, requestOptions)).id)
+            } catch (err) {
+              if (err.name === 'AbortError') throw err
+              const message = 'Could not create "' + name + '": ' + err.message
+              failedNames.set(key, message)
+              throw new Error(message, { cause: err })
+            }
+          }
+          ids.push(maps[index].get(name))
+        }
+        return ids
       }
-      importProgress.value++
+      const rows = []
+      for (const [index, m] of importMarkers.value.entries()) {
+        try {
+          if (!m || !validLatLng(m.lat, m.lng)) throw new Error('Invalid coordinates')
+          const category_ids = await resolve(m.categories ?? [], 0)
+          const collection_ids = await resolve(m.collections ?? [], 1)
+          const person_ids = await resolve(m.persons ?? [], 2)
+          const collection_positions = Object.fromEntries((m.collections ?? []).map((c, i) => [collection_ids[i], typeof c === 'string' ? null : c.position ?? null]))
+          rows.push({ label: m.label || 'Line ' + (index + 1), payload: { ...markerFields(m), source: m.source || 'json', category_ids, collection_ids, collection_positions, person_ids } })
+        } catch (err) {
+          if (err.name === 'AbortError') throw err
+          importFailed.value.push({ label: (m?.label || 'Line ' + (index + 1)) + ': ' + err.message })
+          importProgress.value++
+        }
+      }
+      await importBatches(rows, (row, result) => {
+        if (result.error) importFailed.value.push({ label: row.label + ': ' + result.error })
+        else ok++
+        importProgress.value++
+      })
+      importMarkers.value = null
+      importFile.value = null
+      if (fileInput.value) fileInput.value.value = ''
+    } catch (err) {
+      importError.value = err.name === 'AbortError' ? 'Import cancelled' : err.message + '. Completed batches remain saved; check them before retrying.'
+    } finally {
+      importing.value = false
+      importStatus.value = 'Done — ' + ok + ' imported, ' + importFailed.value.length + ' failed.'
     }
-    importing.value = false
-    const fail = importFailed.value.length
-    importStatus.value = `Done — ${ok} imported${fail ? `, ${fail} failed` : ''}.`
-    importMarkers.value = null
-    importFile.value = null
-    if (fileInput.value) fileInput.value.value = ''
   }
 
   // ── Google Maps CSV Import ────────────────────────────────
@@ -387,6 +389,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     let failed = 0
 
     for (const row of csvRows.value) {
+      if (controller.signal.aborted) { geocoding.value = false; return }
       if (row.coords) {
         results.push({ lat: row.coords.lat, lng: row.coords.lng, label: row.label, description: row.description, country: null })
         geocodeProgress.value++
@@ -394,7 +397,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       }
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(row.title)}&format=json&limit=1&addressdetails=1`
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(row.title)}&format=json&limit=1&addressdetails=1`, { signal: controller.signal }
         )
         const data = await res.json()
         if (data.length) {
@@ -430,42 +433,35 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
   }
 
   async function doCsvImport(list = null) {
-    const markers = list ?? geocodedMarkers.value
+    const markers = list ?? geocodedMarkers.value ?? []
     csvImporting.value = true
     csvImportProgress.value = 0
     csvError.value = null
     csvFailed.value = []
-    let ok = 0
-    let skipped = 0
-    for (let i = 0; i < markers.length; i++) {
-      const m = markers[i]
-      if (isExistingMarker(m)) {
-        skipped++
+    let ok = 0, skipped = 0
+    try {
+      const rows = []
+      for (const [i, m] of markers.entries()) {
+        if (isExistingMarker(m) || rows.some(r => Math.abs(r.payload.lat - m.lat) < COORD_EPSILON && Math.abs(r.payload.lng - m.lng) < COORD_EPSILON && (r.payload.label || null) === (m.label || null))) {
+          skipped++
+          csvImportProgress.value++
+        } else rows.push({ label: m.label || 'Line ' + (i + 1), payload: { ...markerFields(m), source: 'google_maps_csv', visited_at: null, category_ids: [], collection_ids: [] } })
+      }
+      await importBatches(rows, (row, result) => {
+        if (result.error) csvFailed.value.push({ label: row.label + ': ' + result.error })
+        else ok++
         csvImportProgress.value++
-        continue
-      }
-      try {
-        await markersStore.create({
-          lat: m.lat, lng: m.lng,
-          label: m.label, description: m.description,
-          visited_at: null, category_ids: [], collection_ids: [],
-        })
-        ok++
-      } catch {
-        csvFailed.value.push({ label: m.label || `Line ${i + 1}` })
-      }
-      csvImportProgress.value++
+      })
+      geocodedMarkers.value = null
+      csvRows.value = null
+      csvFiles.value = null
+      if (csvInput.value) csvInput.value.value = ''
+    } catch (err) {
+      csvError.value = err.name === 'AbortError' ? 'Import cancelled' : err.message
+    } finally {
+      csvImporting.value = false
+      csvStatus.value = 'Done — ' + ok + ' imported, ' + skipped + ' duplicates skipped, ' + csvFailed.value.length + ' failed.'
     }
-    csvImporting.value = false
-    const fail = csvFailed.value.length
-    const parts = [`${ok} imported`]
-    if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`)
-    if (fail) parts.push(`${fail} failed`)
-    csvStatus.value = `Done — ${parts.join(', ')}.`
-    geocodedMarkers.value = null
-    csvRows.value = null
-    csvFiles.value = null
-    if (csvInput.value) csvInput.value.value = ''
   }
 
   return {

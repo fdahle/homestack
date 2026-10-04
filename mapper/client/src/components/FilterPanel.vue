@@ -272,6 +272,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
+import { COLOR_MODES, markerColors } from '../utils/mapStyle.js'
 import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
@@ -298,12 +299,6 @@ const collectionsStore = useCollectionsStore()
 const personsStore = usePersonsStore()
 const styleStore = useStyleStore()
 
-const COLOR_MODES = [
-  { value: 'marker', label: 'Marker' },
-  { value: 'collection', label: 'Collection' },
-  { value: 'person', label: 'Person' },
-  { value: 'category', label: 'Category' },
-]
 const currentColorLabel = computed(() => COLOR_MODES.find(m => m.value === styleStore.colorMode)?.label ?? 'Marker')
 const mobileCmOpen = ref(false)
 const mobileCmRef = ref(null)
@@ -408,15 +403,19 @@ const COLLECTION_SORT_OPTIONS = [
 ]
 const sortOptions = computed(() => activeTab.value === 'collection' ? COLLECTION_SORT_OPTIONS : BASE_SORT_OPTIONS)
 
+const groupCounts = computed(() => {
+  const counts = { categories: new Map(), collections: new Map(), persons: new Map() }
+  for (const marker of markersStore.items) for (const key of Object.keys(counts)) for (const item of marker[key] ?? []) counts[key].set(item.id, (counts[key].get(item.id) || 0) + 1)
+  return counts
+})
+
 const filteredPersons = computed(() => {
   const q = overviewQuery.value.trim().toLowerCase()
   const items = q ? personsStore.items.filter((p) => p.name.toLowerCase().includes(q)) : personsStore.items
   return applySortOverview(items, personCount)
 })
 
-function personCount(id) {
-  return markersStore.items.filter((m) => m.persons?.some((p) => p.id === id)).length
-}
+function personCount(id) { return groupCounts.value.persons.get(id) || 0 }
 
 const noPersonCount = computed(() =>
   markersStore.items.filter((m) => !m.persons?.length).length
@@ -516,13 +515,9 @@ const filteredCollections = computed(() => {
   return applySortOverview(items, collectionCount)
 })
 
-function categoryCount(id) {
-  return markersStore.items.filter((m) => m.categories?.some((c) => c.id === id)).length
-}
+function categoryCount(id) { return groupCounts.value.categories.get(id) || 0 }
 
-function collectionCount(id) {
-  return markersStore.items.filter((m) => m.collections?.some((c) => c.id === id)).length
-}
+function collectionCount(id) { return groupCounts.value.collections.get(id) || 0 }
 
 const uncategorizedCount = computed(() =>
   markersStore.items.filter((m) => !m.categories?.length).length
@@ -575,7 +570,7 @@ watch(detailGroup, (group) => {
   if (sortBy.value === 'stop' && !group?.item?.is_trip) sortBy.value = 'added'
 })
 
-function effectiveColor(m) { return m.color || m.categories?.[0]?.color || '#6c757d' }
+function effectiveColor(m) { return markerColors(m, styleStore.colorMode)[0] }
 function coords(m) { return `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})` }
 
 function selectMarker(m) {

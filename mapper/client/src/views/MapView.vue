@@ -4,6 +4,11 @@
     <!-- Map area (everything that sits over the map) -->
     <div class="map-area">
       <div class="map-container" ref="mapEl" />
+      <div v-if="mapLoading || mapLoadError" class="map-status" role="status">
+        {{ mapLoadError || 'Loading map…' }}
+        <button v-if="mapLoadError" @click="initializeMap">Retry</button>
+      </div>
+      <div v-if="routeError" class="map-status" role="alert">{{ routeError }} <button @click="routeError = ''">Dismiss</button></div>
 
       <!-- Centered address search bar -->
       <div class="top-bar">
@@ -143,8 +148,8 @@
       :marker="editingMarker"
       :latlng="pendingLatLng"
       :suggested-label="markerSuggestedLabel"
-      @save="onMarkerSave"
-      @delete="onMarkerDelete"
+      :save-marker="onMarkerSave"
+      :delete-marker="onMarkerDelete"
       @close="closeModal"
     />
 
@@ -191,6 +196,8 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { loadSettings } from '../utils/settings.js'
+import { COLOR_MODES, tileOptions, tooltipText, safeHex } from '../utils/mapStyle.js'
 import AppIcon from '../components/AppIcon.vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -215,15 +222,6 @@ import { useStyleStore } from '../stores/style.js'
 import { loadSegments, saveSegment, fetchSegmentRoute } from '../composables/useTripRouting.js'
 import { useMapControl } from '../composables/useMapControl.js'
 
-const SETTINGS_KEY = 'mapper_settings'
-
-const COLOR_MODES = [
-  { value: 'marker', label: 'Marker' },
-  { value: 'collection', label: 'Collection' },
-  { value: 'person', label: 'Person' },
-  { value: 'category', label: 'Category' },
-]
-
 const styleStore = useStyleStore()
 const markersStore = useMarkersStore()
 const categoriesStore = useCategoriesStore()
@@ -232,6 +230,13 @@ const personsStore = usePersonsStore()
 
 const mapEl = ref(null)
 let map = null
+let clickTimer = null
+let disposed = false
+let routeAbort = null
+const mapLoading = ref(false)
+const mapLoadError = ref('')
+const routeError = ref('')
+const routeEditBusy = ref(false)
 const getMap = () => map
 let routePolylines = []
 let csvPreviewLayer = null
@@ -290,20 +295,36 @@ function pushUndo(colId, fromId, toId, viaPoints) {
   undoStack.value = [...undoStack.value, { colId, fromId, toId, via_points: [...viaPoints] }]
 }
 
-async function undoRouteEdit() {
-  if (!undoStack.value.length) return
-  const entry = undoStack.value[undoStack.value.length - 1]
-  undoStack.value = undoStack.value.slice(0, -1)
+async function applyRouteEdit(colId, fromId, toId, mode, points, previous) {
+  if (routeEditBusy.value || disposed) return
+  routeEditBusy.value = true
+  routeError.value = ''
   try {
-    let segMap = {}
-    try { segMap = await loadSegments(entry.colId) } catch {}
-    const seg = segMap[`${entry.fromId}-${entry.toId}`]
-    await saveSegment(entry.colId, entry.fromId, entry.toId, seg?.mode || 'walk', entry.via_points)
-  } catch {}
-  await renderTripRoute()
+    await saveSegment(colId, fromId, toId, mode, points)
+    if (disposed) return
+    if (markersStore.activeGroupFilter?.id === colId) pushUndo(colId, fromId, toId, previous)
+  } catch (err) { routeError.value = err.message }
+  finally { routeEditBusy.value = false }
+  if (!disposed) await renderTripRoute()
+}
+
+async function undoRouteEdit() {
+  if (!undoStack.value.length || routeEditBusy.value) return
+  routeEditBusy.value = true
+  const entry = undoStack.value.at(-1)
+  try {
+    const segMap = await loadSegments(entry.colId)
+    await saveSegment(entry.colId, entry.fromId, entry.toId, segMap[entry.fromId + '-' + entry.toId]?.mode || 'walk', entry.via_points)
+    undoStack.value = undoStack.value.filter(e => e !== entry)
+  } catch (err) { routeError.value = err.message }
+  finally { routeEditBusy.value = false }
+  if (!disposed) await renderTripRoute()
 }
 
 async function renderTripRoute() {
+  routeAbort?.abort()
+  routeAbort = new AbortController()
+  const signal = routeAbort.signal
   const token = ++renderToken
   clearRouteLayer()
   if (!map) return
@@ -312,12 +333,12 @@ async function renderTripRoute() {
 
   const colId = markersStore.activeGroupFilter?.id
   const col = collectionsStore.items.find((c) => c.id === colId)
-  const color = col?.color || '#3b82f6'
+  const color = safeHex(col?.color || '#3b82f6')
   const showStraight = !!col?.show_route_line
   const showExact = !!col?.show_exact_route
 
-  let segmentMap = {}
-  try { segmentMap = await loadSegments(colId) } catch {}
+  let segmentMap
+  try { segmentMap = await loadSegments(colId, signal) } catch (err) { if (!signal.aborted) routeError.value = err.message; return }
   if (token !== renderToken) return
 
   for (let i = 0; i < markers.length - 1; i++) {
@@ -336,7 +357,7 @@ async function renderTripRoute() {
 
     if (showExact) {
       let routedPath = [[from.lat, from.lng], [to.lat, to.lng]]
-      try { routedPath = await fetchSegmentRoute(from, to, viaPoints, seg?.mode || 'walk') } catch {}
+      try { routedPath = await fetchSegmentRoute(from, to, viaPoints, seg?.mode || 'walk', signal) } catch (err) { if (!signal.aborted) routeError.value = 'Route unavailable; showing a straight line. ' + err.message }
       if (token !== renderToken) return
       if (!map) return
 
@@ -354,11 +375,9 @@ async function renderTripRoute() {
           const d = (clickLat - (allWps[k].lat + allWps[k+1].lat)/2)**2 + (clickLng - (allWps[k].lng + allWps[k+1].lng)/2)**2
           if (d < bestDist) { bestDist = d; bestIdx = k }
         }
-        pushUndo(colId, from.id, to.id, viaPoints)
         const newVia = [...viaPoints]
         newVia.splice(bestIdx, 0, { lat: +clickLat.toFixed(6), lng: +clickLng.toFixed(6) })
-        try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
-        await renderTripRoute()
+        await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
       })
 
       // Existing via-point handles: drag to move, click to delete
@@ -377,17 +396,13 @@ async function renderTripRoute() {
         }).addTo(map)
         vpHandle.on('dragend', async (e) => {
           const p = e.target.getLatLng()
-          pushUndo(colId, from.id, to.id, viaPoints)
-          const newVia = viaPoints.map((v, k) => k === capturedJ ? { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) } : v)
-          try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
-          await renderTripRoute()
+            const newVia = viaPoints.map((v, k) => k === capturedJ ? { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) } : v)
+          await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
         })
         vpHandle.on('click', async (ev) => {
           L.DomEvent.stopPropagation(ev)
-          pushUndo(colId, from.id, to.id, viaPoints)
-          const newVia = viaPoints.filter((_, k) => k !== capturedJ)
-          try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
-          await renderTripRoute()
+            const newVia = viaPoints.filter((_, k) => k !== capturedJ)
+          await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
         })
         routeHandles.push(vpHandle)
       }
@@ -411,11 +426,9 @@ async function renderTripRoute() {
         }).addTo(map)
         addHandle.on('dragend', async (e) => {
           const p = e.target.getLatLng()
-          pushUndo(colId, from.id, to.id, viaPoints)
-          const newVia = [...viaPoints]
+            const newVia = [...viaPoints]
           newVia.splice(capturedJ, 0, { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) })
-          try { await saveSegment(colId, from.id, to.id, seg?.mode || 'walk', newVia) } catch {}
-          await renderTripRoute()
+          await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
         })
         routeHandles.push(addHandle)
       }
@@ -436,17 +449,11 @@ async function closeSidebar() {
 }
 
 // Composables
-const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, clearSearch, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
   getMap,
   () => markersStore.filtered,
   (marker) => { closeLocationPanel(); addMode.value = false; openMarkerModal(marker) },
 )
-
-function clearSearch() {
-  searchQuery.value = ''
-  searchResults.value = []
-  searchOpen.value = false
-}
 
 function handleSearchSelect(r) {
   const latlng = selectResult(r)
@@ -476,7 +483,8 @@ watch(sidebarOpen, (open) => {
 watch(
   () => modalOpen.value || manageOpen.value || settingsOpen.value || statsOpen.value || markerTableOpen.value || csvImportOpen.value || shareOpen.value,
   (anyOpen, wasOpen) => {
-    if (anyOpen && !wasOpen) history.pushState({ mapperModal: true }, '')
+    if (anyOpen && !wasOpen) history.pushState({ ...history.state, mapperModal: true }, '')
+    if (!anyOpen && wasOpen && history.state?.mapperModal) history.back()
   }
 )
 
@@ -492,33 +500,26 @@ function handlePopState() {
 
 onUnmounted(() => { window.removeEventListener('popstate', handlePopState) })
 
-function loadSettings() {
-  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) } catch { return null }
-}
-
 function applyTileLayer(key) {
-  const tiles = {
-    osm:             { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
-    'carto-voyager': { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-    'carto-light':   { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://carto.com/">CARTO</a>' },
-    topo:            { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>' },
-    satellite:       { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community' },
-  }
-  const t = tiles[key] ?? tiles.osm
-  const maxZoom = key === 'topo' ? 17 : 21
-  const maxNative = key === 'topo' ? 17 : 19
+  if (!map) return
+  const t = tileOptions(key)
   if (tileLayer) tileLayer.remove()
-  tileLayer = L.tileLayer(t.url, { attribution: t.attribution, maxNativeZoom: maxNative, maxZoom }).addTo(map)
-  map.options.maxZoom = maxZoom
-  if (map.getZoom() > maxZoom) map.setZoom(maxZoom)
+  tileLayer = L.tileLayer(t.url, t).addTo(map)
+  map.options.maxZoom = t.maxZoom
+  if (map.getZoom() > t.maxZoom) map.setZoom(t.maxZoom)
 }
 
-onMounted(async () => {
+async function initializeMap() {
+  if (mapLoading.value || disposed || map) return
+  mapLoading.value = true
+  mapLoadError.value = ''
+  try {
   window.addEventListener('popstate', handlePopState)
   savedSettings.value = loadSettings()
   const s = savedSettings.value
 
   await Promise.all([markersStore.fetch(), categoriesStore.fetch(), collectionsStore.fetch(), personsStore.fetch()])
+  if (disposed) return
 
   map = L.map(mapEl.value, { zoomControl: false, maxZoom: 21 }).setView(
     [s?.lat ?? 20, s?.lng ?? 0],
@@ -529,7 +530,6 @@ onMounted(async () => {
   applyTileLayer(s?.tile ?? 'osm')
   initClusterGroup(s?.cluster !== false)
 
-let clickTimer = null
   map.on('click', (e) => {
     clearTimeout(clickTimer)
     clickTimer = setTimeout(() => {
@@ -549,12 +549,23 @@ let clickTimer = null
 
   window.addEventListener('keydown', onKeyDown)
   renderMarkers(displayMarkers.value)
-})
+  await renderTripRoute()
+  } catch (err) {
+    mapLoadError.value = err.message
+    if (map) { map.remove(); map = null }
+  } finally { mapLoading.value = false }
+}
+onMounted(initializeMap)
 
 onUnmounted(() => {
+  disposed = true
+  renderToken++
+  routeAbort?.abort()
+  closeLocationPanel()
+  document.body.style.overscrollBehaviorY = ''
   clearTimeout(clickTimer)
   clearRouteLayer()
-  if (map) map.remove()
+  if (map) { map.remove(); map = null }
   window.removeEventListener('keydown', onKeyDown)
   cleanupSearch()
 })
@@ -576,7 +587,7 @@ watch(csvPreviewMarkers, (markers) => {
       fillColor: m.rejected ? '#fca5a5' : '#d1d5db',
       fillOpacity: 0.85,
       weight: 2,
-    }).bindTooltip(m.label || `${m.lat.toFixed(4)}, ${m.lng.toFixed(4)}`, { permanent: false }).addTo(csvPreviewLayer)
+    }).bindTooltip(tooltipText(m.label || `${m.lat.toFixed(4)}, ${m.lng.toFixed(4)}`), { permanent: false }).addTo(csvPreviewLayer)
   }
   if (markers.length === 0 && csvPreviewLayer) {
     csvPreviewLayer.remove()
@@ -589,7 +600,7 @@ function onKeyDown(e) {
     if (addMode.value) addMode.value = false
     else if (locationPanelOpen.value) closeLocationPanel()
   }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.target.closest('input, textarea, [contenteditable=true]')) {
     e.preventDefault()
     undoRouteEdit()
   }
@@ -628,6 +639,8 @@ watch(() => styleStore.colorMode, () => {
   if (map) renderMarkers(displayMarkers.value)
 })
 
+watch(() => markersStore.revision, () => { undoStack.value = []; closeModal(); manageOpen.value = false; renderTripRoute() })
+
 watch(tripRouteMarkers, () => {
   undoStack.value = []
   renderTripRoute()
@@ -635,6 +648,7 @@ watch(tripRouteMarkers, () => {
 </script>
 
 <style scoped>
+.map-status { position: absolute; top: 68px; left: 50%; transform: translateX(-50%); z-index: 1100; max-width: 90%; padding: 12px; background: var(--surface); border-radius: 8px; box-shadow: var(--shadow); }
 .map-shell {
   display: flex;
   width: 100vw;

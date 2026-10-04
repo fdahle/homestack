@@ -1,3 +1,4 @@
+import { validateShare } from '../utils/validation.js'
 import { Router } from 'express'
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
@@ -29,6 +30,7 @@ router.get('/', (_req, res) => {
 
 router.post('/', async (req, res, next) => {
   try {
+    validateShare(req.body)
     const { name, password, filter, expiresAt } = req.body
     if (!filter || typeof filter !== 'object') {
       return res.status(400).json({ error: 'filter is required' })
@@ -66,6 +68,7 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:token', async (req, res, next) => {
   try {
+    validateShare(req.body)
     const link = db.prepare('SELECT * FROM share_links WHERE token = ?').get(req.params.token)
     if (!link) return res.status(404).json({ error: 'Not found' })
 

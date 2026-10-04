@@ -41,7 +41,7 @@ app.use(helmet({
       scriptSrc:  ["'self'"],
       styleSrc:   ["'self'", "'unsafe-inline'"],
       imgSrc:     ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://router.project-osrm.org", "https://api.openrouteservice.org", "https://overpass-api.de", "https://overpass.kumi.systems", "https://en.wikipedia.org", "https://commons.wikimedia.org"],
+      connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://router.project-osrm.org", "https://api.openrouteservice.org", "https://overpass-api.de", "https://overpass.private.coffee", "https://en.wikipedia.org", "https://commons.wikimedia.org"],
       fontSrc:    ["'self'", "https:", "data:"],
       objectSrc:  ["'none'"],
       frameAncestors: ["'self'"],
@@ -52,9 +52,9 @@ app.use(express.json({ limit: '10mb' }))
 app.use(cookieParser())
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 })
-app.use('/api/auth', authLimiter)
+app.use('/api/auth', (req, res, next) => req.method === 'POST' && req.path !== '/logout' ? authLimiter(req, res, next) : next())
 
-const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300 })
+const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Write limit reached. Please wait before retrying.' }) })
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const applyWriteLimiter = (req, res, next) =>
   WRITE_METHODS.has(req.method) ? writeLimiter(req, res, next) : next()
@@ -71,20 +71,21 @@ app.use('/api/backup', applyWriteLimiter, backupRoutes)
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
 const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'dist')
+app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }))
 app.use(express.static(DIST))
 app.get('*', (_req, res) => res.sendFile(join(DIST, 'index.html')))
 
-// eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
   if (process.env.NODE_ENV === 'production') console.error(err.message)
   else console.error(err)
-  res.status(500).json({ error: 'Internal server error' })
+  const status = err.status >= 400 && err.status < 500 ? err.status : 500
+  res.status(status).json({ error: status === 500 ? 'Internal server error' : err.message })
 })
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection:', reason)
 })
 
-app.listen(PORT, () => {
-  console.log(`Mapper API running on http://localhost:${PORT}`)
+export const server = app.listen(PORT, () => {
+  console.log(`Mapper API running on http://localhost:${server.address().port}`)
 })

@@ -185,8 +185,8 @@
 
           <!-- Backup & Restore -->
           <div class="data-group">
-            <div class="group-label">Backup</div>
-            <p class="hint">Full snapshot — saves markers, categories, collections, persons and all relations. Use Restore to bring everything back exactly.</p>
+            <div class="group-label">Backup</div><p class="hint">Backups include places and relationships. Account, browser preferences and share links are excluded. Restoring revokes existing share links.</p>
+            <p class="hint">Save places, categories, collections, persons and trip routes, or restore them from a backup.</p>
             <input type="file" accept=".json" ref="restoreInput" @change="onRestoreFileSelected" style="display:none" />
             <div class="import-btn-row">
               <button type="button" class="btn-secondary" @click="doBackup" :disabled="backingUp">
@@ -284,6 +284,8 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue'
+import { loadSettings, saveSettings } from '../utils/settings.js'
+import { TILES } from '../utils/mapStyle.js'
 import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
@@ -294,14 +296,7 @@ import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useStyleStore } from '../stores/style.js'
 
-const SETTINGS_KEY = 'mapper_settings'
-
-const TILE_OPTIONS = [
-  { key: 'osm',           label: 'OSM',       thumb: 'https://tile.openstreetmap.org/12/2074/1410.png' },
-  { key: 'carto-voyager', label: 'Carto',     thumb: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/12/2074/1410.png' },
-  { key: 'topo',          label: 'Topo',      thumb: 'https://a.tile.opentopomap.org/12/2074/1410.png' },
-  { key: 'satellite',     label: 'Satellite', thumb: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/12/1410/2074' },
-]
+const TILE_OPTIONS = Object.entries(TILES).filter(([key]) => key !== 'carto-light').map(([key, tile]) => ({ key, ...tile }))
 
 const props = defineProps({
   current: { type: Object, default: null },
@@ -329,7 +324,7 @@ const gpsError   = ref('')
 
 onMounted(() => {
   try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    const s = loadSettings()
     form.value              = { lat: s.lat ?? 20, lng: s.lng ?? 0, zoom: s.zoom ?? 2 }
     tileKey.value           = s.tile === 'carto-light' ? 'carto-voyager' : (s.tile ?? 'osm')
     cluster.value           = s.cluster !== false
@@ -367,11 +362,11 @@ function useCurrentLocation() {
 
 watch(form, (val) => {
   try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    const s = loadSettings()
     s.lat  = val.lat
     s.lng  = val.lng
     s.zoom = val.zoom
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
+    saveSettings(s)
   } catch {}
 }, { deep: true })
 
@@ -385,18 +380,18 @@ function toggleDark() {
   isDark.value
     ? document.documentElement.setAttribute('data-theme', 'dark')
     : document.documentElement.removeAttribute('data-theme')
-  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.theme = isDark.value ? 'dark' : 'light'; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+  try { const s = loadSettings(); s.theme = isDark.value ? 'dark' : 'light'; saveSettings(s) } catch {}
 }
 
 function setTile(key) {
   tileKey.value = key
-  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.tile = key; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+  try { const s = loadSettings(); s.tile = key; saveSettings(s) } catch {}
   emit('tile-change', key)
 }
 
 function toggleCluster() {
   cluster.value = !cluster.value
-  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.cluster = cluster.value; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+  try { const s = loadSettings(); s.cluster = cluster.value; saveSettings(s) } catch {}
   emit('cluster-change', cluster.value)
 }
 
@@ -404,7 +399,7 @@ function toggleCluster() {
 const orsApiKey = ref('')
 
 function saveOrsKey() {
-  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.orsApiKey = orsApiKey.value.trim(); localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+  try { const s = loadSettings(); s.orsApiKey = orsApiKey.value.trim(); saveSettings(s) } catch {}
 }
 
 const excludedAmenities = ref(['waste_basket', 'bench'])
@@ -413,9 +408,9 @@ const poiRadius         = ref(25)
 
 function saveExcludedToStorage() {
   try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    const s = loadSettings()
     s.excludedAmenities = excludedAmenities.value
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
+    saveSettings(s)
   } catch {}
 }
 
@@ -435,7 +430,7 @@ function removeExcluded(tag) {
 
 function setPoiRadius(r) {
   poiRadius.value = r
-  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); s.poiRadius = r; localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
+  try { const s = loadSettings(); s.poiRadius = r; saveSettings(s) } catch {}
 }
 
 // ── Account ───────────────────────────────────────────────

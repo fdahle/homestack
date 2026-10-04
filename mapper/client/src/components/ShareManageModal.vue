@@ -52,7 +52,7 @@
           </div>
 
           <div class="field">
-            <label>What to share</label>
+            <label>What to share</label><p class="hint-text">Matching markers are shared with their descriptions, images and all associated categories, collections and person names. Person address references are excluded.</p>
             <label class="checkbox-label bold-label">
               <input type="checkbox" v-model="form.filter.all" />
               All markers
@@ -151,7 +151,7 @@ import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 
-const emit = defineEmits(['close'])
+defineEmits(['close'])
 
 const store = useShareLinksStore()
 const categoriesStore = useCategoriesStore()

@@ -9,7 +9,8 @@
         </div>
       </div>
 
-      <div class="table-scroll">
+      <p v-if="saveError" role="alert">{{ saveError }}</p>
+    <div class="table-scroll">
         <table>
           <thead>
             <tr>
@@ -27,8 +28,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(m, idx) in filteredMarkers" :key="m.id" :class="{ 'row-saving': savingIds.has(m.id) }">
-              <td class="td-num">{{ idx + 1 }}</td>
+            <tr v-for="(m, idx) in pageMarkers" :key="m.id" :class="{ 'row-saving': savingIds.has(m.id) }">
+              <td class="td-num">{{ (page - 1) * pageSize + idx + 1 }}</td>
 
               <!-- Label -->
               <td class="td-editable">
@@ -139,6 +140,7 @@
             </tr>
           </tbody>
         </table>
+        <div v-if="pageCount > 1" class="pagination"><button :disabled="page === 1" @click="page--">Previous</button> {{ page }} / {{ pageCount }} <button :disabled="page === pageCount" @click="page++">Next</button></div>
         <p v-if="!filteredMarkers.length" class="empty">No markers found.</p>
       </div>
     </div>
@@ -163,14 +165,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useCategoriesStore } from '../stores/categories.js'
 
-const emit = defineEmits(['close', 'open-marker'])
+defineEmits(['close', 'open-marker'])
 const markersStore     = useMarkersStore()
 const collectionsStore = useCollectionsStore()
 const personsStore     = usePersonsStore()
@@ -182,6 +184,7 @@ const search      = ref('')
 const editingCell = ref(null)
 const draftValue  = ref('')
 const savingIds   = ref(new Set())
+const saveError = ref('')
 
 const filteredMarkers = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -189,10 +192,18 @@ const filteredMarkers = computed(() => {
   return markersStore.items.filter(m => (m.label || '').toLowerCase().includes(q))
 })
 
+const page = ref(1)
+const pageSize = 100
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredMarkers.value.length / pageSize)))
+const pageMarkers = computed(() => filteredMarkers.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+watch(search, () => { page.value = 1 })
+watch(pageCount, count => { page.value = Math.min(page.value, count) })
+
 const isEditing = (id, field) =>
   editingCell.value?.id === id && editingCell.value?.field === field
 
 function startEdit(id, field, value) {
+  if (savingIds.value.has(id)) return
   closeTagPopup()
   editingCell.value = { id, field }
   draftValue.value  = value ?? ''
@@ -254,9 +265,11 @@ function isTagSelected(itemId) {
   return false
 }
 
-function openTagPopup(e, markerId, type) {
-  commit() // flush any open text edit (fire-and-forget is fine)
-  const rect = e.currentTarget.getBoundingClientRect()
+async function openTagPopup(e, markerId, type) {
+  const anchor = e.currentTarget
+  await commit()
+  if (savingIds.value.has(markerId)) return
+  const rect = anchor.getBoundingClientRect()
   tagPopup.value = { markerId, type, x: rect.left, yBelow: rect.bottom, yAbove: rect.top }
   document.addEventListener('mousedown', onDocMouseDown, { capture: true })
 }
@@ -275,7 +288,7 @@ async function toggleTag(itemId) {
   if (!tagPopup.value) return
   const { markerId, type } = tagPopup.value
   const m = markersStore.items.find(m => m.id === markerId)
-  if (!m) return
+  if (!m || savingIds.value.has(markerId)) return
 
   const col = m.collections?.map(c => c.id) ?? []
   const per = m.persons?.map(p => p.id) ?? []
@@ -284,9 +297,7 @@ async function toggleTag(itemId) {
   const toggle = (arr) => arr.includes(itemId) ? arr.filter(i => i !== itemId) : [...arr, itemId]
 
   await saveMarker(m, {
-    collection_ids: type === 'collections' ? toggle(col) : col,
-    person_ids:     type === 'persons'     ? toggle(per) : per,
-    category_ids:   type === 'categories'  ? toggle(cat) : cat,
+    [{ collections: 'collection_ids', persons: 'person_ids', categories: 'category_ids' }[type]]: toggle({ collections: col, persons: per, categories: cat }[type]),
   })
 }
 
@@ -295,22 +306,10 @@ async function toggleTag(itemId) {
 async function saveMarker(m, patch) {
   savingIds.value = new Set([...savingIds.value, m.id])
   try {
-    await markersStore.update(m.id, {
-      label:        m.label,
-      description:  m.description,
-      address:      m.address,
-      color:        m.color,
-      image_url:    m.image_url,
-      external_url: m.external_url,
-      visited_at:   m.visited_at,
-      planned_at:   m.planned_at,
-      rating:       m.rating,
-      is_favorite:  m.is_favorite,
-      category_ids:   m.categories?.map(c => c.id) ?? [],
-      collection_ids: m.collections?.map(c => c.id) ?? [],
-      person_ids:     m.persons?.map(p => p.id) ?? [],
-      ...patch,
-    })
+    saveError.value = ''
+    await markersStore.update(m.id, patch)
+  } catch (err) {
+    saveError.value = err.message
   } finally {
     savingIds.value = new Set([...savingIds.value].filter(i => i !== m.id))
   }

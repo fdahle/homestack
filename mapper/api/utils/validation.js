@@ -1,0 +1,60 @@
+import { validDate, validateDates } from '../../shared/dates.js'
+import { validLatLng } from '../../shared/markers.js'
+
+export function invalid(message) {
+  return Object.assign(new Error(message), { status: 400 })
+}
+export function requireObject(value, label = 'Data') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid(`${label} must be an object`)
+}
+export function validId(id) { return Number.isSafeInteger(id) && id > 0 }
+export function validatePosition(position) {
+  if (position != null && !validId(position)) throw invalid('Stop positions must be positive integers or null')
+}
+export function validateMarker(marker) {
+  requireObject(marker, 'Marker')
+  if (!validLatLng(marker.lat, marker.lng)) throw invalid('Latitude/longitude are out of range')
+  for (const field of ['label', 'description', 'image_url', 'address', 'country', 'color', 'external_url', 'source']) {
+    if (marker[field] != null && typeof marker[field] !== 'string') throw invalid(`${field} must be text`)
+  }
+  for (const field of ['visited_at', 'planned_at']) {
+    if (marker[field] && !(field === 'visited_at' && marker[field] === 'yes') && !validDate(marker[field])) throw invalid(`${field} must be a valid date`)
+  }
+  if (marker.rating != null && (!Number.isInteger(marker.rating) || marker.rating < 1 || marker.rating > 5)) throw invalid('Rating must be between 1 and 5')
+  for (const field of ['is_favorite', 'use_coords']) {
+    if (marker[field] != null && ![true, false, 0, 1].includes(marker[field])) throw invalid(`${field} must be a boolean`)
+  }
+  if (marker.color && !/^#[\da-f]{6}$/i.test(marker.color)) throw invalid('Color must be a six-digit hex color')
+  for (const field of ['image_url', 'external_url']) {
+    if (marker[field]) {
+      let url
+      try { url = new URL(marker[field]) } catch { throw invalid(`${field} must be an HTTP(S) URL`) }
+      if (!['http:', 'https:'].includes(url.protocol)) throw invalid(`${field} must be an HTTP(S) URL`)
+    }
+  }
+}
+export function validateSegment(segment) {
+  requireObject(segment, 'Segment')
+  if (!['walk', 'hike', 'bike', 'drive'].includes(segment.mode)) throw invalid('Invalid transport mode')
+  if (!Array.isArray(segment.via_points) || segment.via_points.length > 100 || segment.via_points.some(p => !p || !validLatLng(p.lat, p.lng))) throw invalid('Waypoints must contain valid coordinates (maximum 100)')
+}
+
+export function validateCollection(collection) {
+  requireObject(collection, 'Collection')
+  if (typeof collection.name !== 'string' || !collection.name.trim()) throw invalid('Name required')
+  if (collection.description != null && typeof collection.description !== 'string') throw invalid('Description must be text')
+  if (collection.color && !/^#[\da-f]{6}$/i.test(collection.color)) throw invalid('Invalid color')
+  for (const field of ['is_trip', 'show_route_line', 'show_exact_route']) {
+    if (collection[field] != null && ![0, 1, true, false].includes(collection[field])) throw invalid(`${field} must be a boolean`)
+  }
+  const error = validateDates(collection.start_date, collection.end_date)
+  if (error) throw invalid(error)
+}
+
+export function validateShare(body) {
+  requireObject(body, 'Share link')
+  if (body.name != null && typeof body.name !== 'string') throw invalid('Name must be text')
+  if (body.password != null && (typeof body.password !== 'string' || Buffer.byteLength(body.password) > 72)) throw invalid('Password must be text and at most 72 bytes')
+  if (body.expiresAt && (typeof body.expiresAt !== 'string' || !validDate(body.expiresAt.slice(0, 10)) || !Number.isFinite(Date.parse(body.expiresAt)))) throw invalid('Expiry must be a valid date')
+  if (body.filter !== undefined) requireObject(body.filter, 'Filter')
+}

@@ -1,3 +1,4 @@
+import { markerColors, safeHex, tooltipText } from '../utils/mapStyle.js'
 import L from 'leaflet'
 import 'leaflet.markercluster'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
@@ -5,37 +6,13 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { useStyleStore } from '../stores/style.js'
 
 const PIN_PATH = 'M11 0C4.9 0 0 4.9 0 11c0 8.25 11 21 11 21S22 19.25 22 11C22 4.9 17.1 0 11 0z'
-const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
-const FALLBACK_COLOR = '#6c757d'
-function safeHex(color) {
-  return HEX_COLOR_RE.test(color) ? color : FALLBACK_COLOR
-}
-
 let _pinId = 0
 
 export function useMarkerLayer(getMap, onMarkerClick) {
   const leafletMarkers = new Map()
+  const snapshots = new Map()
   let clusterGroup = null
   const styleStore = useStyleStore()
-
-  function markerColors(m) {
-    const fallback = '#6c757d'
-    const mode = styleStore.colorMode
-    if (mode === 'marker') {
-      return [m.color || fallback]
-    }
-    if (mode === 'category') {
-      const colors = (m.categories || []).map((c) => c.color).filter(Boolean)
-      return colors.length ? colors.slice(0, 4) : [fallback]
-    }
-    if (mode === 'person') {
-      const colors = (m.persons || []).map((p) => p.color).filter(Boolean)
-      return colors.length ? colors.slice(0, 4) : [fallback]
-    }
-    // collection
-    const colors = (m.collections || []).map((c) => c.color).filter(Boolean)
-    return colors.length ? colors.slice(0, 4) : [fallback]
-  }
 
   function makePinIcon(colors) {
     _pinId = (_pinId + 1) % 1000000
@@ -96,10 +73,10 @@ export function useMarkerLayer(getMap, onMarkerClick) {
 
   function makeLeafletMarker(m) {
     const marker = L.marker([m.lat, m.lng], {
-      icon: makePinIcon(markerColors(m)),
+      icon: makePinIcon(markerColors(m, styleStore.colorMode)),
     })
 
-    marker.bindTooltip(m.label || `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})`, {
+    marker.bindTooltip(tooltipText(m.label || `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})`), {
       direction: 'top',
       offset: [0, -32],
     })
@@ -138,15 +115,18 @@ export function useMarkerLayer(getMap, onMarkerClick) {
         if (clusterGroup) clusterGroup.removeLayer(marker)
         else marker.remove()
         leafletMarkers.delete(id)
+        snapshots.delete(id)
       }
     }
 
     for (const m of markers) {
+      if (snapshots.get(m.id)?.marker === m && snapshots.get(m.id)?.mode === styleStore.colorMode) continue
+      snapshots.set(m.id, { marker: m, mode: styleStore.colorMode })
       if (leafletMarkers.has(m.id)) {
         const marker = leafletMarkers.get(m.id)
         marker.setLatLng([m.lat, m.lng])
-        marker.setIcon(makePinIcon(markerColors(m)))
-        marker.setTooltipContent(m.label || `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})`)
+        marker.setIcon(makePinIcon(markerColors(m, styleStore.colorMode)))
+        marker.setTooltipContent(tooltipText(m.label || `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})`))
         marker.off('click')
         marker.on('click', (e) => { L.DomEvent.stopPropagation(e); onMarkerClick(m) })
       } else {
@@ -165,6 +145,7 @@ export function useMarkerLayer(getMap, onMarkerClick) {
       for (const marker of leafletMarkers.values()) marker.remove()
     }
     leafletMarkers.clear()
+    snapshots.clear()
   }
 
   function reconfigureClustering(useClustering, currentMarkers) {

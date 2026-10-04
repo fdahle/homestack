@@ -1,4 +1,5 @@
-import { ref } from 'vue'
+import { ref, onScopeDispose, getCurrentScope } from 'vue'
+import { loadSettings } from '../utils/settings.js'
 import L from 'leaflet'
 
 const PIN_ICON = L.divIcon({
@@ -11,12 +12,11 @@ const PIN_ICON = L.divIcon({
   iconAnchor: [11, 32],
 })
 
-const SETTINGS_KEY = 'mapper_settings'
 const DEFAULT_EXCLUDED = ['waste_basket', 'bench']
 
 function getExcludedAmenities() {
   try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    const s = loadSettings()
     return new Set(s.excludedAmenities ?? DEFAULT_EXCLUDED)
   } catch {
     return new Set(DEFAULT_EXCLUDED)
@@ -25,7 +25,7 @@ function getExcludedAmenities() {
 
 function getPoiRadius() {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}').poiRadius ?? 25
+    return loadSettings().poiRadius ?? 25
   } catch { return 25 }
 }
 
@@ -59,7 +59,7 @@ function elementToPoiShape(el) {
 // so we fall back to alternates before giving up.
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
 ]
 
 async function runOverpassQuery(query, signal) {
@@ -81,21 +81,8 @@ async function runOverpassQuery(query, signal) {
   throw lastError ?? new Error('Overpass request failed')
 }
 
-async function fetchOverpassPoi(lat, lon, signal) {
-  const r = getPoiRadius()
-  const query = `[out:json][timeout:8];
-(
-  is_in(${lat},${lon})->.a;
-  way(pivot.a)["tourism"];
-  way(pivot.a)["leisure"];
-  way(pivot.a)["amenity"];
-  way(pivot.a)["shop"];
-  relation(pivot.a)["tourism"];
-  relation(pivot.a)["leisure"];
-  relation(pivot.a)["amenity"];
-  relation(pivot.a)["historic"];
-);
-out tags center;
+function buildAroundQuery(lat, lon, r) {
+  return `[out:json][timeout:8];
 (
   node["amenity"](around:${r},${lat},${lon});
   node["shop"](around:${r},${lat},${lon});
@@ -109,21 +96,33 @@ out tags center;
   way["historic"](around:${r},${lat},${lon});
 );
 out tags center 30;`
+}
 
-  const data = await runOverpassQuery(query, signal)
-  if (!data.elements?.length) return null
+function buildIsInQuery(lat, lon) {
+  return `[out:json][timeout:12];
+(
+  is_in(${lat},${lon})->.a;
+  way(pivot.a)["tourism"];
+  way(pivot.a)["leisure"];
+  way(pivot.a)["amenity"];
+  way(pivot.a)["shop"];
+  relation(pivot.a)["tourism"];
+  relation(pivot.a)["leisure"];
+  relation(pivot.a)["amenity"];
+  relation(pivot.a)["historic"];
+);
+out tags center;`
+}
 
-  const excluded = getExcludedAmenities()
-
+function elementsToSortedCandidates(elements, lat, lon, r, excluded) {
   const seen = new Set()
-  const uniqueElements = data.elements.filter(el => {
-    const key = `${el.type}/${el.id}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-
-  const candidates = uniqueElements
+  return elements
+    .filter(el => {
+      const key = `${el.type}/${el.id}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     .map(el => {
       const elLat = el.lat ?? el.center?.lat
       const elLon = el.lon ?? el.center?.lon
@@ -131,7 +130,6 @@ out tags center 30;`
       if (!POI_KEYS.some(k => el.tags[k])) return null
       if (excluded.has(el.tags.amenity)) return null
       const dist = haversineMeters(lat, lon, elLat, elLon)
-      // Elements from is_in have their center far from the click (click is inside them)
       const isContaining = dist > r
       return { el, dist, isContaining }
     })
@@ -140,10 +138,40 @@ out tags center 30;`
       if (a.isContaining !== b.isContaining) return a.isContaining ? -1 : 1
       return a.dist - b.dist
     })
+}
 
-  if (!candidates.length) return null
-  const all = candidates.map(({ el }) => elementToPoiShape(el))
-  return { best: all[0], all }
+// Returns an async generator that yields results progressively:
+// first the fast around results, then merges in the slow is_in results.
+async function* fetchOverpassPoiProgressive(lat, lon, signal) {
+  const r = getPoiRadius()
+  const excluded = getExcludedAmenities()
+
+  const settle = promise => promise.then(data => ({ elements: data.elements ?? [] }), error => ({ error, elements: [] }))
+  const aroundPromise = settle(runOverpassQuery(buildAroundQuery(lat, lon, r), signal))
+  const isInPromise = settle(runOverpassQuery(buildIsInQuery(lat, lon), signal))
+
+  // Yield fast around results as soon as they arrive
+  const around = await aroundPromise
+  const aroundElements = around.elements
+  const aroundCandidates = elementsToSortedCandidates(aroundElements, lat, lon, r, excluded)
+  if (aroundCandidates.length) {
+    const all = aroundCandidates.map(({ el }) => elementToPoiShape(el))
+    yield { best: all[0], all }
+  }
+
+  // Merge in is_in (containing area) results
+  const isIn = await isInPromise
+  if (signal.aborted) return
+  if (around.error && isIn.error) throw around.error
+  const isInElements = isIn.elements
+  if (!isInElements.length) return
+
+  const merged = [...aroundElements, ...isInElements]
+  const mergedCandidates = elementsToSortedCandidates(merged, lat, lon, r, excluded)
+  if (mergedCandidates.length) {
+    const all = mergedCandidates.map(({ el }) => elementToPoiShape(el))
+    yield { best: all[0], all }
+  }
 }
 
 export function useLocationPanel(getMap) {
@@ -229,22 +257,24 @@ export function useLocationPanel(getMap) {
 
     // Overpass: debounced 500ms so rapid clicks don't stack up requests
     clearTimeout(overpassTimer)
-    overpassTimer = setTimeout(() => {
+    overpassTimer = setTimeout(async () => {
       if (signal.aborted) return
-      fetchOverpassPoi(latlng.lat, latlng.lng, signal)
-        .then(result => {
-          if (!signal.aborted) {
-            poiData.value = result?.best ?? null
-            poiAlternatives.value = result?.all ?? []
-          }
-        })
-        .catch(err => {
-          if (err.name === 'AbortError') return
-          poiData.value = null
-          poiAlternatives.value = []
-          poiError.value = 'Couldn’t load nearby places — the map data service is busy. Try again shortly.'
-        })
-        .finally(() => { if (!signal.aborted) poiLoading.value = false })
+      try {
+        for await (const result of fetchOverpassPoiProgressive(latlng.lat, latlng.lng, signal)) {
+          if (signal.aborted) return
+          poiData.value = result.best
+          poiAlternatives.value = result.all
+          poiLoading.value = false
+        }
+        // No results from either query
+        if (poiLoading.value && !signal.aborted) poiLoading.value = false
+      } catch (err) {
+        if (err.name === 'AbortError') return
+        poiData.value = null
+        poiAlternatives.value = []
+        poiError.value = 'Couldn\u2019t load nearby places \u2014 the map data service is busy. Try again shortly.'
+        poiLoading.value = false
+      }
     }, 500)
   }
 
@@ -257,6 +287,8 @@ export function useLocationPanel(getMap) {
     poiError.value = null
     clearTempLayers()
   }
+
+  if (getCurrentScope()) onScopeDispose(closeLocationPanel)
 
   function selectAlternativePoi(poi) {
     poiData.value = poi
