@@ -27,6 +27,10 @@ export const useMarkersStore = defineStore('markers', {
             if (id === '__none__') { if (m.persons?.length) return false }
             else if (!m.persons?.some((p) => p.id === id)) return false
           }
+          if (type === 'smart') {
+            if (id === 'favorites' && !m.is_favorite) return false
+            if (id === 'planned' && (!m.planned_at || m.visited_at)) return false
+          }
         }
         if (state.visitedFilter === 'visited' && !m.visited_at) return false
         if (state.visitedFilter === 'unvisited' && m.visited_at) return false

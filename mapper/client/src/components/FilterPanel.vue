@@ -77,6 +77,22 @@
 
         <div class="sidebar-body">
 
+          <!-- Smart lists (shown only when they contain something) -->
+          <div v-if="!overviewQuery && (smartCounts.favorites || smartCounts.planned)" class="smart-lists">
+            <button
+              v-for="list in SMART_LISTS.filter(l => smartCounts[l.id])"
+              :key="list.id"
+              type="button"
+              class="group-row smart-row"
+              @click="drillInto({ type: 'smart', id: list.id })"
+            >
+              <span class="smart-icon" :style="{ color: list.color }" aria-hidden="true">{{ list.icon }}</span>
+              <span class="group-name">{{ list.name }}</span>
+              <span class="group-count">{{ smartCounts[list.id] }}</span>
+              <span class="group-arrow">›</span>
+            </button>
+          </div>
+
           <!-- Categories tab -->
           <template v-if="activeTab === 'category'">
             <div
@@ -249,6 +265,9 @@
                 <span v-if="detailGroup?.item?.is_trip && tripPosition(m) != null" class="stop-badge">#{{ tripPosition(m) }}</span>
                 {{ m.label || coords(m) }}
                 <span v-if="m.visited_at" class="visited-dot" title="Visited">✓</span>
+                <span v-if="m.is_favorite" class="fav-dot" title="Favorite">★</span>
+                <span v-if="m.rating" class="rating-dot" :title="`Rated ${m.rating} of 5`">{{ m.rating }}★</span>
+                <span v-if="m.planned_at && !m.visited_at" class="planned-dot" title="Planned">{{ m.planned_at }}</span>
               </span>
               <span
                 class="row-meta"
@@ -344,6 +363,10 @@ const detailFilter = ref(null)  // { type, id } | null
 const detailGroup = computed(() => {
   if (!detailFilter.value) return null
   const { type, id } = detailFilter.value
+  if (type === 'smart') {
+    const list = SMART_LISTS.find(l => l.id === id)
+    return list ? { type, id, name: list.name, color: list.color, item: null } : null
+  }
   if (id === '__none__') {
     const noneNames = { category: 'Uncategorized', collection: 'No collection', person: 'No person' }
     return { type, id, name: noneNames[type], color: '#9ca3af', item: null }
@@ -400,6 +423,15 @@ const COLLECTION_SORT_OPTIONS = [
   { value: 'end',   label: 'End date' },
 ]
 const sortOptions = computed(() => activeTab.value === 'collection' ? COLLECTION_SORT_OPTIONS : BASE_SORT_OPTIONS)
+
+const SMART_LISTS = [
+  { id: 'favorites', name: 'Favorites', icon: '★', color: '#f59e0b' },
+  { id: 'planned', name: 'Wishlist (planned)', icon: '◷', color: '#0ea5e9' },
+]
+const smartCounts = computed(() => ({
+  favorites: markersStore.items.filter(m => m.is_favorite).length,
+  planned: markersStore.items.filter(m => m.planned_at && !m.visited_at).length,
+}))
 
 const groupCounts = computed(() => {
   const counts = { categories: new Map(), collections: new Map(), persons: new Map() }
@@ -465,6 +497,8 @@ const detailSortOptions = computed(() => {
     { value: 'added',   label: 'Added' },
     { value: 'name',    label: 'Name' },
     { value: 'visited', label: 'Visited' },
+    { value: 'rating',  label: 'Rating' },
+    { value: 'planned', label: 'Planned date' },
   ]
   if (detailGroup.value?.item?.is_trip) opts.push({ value: 'stop', label: 'Stop #' })
   return opts
@@ -553,6 +587,8 @@ const detailMarkers = computed(() => {
       return b.visited_at.localeCompare(a.visited_at)
     })
   }
+  if (sortBy.value === 'rating') return copy.sort((a, b) => (b.rating || 0) - (a.rating || 0))
+  if (sortBy.value === 'planned') return copy.sort((a, b) => cmpDate(a.planned_at, b.planned_at, false))
   if (sortBy.value === 'stop') {
     return copy.sort((a, b) => {
       const pa = tripPosition(a) ?? Infinity
@@ -998,6 +1034,12 @@ function formatDateRange(item) {
 
 .tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 10px; }
 .visited-dot { font-size: 11px; color: var(--text-2); }
+.fav-dot { font-size: 11px; color: #f59e0b; }
+.rating-dot { font-size: 10px; color: #b45309; }
+.planned-dot { font-size: 10px; color: #0369a1; }
+.smart-lists { border-bottom: 1px solid var(--border); margin-bottom: 4px; padding-bottom: 4px; }
+.smart-row { width: 100%; background: none; border: none; text-align: left; font: inherit; color: inherit; }
+.smart-icon { width: 10px; text-align: center; font-size: 13px; flex-shrink: 0; }
 
 /* ── Empty / hint states ─────────────────────────────────────────────────── */
 .empty, .empty-hint {

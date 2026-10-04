@@ -3,7 +3,18 @@
     <div class="modal">
       <div class="modal-header">
         <h2>{{ viewing ? (form.label || 'Marker') : isEdit ? 'Edit Marker' : 'Add Marker' }}</h2>
-        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
+        <div class="header-actions">
+          <button
+            v-if="viewing && !props.readOnly"
+            type="button"
+            class="fav-btn"
+            :class="{ active: form.is_favorite }"
+            :aria-pressed="!!form.is_favorite"
+            :title="form.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
+            @click="toggleFavorite"
+          >★</button>
+          <button class="close-btn" aria-label="Close" @click="$emit('close')"><AppIcon name="close" /></button>
+        </div>
       </div>
 
       <!-- View mode -->
@@ -22,7 +33,13 @@
             Visited<template v-if="form.visited_at !== 'yes'"> · {{ form.visited_at }}</template>
           </div>
         </div>
+        <div v-if="form.rating || (form.planned_at && !form.visited_at) || (props.readOnly && form.is_favorite)" class="view-badges">
+          <span v-if="props.readOnly && form.is_favorite" class="fav-badge">★ Favorite</span>
+          <span v-if="form.rating" class="rating-stars" :title="`Rated ${form.rating} of 5`" :aria-label="`Rated ${form.rating} of 5`">{{ '★'.repeat(form.rating) }}<span class="stars-off">{{ '★'.repeat(5 - form.rating) }}</span></span>
+          <span v-if="form.planned_at && !form.visited_at" class="planned-badge">Planned · {{ form.planned_at }}</span>
+        </div>
         <p v-if="form.description" class="view-desc">{{ form.description }}</p>
+        <p v-if="viewing && error" class="error view-error">{{ error }}</p>
 
         <!-- Tag chips -->
         <div v-if="selectedCollections.length || selectedCategories.length || selectedPersons.length" class="view-tags">
@@ -86,6 +103,9 @@
             <div v-else-if="addressLine" class="meta-row address-row">{{ addressLine }}</div>
           </template>
           <div class="meta-row coords-text">{{ latStr }}, {{ lngStr }}</div>
+          <div v-if="safeExternalUrl" class="meta-row">
+            <a :href="safeExternalUrl" target="_blank" rel="noopener noreferrer" class="open-maps-link">{{ externalHost }} <AppIcon name="externalLink" /></a>
+          </div>
           <div class="meta-row">
             <a
               :href="googleMapsHref"
@@ -126,6 +146,33 @@
             </label>
             <input v-model="visitedDate" type="date" class="visited-date" :style="{ visibility: visitedChecked ? 'visible' : 'hidden' }" />
           </div>
+        </div>
+
+        <div v-if="!visitedChecked" class="field">
+          <label for="marker-planned">Planned for <span class="optional">(wishlist)</span></label>
+          <input id="marker-planned" v-model="form.planned_at" type="date" />
+        </div>
+
+        <div class="field rating-fav-row">
+          <div>
+            <span class="field-label">Rating</span>
+            <div class="rating-input" role="group" aria-label="Rating">
+              <button
+                v-for="n in 5"
+                :key="n"
+                type="button"
+                :class="{ on: (form.rating || 0) >= n }"
+                :aria-label="`${n} of 5`"
+                :aria-pressed="form.rating === n"
+                :title="form.rating === n ? 'Click again to clear' : `${n} of 5`"
+                @click="form.rating = form.rating === n ? null : n"
+              >★</button>
+            </div>
+          </div>
+          <label class="checkbox-item fav-check">
+            <input type="checkbox" v-model="form.is_favorite" style="width:auto" />
+            ★ Favorite
+          </label>
         </div>
 
         <div class="field">
@@ -267,6 +314,11 @@
           <input v-model="form.address" type="text" :placeholder="addressLoading ? 'Fetching address…' : 'e.g. 123 Main St, City'" />
         </div>
 
+        <div class="field">
+          <label for="marker-website">Website</label>
+          <input id="marker-website" v-model="form.external_url" type="url" placeholder="https://…" />
+        </div>
+
         <div class="field coords">
           <span class="coords-mono">{{ latStr }}, {{ lngStr }}</span>
           <label class="checkbox-item coords-toggle" style="margin:0">
@@ -355,6 +407,10 @@ const form = ref({
   collection_positions: {},
   person_ids: [],
   visited_at: '',
+  planned_at: '',
+  rating: null,
+  is_favorite: false,
+  external_url: '',
   color: '',
   address: '',
   lat: 0,
@@ -425,6 +481,10 @@ onMounted(async () => {
       ),
       person_ids: props.marker.persons?.map((p) => p.id) ?? [],
       visited_at: props.marker.visited_at?.slice(0, 10) || '',
+      planned_at: props.marker.planned_at || '',
+      rating: props.marker.rating ?? null,
+      is_favorite: !!props.marker.is_favorite,
+      external_url: props.marker.external_url || '',
       color: props.marker.color || '',
       address: props.marker.address || '',
       lat: props.marker.lat,
@@ -473,6 +533,23 @@ onMounted(async () => {
     finally { addressLoading.value = false }
   }
 })
+
+// Only http(s) links are rendered, whatever was stored.
+const safeExternalUrl = computed(() => {
+  try {
+    const url = new URL(form.value.external_url)
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : null
+  } catch { return null }
+})
+const externalHost = computed(() => safeExternalUrl.value ? new URL(safeExternalUrl.value).hostname.replace(/^www\./, '') : '')
+
+async function toggleFavorite() {
+  const next = !form.value.is_favorite
+  form.value.is_favorite = next
+  error.value = null
+  try { await markersStore.update(props.marker.id, { is_favorite: next }) }
+  catch (err) { form.value.is_favorite = !next; error.value = err.message }
+}
 
 const latStr = computed(() => Number(form.value.lat).toFixed(5))
 const lngStr = computed(() => Number(form.value.lng).toFixed(5))
@@ -576,6 +653,13 @@ function selectImage(url) {
   imageResults.value = null
 }
 
+// Accept "example.com" by assuming https.
+function normalizeUrl(value) {
+  const url = value?.trim()
+  if (!url) return null
+  return /^[a-z][a-z\d+.-]*:/i.test(url) ? url : 'https://' + url
+}
+
 async function save() {
   error.value = null
   const tripCollections = collectionsStore.items.filter(
@@ -596,6 +680,8 @@ async function save() {
       color: form.value.color || null,
       image_url: form.value.image_url || null,
       address: form.value.address || null,
+      planned_at: visitedChecked.value ? null : form.value.planned_at || null,
+      external_url: normalizeUrl(form.value.external_url),
       use_coords: useCoordLink.value,
     })
   } catch (err) {
@@ -657,6 +743,61 @@ h2 {
   border-radius: 4px;
 }
 .close-btn:hover { background: var(--surface-2); }
+
+.header-actions { display: flex; align-items: center; gap: 4px; }
+.fav-btn {
+  background: none;
+  color: var(--text-2);
+  font-size: 20px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+.fav-btn:hover { background: var(--surface-2); opacity: 1; }
+.fav-btn.active { color: #f59e0b; opacity: 1; }
+
+.view-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px 0;
+}
+.rating-stars { color: #f59e0b; font-size: 15px; letter-spacing: 1px; }
+.rating-stars .stars-off { color: var(--border); }
+.fav-badge, .planned-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.fav-badge { background: #fef3c7; color: #92400e; }
+.planned-badge { background: #e0f2fe; color: #075985; }
+.view-error { padding: 6px 20px 0; }
+
+.rating-fav-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.field-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.rating-input { display: flex; gap: 2px; }
+.rating-input button {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--border);
+  cursor: pointer;
+}
+.rating-input button.on { color: #f59e0b; }
+.fav-check { margin: 0; white-space: nowrap; }
+.optional { font-weight: 400; color: var(--text-2); font-size: 12px; }
 
 form {
   display: flex;

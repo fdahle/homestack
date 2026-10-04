@@ -296,3 +296,17 @@ test('leaving a group view resets the visited filter', () => {
   store.setGroupFilter({ type: 'person', id: 9 })
   assert.equal(store.visitedFilter, 'all')
 })
+
+test('smart lists filter favorites and unvisited planned markers', () => {
+  const store = useMarkersStore()
+  const base = { categories: [], collections: [], persons: [] }
+  store.items = [
+    { ...base, id: 1, is_favorite: 1 },
+    { ...base, id: 2, planned_at: '2027-05-01' },
+    { ...base, id: 3, planned_at: '2025-01-01', visited_at: '2025-01-02' },
+  ]
+  store.setGroupFilter({ type: 'smart', id: 'favorites' })
+  assert.deepEqual(store.filtered.map(m => m.id), [1])
+  store.setGroupFilter({ type: 'smart', id: 'planned' })
+  assert.deepEqual(store.filtered.map(m => m.id), [2])
+})
