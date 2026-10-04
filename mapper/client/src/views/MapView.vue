@@ -131,6 +131,13 @@
         </div>
       </div>
 
+<!-- Undo the last marker deletion -->
+      <div v-if="markersStore.lastDeleted" class="delete-toast" role="status">
+        <span>Deleted “{{ markersStore.lastDeleted.label || 'marker' }}”</span>
+        <button type="button" :disabled="undoingDelete" @click="undoDelete">Undo</button>
+        <button type="button" class="toast-close" aria-label="Dismiss" @click="markersStore.lastDeleted = null">✕</button>
+      </div>
+
 <!-- Add marker FAB -->
       <button
         class="add-marker-btn"
@@ -327,6 +334,23 @@ async function undoRouteEdit() {
   } catch (err) { routeError.value = err.message }
   finally { routeEditBusy.value = false }
   if (!disposed) await renderTripRoute()
+}
+
+// ── Undo delete ─────────────────────────────────────────────────────────────
+const undoingDelete = ref(false)
+let deleteToastTimer = null
+watch(() => markersStore.lastDeleted, (deleted) => {
+  clearTimeout(deleteToastTimer)
+  if (deleted) deleteToastTimer = setTimeout(() => { markersStore.lastDeleted = null }, 10000)
+})
+
+async function undoDelete() {
+  const deleted = markersStore.lastDeleted
+  if (!deleted || undoingDelete.value) return
+  undoingDelete.value = true
+  try { await markersStore.restoreFromTrash(deleted.id) }
+  catch (err) { routeError.value = 'Could not restore the marker: ' + err.message }
+  finally { undoingDelete.value = false }
 }
 
 // ── Locate me ───────────────────────────────────────────────────────────────
@@ -531,6 +555,8 @@ onMounted(initializeMap)
 
 onUnmounted(() => {
   disposed = true
+  clearTimeout(deleteToastTimer)
+  markersStore.lastDeleted = null
   disposeTripRoute()
   movePin = null
   closeLocationPanel()
@@ -905,6 +931,30 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 }
 .undo-btn:hover { background: var(--surface-2); }
 .undo-btn:active { background: var(--border); }
+
+.delete-toast {
+  position: absolute;
+  bottom: calc(76px + var(--sab, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  background: var(--text);
+  color: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  max-width: calc(100% - 32px);
+}
+.delete-toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delete-toast button { background: none; color: inherit; padding: 4px 8px; font-weight: 700; }
+.delete-toast .toast-close { font-weight: 400; opacity: 0.7; }
+@media (max-width: 640px) {
+  .delete-toast { bottom: calc(126px + var(--sab, 0px)); }
+}
 
 .move-banner {
   position: absolute;

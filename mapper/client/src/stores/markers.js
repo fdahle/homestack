@@ -7,6 +7,7 @@ export const useMarkersStore = defineStore('markers', {
     items: [],
     activeGroupFilter: null, // null | { type: 'category'|'collection', id }
     revision: 0,
+    lastDeleted: null, // { id, label } of the most recent deletion, for "Undo"
     visitedFilter: 'all', // 'all' | 'visited' | 'unvisited'
   }),
 
@@ -70,9 +71,37 @@ export const useMarkersStore = defineStore('markers', {
     },
 
     async remove(id) {
-      await apiFetch(`/api/markers/${id}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/markers/${id}`, { method: 'DELETE' })
+      const label = this.items.find((m) => m.id === id)?.label
       this.items = this.items.filter((m) => m.id !== id)
       this.patchPersonAddresses(id, null)
+      const { trashed } = await res.json().catch(() => ({}))
+      this.lastDeleted = trashed ? { id: trashed.id, label: trashed.label ?? label } : null
+    },
+
+    // ── Trash ──
+    async fetchTrash() {
+      return apiList('/api/markers/trash')
+    },
+
+    async restoreFromTrash(id) {
+      const res = await apiFetch(`/api/markers/trash/${id}/restore`, { method: 'POST' })
+      const restored = await res.json()
+      this.items = [restored, ...this.items.filter((m) => m.id !== restored.id)]
+      if (this.lastDeleted?.id === id) this.lastDeleted = null
+      // Person addresses pointing at the marker are restored on the server.
+      await usePersonsStore().fetch()
+      return restored
+    },
+
+    async deleteFromTrash(id) {
+      await apiFetch(`/api/markers/trash/${id}`, { method: 'DELETE' })
+      if (this.lastDeleted?.id === id) this.lastDeleted = null
+    },
+
+    async emptyTrash() {
+      await apiFetch('/api/markers/trash', { method: 'DELETE' })
+      this.lastDeleted = null
     },
 
     async patchCountry(id, country) {

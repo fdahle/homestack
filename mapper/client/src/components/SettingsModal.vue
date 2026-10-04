@@ -197,6 +197,8 @@
             </button>
           </div>
 
+          <TrashList />
+
           <!-- Backup & Restore -->
           <div class="data-group">
             <div class="group-label">Backup</div><p class="hint">Backups include places and relationships. Account, browser preferences and share links are excluded. Restoring revokes existing share links.</p>
@@ -306,6 +308,7 @@ import { loadSettings, saveSettings } from '../utils/settings.js'
 import { TILES } from '../utils/mapStyle.js'
 import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
+import TrashList from './TrashList.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useCategoriesStore } from '../stores/categories.js'

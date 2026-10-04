@@ -369,3 +369,22 @@ test('saving a place uses its own position, website and Wikipedia article', asyn
   assert.equal(saved[1].prefill.country, 'Netherlands')
   plain.app.unmount()
 })
+
+test('deleting a marker offers undo, which restores it from the trash', async () => {
+  const store = useMarkersStore()
+  store.items = [{ id: 4, label: 'Café', categories: [], collections: [], persons: [] }]
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    calls.push(`${init?.method || 'GET'} ${url}`)
+    if (url === '/api/markers/4') return response({ ok: true, trashed: { id: 4, label: 'Café' } })
+    if (url === '/api/markers/trash/4/restore') return response({ id: 4, label: 'Café', categories: [], collections: [], persons: [] })
+    return response([])
+  }
+  await store.remove(4)
+  assert.equal(store.items.length, 0)
+  assert.deepEqual(store.lastDeleted, { id: 4, label: 'Café' })
+  await store.restoreFromTrash(4)
+  assert.equal(store.items[0].label, 'Café')
+  assert.equal(store.lastDeleted, null)
+  assert.ok(calls.includes('GET /api/persons'))
+})

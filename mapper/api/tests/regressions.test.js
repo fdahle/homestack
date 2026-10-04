@@ -21,7 +21,7 @@ before(async () => {
 })
 after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); db.close() })
 beforeEach(() => {
-  db.exec('DELETE FROM share_links; DELETE FROM trip_waypoints; DELETE FROM markers; DELETE FROM persons; DELETE FROM categories; DELETE FROM collections; DELETE FROM users')
+  db.exec('DELETE FROM share_links; DELETE FROM deleted_markers; DELETE FROM trip_waypoints; DELETE FROM markers; DELETE FROM persons; DELETE FROM categories; DELETE FROM collections; DELETE FROM users')
   db.prepare('INSERT INTO users (id,password_hash,session_version) VALUES (1,?,?)').run('unused', 'test-version')
   token = jwt.sign({ sub: 1, version: 'test-version' }, process.env.SESSION_SECRET)
 })
@@ -276,4 +276,38 @@ test('the complete database can be downloaded as a consistent SQLite snapshot', 
   copy.close()
   rmSync(dir, { recursive: true, force: true })
   assert.equal((await request('backup/database', 'GET', undefined, '')).status, 401)
+})
+
+test('deleted markers go to the trash and restore with links, trip stop, route and person address', async () => {
+  const trip = await createTrip()
+  const category = (await request('categories', 'POST', { name: 'Museum' })).data
+  const a = (await request('markers', 'POST', { ...marker, label: 'A', category_ids: [category.id], collection_ids: [trip.id], collection_positions: { [trip.id]: 1 } })).data
+  const b = (await request('markers', 'POST', { ...marker, label: 'B', collection_ids: [trip.id], collection_positions: { [trip.id]: 2 } })).data
+  await request(`collections/${trip.id}/segments/${a.id}/${b.id}`, 'PUT', { mode: 'bike', via_points: [{ lat: 52.1, lng: 5.1 }] })
+  const person = (await request('persons', 'POST', { first_name: 'Ana', address_marker_id: a.id })).data
+  await request('markers/' + a.id, 'PATCH', { person_ids: [person.id] })
+
+  assert.equal((await request('markers/' + a.id, 'DELETE')).status, 200)
+  assert.equal((await request('markers')).data.length, 1)
+  assert.deepEqual((await request('markers/trash')).data.map(t => t.label), ['A'])
+
+  const restored = await request(`markers/trash/${a.id}/restore`, 'POST')
+  assert.equal(restored.status, 200)
+  assert.equal(restored.data.id, a.id)
+  assert.equal(restored.data.categories[0].name, 'Museum')
+  assert.equal(restored.data.collections[0].position, 1)
+  assert.equal(restored.data.persons[0].id, person.id)
+  assert.equal(restored.data.country, 'Netherlands')
+  assert.equal((await request(`collections/${trip.id}/segments`)).data[0].mode, 'bike')
+  assert.equal((await request('persons')).data[0].address_marker_id, a.id)
+  assert.equal((await request('markers/trash')).data.length, 0)
+
+  // A stop number taken in the meantime is cleared instead of failing the restore.
+  await request('markers/' + a.id, 'DELETE')
+  await request('markers', 'POST', { ...marker, label: 'C', collection_ids: [trip.id], collection_positions: { [trip.id]: 1 } })
+  assert.equal((await request(`markers/trash/${a.id}/restore`, 'POST')).data.collections[0].position, null)
+
+  await request('markers/' + b.id, 'DELETE')
+  assert.equal((await request('markers/trash/' + b.id, 'DELETE')).status, 200)
+  assert.equal((await request(`markers/trash/${b.id}/restore`, 'POST')).status, 404)
 })

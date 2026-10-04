@@ -6,6 +6,7 @@ import { normalizeLegacyMarker } from './utils/validation.js'
 const MIGRATIONS = [
   { version: 1, up: initialSchema },
   { version: 2, up: repairLegacyData },
+  { version: 3, up: db => db.exec('CREATE TABLE IF NOT EXISTS deleted_markers (id INTEGER PRIMARY KEY, label TEXT, deleted_at TEXT NOT NULL, snapshot TEXT NOT NULL)') },
 ]
 
 export function initializeDatabase(db) {

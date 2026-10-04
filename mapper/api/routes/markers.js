@@ -1,7 +1,7 @@
 import { Router } from 'express'
-import db from '../db.js'
 import { requireAuth } from '../middleware/auth.js'
 import { getMarkers, saveMarker } from '../utils/markers.js'
+import { listTrash, trashMarker, restoreMarker, deleteFromTrash, emptyTrash } from '../utils/trash.js'
 import { invalid } from '../utils/validation.js'
 
 const router = Router()
@@ -19,11 +19,13 @@ router.post('/import', (req, res) => {
   })
   res.json({ results })
 })
+router.get('/trash', (_req, res) => res.json(listTrash()))
+router.post('/trash/:id/restore', (req, res) => res.json(restoreMarker(Number(req.params.id))))
+router.delete('/trash/:id', (req, res) => { deleteFromTrash(Number(req.params.id)); res.json({ ok: true }) })
+router.delete('/trash', (_req, res) => { emptyTrash(); res.json({ ok: true }) })
 router.put('/:id', (req, res) => res.json(saveMarker(req.body, Number(req.params.id))))
 router.patch('/:id', (req, res) => res.json(saveMarker(req.body, Number(req.params.id))))
 router.patch('/:id/country', (req, res) => res.json(saveMarker({ country: req.body.country ?? null }, Number(req.params.id))))
-router.delete('/:id', (req, res) => {
-  if (!db.prepare('DELETE FROM markers WHERE id=?').run(req.params.id).changes) return res.status(404).json({ error: 'Not found' })
-  res.json({ ok: true })
-})
+// Deleting moves the marker to the trash (kept for 30 days).
+router.delete('/:id', (req, res) => res.json({ ok: true, trashed: trashMarker(Number(req.params.id)) }))
 export default router

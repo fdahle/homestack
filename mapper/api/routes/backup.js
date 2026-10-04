@@ -85,6 +85,8 @@ router.post('/restore', (req, res) => {
   db.exec('BEGIN')
   try {
     db.exec('DELETE FROM share_links')
+    // Trashed markers refer to the replaced IDs and cannot be restored into the new data.
+    db.exec('DELETE FROM deleted_markers')
     db.exec('DELETE FROM trip_waypoints')
     db.exec('DELETE FROM marker_persons')
     db.exec('DELETE FROM marker_categories')
