@@ -55,7 +55,7 @@ export function saveMarker(body, id = null) {
     const existing = id == null ? {} : db.prepare('SELECT * FROM markers WHERE id=?').get(id)
     if (!existing) throw Object.assign(new Error('Marker not found'), { status: 404 })
     const data = { ...existing, ...Object.fromEntries(MARKER_FIELDS.filter(k => Object.hasOwn(body, k)).map(k => [k, body[k]])) }
-    validateMarker(data)
+    validateMarker(data, id == null ? null : new Set(Object.keys(body)))
     const links = relations(body, id)
     for (const field of MARKER_FIELDS) data[field] ??= null
     data.source ||= 'manual'

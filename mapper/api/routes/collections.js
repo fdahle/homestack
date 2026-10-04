@@ -34,6 +34,7 @@ router.put('/:id', (req, res) => {
   db.prepare('UPDATE collections SET name=?, description=?, is_trip=?, start_date=?, end_date=?, color=?, show_route_line=?, show_exact_route=? WHERE id=?').run(
     name.trim(), description || null, is_trip ? 1 : 0, start_date || null, end_date || null, color || '#10b981', is_trip && show_route_line ? 1 : 0, is_trip && show_exact_route ? 1 : 0, id
   )
+  if (!is_trip) db.prepare('DELETE FROM trip_waypoints WHERE collection_id = ?').run(id)
   res.json(db.prepare('SELECT * FROM collections WHERE id = ?').get(id))
 })
 

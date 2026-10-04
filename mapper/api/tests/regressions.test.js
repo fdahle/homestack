@@ -173,3 +173,53 @@ test('existing junction-table edits remain authoritative during migration and af
   assert.equal(legacy.prepare('SELECT category_id FROM markers').get().category_id, null)
   legacy.close()
 })
+
+test('legacy values stored before validation do not block unrelated edits', async () => {
+  const saved = (await request('markers', 'POST', marker)).data
+  db.prepare("UPDATE markers SET external_url='example.com', color='#fff', visited_at='2024-03-15T10:00:00Z' WHERE id=?").run(saved.id)
+  const edited = await request('markers/' + saved.id, 'PATCH', { label: 'Renamed' })
+  assert.equal(edited.status, 200)
+  assert.equal((await request(`markers/${saved.id}/country`, 'PATCH', { country: 'Belgium' })).status, 200)
+  assert.equal((await request('markers/' + saved.id, 'PATCH', { external_url: 'still not a url' })).status, 400)
+})
+
+test('migration 2 repairs legacy marker values and removes stale route segments', () => {
+  const legacy = new DatabaseSync(':memory:')
+  initializeDatabase(legacy)
+  legacy.exec(`DELETE FROM schema_migrations WHERE version=2;
+    INSERT INTO collections (id,name,is_trip) VALUES (1,'Trip',1),(2,'Former trip',0);
+    INSERT INTO markers (id,lat,lng,color,external_url,visited_at,planned_at,rating) VALUES
+      (1,52,5,'#abc','example.com/page','2024-03-15T10:00:00Z','15.03.2025',7),
+      (2,52,5,'red','not a url','someday','never',3),
+      (3,52,5,NULL,'https://ok.example/',NULL,NULL,NULL);
+    INSERT INTO marker_collections VALUES (1,1,1),(2,1,2),(1,2,NULL),(2,2,NULL);
+    INSERT INTO trip_waypoints (collection_id,from_marker_id,to_marker_id) VALUES (1,1,2),(1,1,3),(2,1,2);`)
+  initializeDatabase(legacy)
+  const rows = legacy.prepare('SELECT * FROM markers ORDER BY id').all()
+  assert.deepEqual([rows[0].color, rows[0].external_url, rows[0].visited_at, rows[0].planned_at, rows[0].rating], ['#aabbcc', 'https://example.com/page', '2024-03-15', '2025-03-15', null])
+  assert.deepEqual([rows[1].color, rows[1].external_url, rows[1].visited_at, rows[1].planned_at, rows[1].rating], [null, null, 'yes', null, 3])
+  assert.equal(rows[2].external_url, 'https://ok.example/')
+  assert.deepEqual(legacy.prepare('SELECT collection_id, to_marker_id FROM trip_waypoints').all().map(r => ({ ...r })), [{ collection_id: 1, to_marker_id: 2 }])
+  legacy.close()
+})
+
+test('backups with stale route segments or legacy formats still restore', async () => {
+  const trip = await createTrip()
+  const a = (await request('markers', 'POST', { ...marker, collection_ids: [trip.id], collection_positions: { [trip.id]: 1 } })).data
+  const b = (await request('markers', 'POST', { ...marker, label: 'B', collection_ids: [trip.id], collection_positions: { [trip.id]: 2 } })).data
+  await request(`collections/${trip.id}/segments/${a.id}/${b.id}`, 'PUT', { mode: 'bike', via_points: [] })
+  await request('collections/' + trip.id, 'PUT', { name: 'Trip', is_trip: false })
+  assert.equal(db.prepare('SELECT count(*) AS n FROM trip_waypoints').get().n, 0)
+  const backup = (await request('backup')).data
+  backup.trip_waypoints.push({ collection_id: trip.id, from_marker_id: a.id, to_marker_id: b.id, mode: 'walk', via_points: '[]' })
+  backup.markers[0].color = '#fff'
+  backup.markers[0].visited_at = '2024-03-15T10:00:00Z'
+  const restored = await request('backup/restore', 'POST', backup)
+  assert.equal(restored.status, 200)
+  assert.ok((await request('markers')).data.some(m => m.color === '#ffffff' && m.visited_at === '2024-03-15'))
+  backup.markers[0].external_url = 'not a url'
+  const rejected = await request('backup/restore', 'POST', backup)
+  assert.equal(rejected.status, 400)
+  assert.match(rejected.data.error, /markers #1/)
+})
+
