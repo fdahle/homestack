@@ -326,3 +326,28 @@ test('trip summaries format totals and export escaped GPX', async () => {
   assert.equal((gpx.match(/<trkpt /g) || []).length, 3)
   assert.equal(gpxFilename('Rock & Roll Tour 2026'), 'rock-roll-tour-2026.gpx')
 })
+
+test('moving a marker saves only its coordinates and reopens it', async () => {
+  mapEnvironment()
+  globalThis.history = { state: null, pushState() {}, back() {} }
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    if (init?.method !== 'PUT') return response([])
+    calls.push({ url, body: JSON.parse(init.body) })
+    return response({ id: 5, lat: 48.1, lng: 11.5, label: 'Moved', categories: [], collections: [], persons: [] })
+  }
+  const pin = { latlng: { lat: 48.1234567, lng: 11.5 }, getLatLng() { return this.latlng }, setLatLng(v) { this.latlng = v; return this }, addTo() { return this }, remove() {} }
+  const baseMap = globalThis.__testLeaflet.map
+  Object.assign(globalThis.__testLeaflet, { map: () => ({ ...baseMap(), panTo() {} }), marker: () => pin, divIcon: () => ({}) })
+  const MapView = await component('MapView', 'views')
+  const { app, state } = mount(MapView)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  useMarkersStore().items = [{ id: 5, lat: 52, lng: 5, label: 'Moved', categories: [], collections: [], persons: [] }]
+  state.startMove({ id: 5, lat: 52, lng: 5, label: 'Moved' })
+  assert.equal(state.moveTarget.id, 5)
+  await state.saveMove()
+  assert.deepEqual(calls.at(-1).body, { lat: 48.123457, lng: 11.5 })
+  assert.equal(state.moveTarget, null)
+  assert.equal(state.editingMarker.lat, 48.1)
+  app.unmount()
+})

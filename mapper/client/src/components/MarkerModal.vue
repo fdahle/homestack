@@ -321,6 +321,7 @@
 
         <div class="field coords">
           <span class="coords-mono">{{ latStr }}, {{ lngStr }}</span>
+          <button v-if="isEdit && !props.readOnly" type="button" class="btn-ghost btn-sm move-btn" title="Move this marker on the map" @click="emit('move', props.marker)">Move…</button>
           <label class="checkbox-item coords-toggle" style="margin:0">
             <input type="checkbox" v-model="useCoordLink" style="width:auto" @change="useCoordLink && (form.address = '')" />
             use coords
@@ -371,7 +372,7 @@ const props = defineProps({
   saveMarker: { type: Function, default: null },
   deleteMarker: { type: Function, default: null },
 })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'move'])
 
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
@@ -1220,6 +1221,7 @@ textarea { resize: vertical; }
 }
 
 .coords-mono { font-family: monospace; }
+.move-btn { margin-left: auto; margin-right: 8px; }
 
 .coords-toggle {
   font-size: 12px;

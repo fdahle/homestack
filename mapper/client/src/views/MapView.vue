@@ -115,6 +115,16 @@
 <!-- Active trip: distance, duration and GPX export -->
       <TripSummaryChip v-if="tripSummary" :summary="tripSummary" />
 
+<!-- Move mode: drag the pin or click the map, then save -->
+      <div v-if="moveTarget" class="move-banner" role="dialog" aria-label="Move marker">
+        <span>Drag the pin or click the map to move <strong>{{ moveTarget.label || 'this marker' }}</strong></span>
+        <span v-if="moveError" class="move-error">{{ moveError }}</span>
+        <div class="move-actions">
+          <button type="button" class="btn-secondary" :disabled="moveSaving" @click="cancelMove">Cancel</button>
+          <button type="button" class="btn-primary" :disabled="moveSaving" @click="saveMove">{{ moveSaving ? '…' : 'Save position' }}</button>
+        </div>
+      </div>
+
 <!-- Add marker FAB -->
       <button
         class="add-marker-btn"
@@ -158,6 +168,7 @@
       :save-marker="onMarkerSave"
       :delete-marker="onMarkerDelete"
       @close="closeModal"
+      @move="startMove"
     />
 
     <ManageModal
@@ -311,6 +322,54 @@ async function undoRouteEdit() {
   if (!disposed) await renderTripRoute()
 }
 
+// ── Move a marker ───────────────────────────────────────────────────────────
+const moveTarget = ref(null)
+const moveSaving = ref(false)
+const moveError = ref('')
+let movePin = null
+const MOVE_PIN_HTML = '<svg width="26" height="38" viewBox="0 0 22 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 0C4.9 0 0 4.9 0 11c0 8.25 11 21 11 21S22 19.25 22 11C22 4.9 17.1 0 11 0z" fill="#f97316"/><circle cx="11" cy="11" r="4.5" fill="white"/></svg>'
+
+function startMove(marker) {
+  if (!map || !marker) return
+  closeModal()
+  closeLocationPanel()
+  addMode.value = false
+  moveError.value = ''
+  moveTarget.value = marker
+  movePin?.remove()
+  const icon = L.divIcon({ className: '', html: MOVE_PIN_HTML, iconSize: [26, 38], iconAnchor: [13, 38] })
+  movePin = L.marker([marker.lat, marker.lng], { draggable: true, icon, zIndexOffset: 2000, autoPan: true }).addTo(map)
+  map.panTo([marker.lat, marker.lng])
+}
+
+function endMove() {
+  movePin?.remove()
+  movePin = null
+  moveTarget.value = null
+  moveSaving.value = false
+}
+
+function cancelMove() {
+  const marker = moveTarget.value
+  endMove()
+  if (marker) openMarkerModal(markersStore.items.find((m) => m.id === marker.id) ?? marker)
+}
+
+async function saveMove() {
+  if (!moveTarget.value || !movePin || moveSaving.value) return
+  const { lat, lng } = movePin.getLatLng()
+  moveSaving.value = true
+  moveError.value = ''
+  try {
+    const updated = await markersStore.update(moveTarget.value.id, { lat: +lat.toFixed(6), lng: +lng.toFixed(6) })
+    endMove()
+    openMarkerModal(updated)
+  } catch (err) {
+    moveError.value = err.message
+    moveSaving.value = false
+  }
+}
+
 async function openSidebar() {
   sidebarOpen.value = true
   await nextTick()
@@ -406,6 +465,7 @@ async function initializeMap() {
   initClusterGroup(s?.cluster !== false)
 
   map.on('click', (e) => {
+    if (moveTarget.value) { movePin?.setLatLng(e.latlng); return }
     clearTimeout(clickTimer)
     clickTimer = setTimeout(() => {
       if (searchJustClosed.value) {
@@ -435,6 +495,7 @@ onMounted(initializeMap)
 onUnmounted(() => {
   disposed = true
   disposeTripRoute()
+  movePin = null
   closeLocationPanel()
   document.body.style.overscrollBehaviorY = ''
   clearTimeout(clickTimer)
@@ -470,7 +531,8 @@ watch(csvPreviewMarkers, (markers) => {
 
 function onKeyDown(e) {
   if (e.key === 'Escape') {
-    if (addMode.value) addMode.value = false
+    if (moveTarget.value) cancelMove()
+    else if (addMode.value) addMode.value = false
     else if (locationPanelOpen.value) closeLocationPanel()
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.target.closest('input, textarea, [contenteditable=true]')) {
@@ -804,6 +866,32 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 }
 .undo-btn:hover { background: var(--surface-2); }
 .undo-btn:active { background: var(--border); }
+
+.move-banner {
+  position: absolute;
+  top: calc(64px + var(--sat, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 10px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  text-align: center;
+}
+.move-actions { display: flex; gap: 8px; }
+.move-actions .btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
+.move-actions .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.move-actions .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+.move-error { color: var(--danger); font-size: 12px; }
 
 .add-marker-btn {
   position: absolute;
