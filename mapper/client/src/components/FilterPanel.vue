@@ -265,8 +265,8 @@
                 <span v-if="detailGroup?.item?.is_trip && tripPosition(m) != null" class="stop-badge">#{{ tripPosition(m) }}</span>
                 {{ m.label || coords(m) }}
                 <span v-if="m.visited_at" class="visited-dot" title="Visited">✓</span>
-                <span v-if="m.is_favorite" class="fav-dot" title="Favorite">★</span>
-                <span v-if="m.rating" class="rating-dot" :title="`Rated ${m.rating} of 5`">{{ m.rating }}★</span>
+                <span v-if="m.is_favorite" class="fav-dot" title="Favorite">♥</span>
+                <span v-if="m.rating" class="rating-dot" :title="`Rated ${m.rating} of 5`">★{{ m.rating }}</span>
                 <span v-if="m.planned_at && !m.visited_at" class="planned-dot" title="Planned">{{ m.planned_at }}</span>
               </span>
               <span
@@ -426,7 +426,7 @@ const COLLECTION_SORT_OPTIONS = [
 const sortOptions = computed(() => activeTab.value === 'collection' ? COLLECTION_SORT_OPTIONS : BASE_SORT_OPTIONS)
 
 const SMART_LISTS = [
-  { id: 'favorites', name: 'Favorites', icon: '★', color: '#f59e0b' },
+  { id: 'favorites', name: 'Favorites', icon: '♥', color: '#e11d48' },
   { id: 'planned', name: 'Wishlist (planned)', icon: '◷', color: '#0ea5e9' },
 ]
 const smartCounts = computed(() => ({
@@ -1030,7 +1030,8 @@ function formatDateRange(item) {
 
 .tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 10px; }
 .visited-dot { font-size: 11px; color: var(--text-2); }
-.fav-dot { font-size: 11px; color: #f59e0b; }
+.fav-dot, .rating-dot, .planned-dot { margin-left: 4px; }
+.fav-dot { font-size: 11px; color: #e11d48; }
 .rating-dot { font-size: 10px; color: #b45309; }
 .planned-dot { font-size: 10px; color: #0369a1; }
 .smart-lists { border-bottom: 1px solid var(--border); margin-bottom: 4px; padding-bottom: 4px; }

@@ -102,7 +102,7 @@
         <!-- ── Advanced ── -->
         <template v-if="tab === 'advanced'">
           <div class="group-label">Routing API key (OpenRouteService)</div>
-          <p class="hint">Optional. Enables hiking-trail routing. Get a free key at openrouteservice.org. Without a key, roads-only routing (OSRM) is used.</p>
+          <p class="hint">Optional. Enables hiking-trail routing. Get a free key at openrouteservice.org. Without a key, OSRM from routing.openstreetmap.de is used for walking, cycling and driving routes (hikes use the walking profile).</p>
           <div class="field">
             <input v-model="orsApiKey" type="text" placeholder="Paste your ORS key here…" @change="saveOrsKey" />
           </div>
@@ -169,7 +169,7 @@
             </div>
           </form>
 
-          <div class="data-group">
+          <div class="data-group sessions-group">
             <div class="group-label">Sessions</div>
             <p class="hint">Sign out on every browser and device, including this one — for example after using a shared computer or losing a phone.</p>
             <p v-if="logoutAllError" class="msg error">{{ logoutAllError }}</p>
@@ -820,6 +820,7 @@ h2 { font-size: 16px; font-weight: 700; }
 .btn-logout:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 
 /* ── Data / Import / Export ── */
+.sessions-group { margin-top: 28px; }
 .db-download { color: var(--accent); font-weight: 500; }
 .data-group {
   margin-bottom: 24px;

@@ -12,7 +12,7 @@
             :aria-pressed="!!form.is_favorite"
             :title="form.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
             @click="toggleFavorite"
-          >★</button>
+          >♥</button>
           <button class="close-btn" aria-label="Close" @click="$emit('close')"><AppIcon name="close" /></button>
         </div>
       </div>
@@ -34,7 +34,7 @@
           </div>
         </div>
         <div v-if="form.rating || (form.planned_at && !form.visited_at) || (props.readOnly && form.is_favorite)" class="view-badges">
-          <span v-if="props.readOnly && form.is_favorite" class="fav-badge">★ Favorite</span>
+          <span v-if="props.readOnly && form.is_favorite" class="fav-badge">♥ Favorite</span>
           <span v-if="form.rating" class="rating-stars" :title="`Rated ${form.rating} of 5`" :aria-label="`Rated ${form.rating} of 5`">{{ '★'.repeat(form.rating) }}<span class="stars-off">{{ '★'.repeat(5 - form.rating) }}</span></span>
           <span v-if="form.planned_at && !form.visited_at" class="planned-badge">Planned · {{ form.planned_at }}</span>
         </div>
@@ -171,7 +171,7 @@
           </div>
           <label class="checkbox-item fav-check">
             <input type="checkbox" v-model="form.is_favorite" style="width:auto" />
-            ★ Favorite
+            ♥ Favorite
           </label>
         </div>
 
@@ -781,7 +781,7 @@ h2 {
   opacity: 0.6;
 }
 .fav-btn:hover { background: var(--surface-2); opacity: 1; }
-.fav-btn.active { color: #f59e0b; opacity: 1; }
+.fav-btn.active { color: #e11d48; opacity: 1; }
 
 .view-badges {
   display: flex;
@@ -800,7 +800,7 @@ h2 {
   font-size: 12px;
   font-weight: 600;
 }
-.fav-badge { background: #fef3c7; color: #92400e; }
+.fav-badge { background: #ffe4e6; color: #9f1239; }
 .planned-badge { background: #e0f2fe; color: #075985; }
 .view-error { padding: 6px 20px 0; }
 
@@ -810,7 +810,8 @@ h2 {
   justify-content: space-between;
   gap: 12px;
 }
-.field-label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+/* Same look as the global form label, for a group without a single input */
+.field-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
 .rating-input { display: flex; gap: 2px; }
 .rating-input button {
   background: none;

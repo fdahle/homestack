@@ -35,10 +35,13 @@ export async function fetchSegmentRoute(from, to, viaPoints, mode, signal) {
 }
 
 // Routes resolve to { path: [[lat, lng], ...], distance (m), duration (s) }.
+// The OSRM demo server only has a car profile, so walking and cycling routes (and their
+// durations) were really driving routes. The FOSSGIS servers run one OSRM per profile.
+const OSRM_PROFILES = { walk: ['routed-foot', 'foot'], hike: ['routed-foot', 'foot'], bike: ['routed-bike', 'bike'], drive: ['routed-car', 'driving'] }
 async function fetchOsrmRoute(points, mode, signal) {
-  const profile = { walk: 'foot', hike: 'foot', bike: 'bike', drive: 'car' }[mode] || 'foot'
+  const [server, profile] = OSRM_PROFILES[mode] || OSRM_PROFILES.walk
   const coords = points.map(p => `${+p.lng.toFixed(6)},${+p.lat.toFixed(6)}`).join(';')
-  const res = await fetch(`https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson`, { signal })
+  const res = await fetch(`https://routing.openstreetmap.de/${server}/route/v1/${profile}/${coords}?overview=full&geometries=geojson`, { signal })
   if (!res.ok) throw new Error('OSRM routing failed')
   const data = await res.json()
   const route = data.routes?.[0]
