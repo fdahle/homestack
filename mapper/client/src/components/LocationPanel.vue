@@ -75,7 +75,11 @@
 
           <!-- Inline hint while Overpass is still resolving -->
           <div v-if="(poiLoading || progressVisible) && !isPoi && !poiError" class="poi-checking">
-            Checking for nearby places…
+            <span>
+              Checking for nearby places…
+              <span v-if="poiElapsed >= 5" class="poi-elapsed">{{ poiElapsed }}s</span>
+            </span>
+            <span v-if="poiStatus" class="poi-status">{{ poiStatus }}</span>
             <div class="poi-progress-track">
               <div
                 class="poi-progress-bar"
@@ -149,6 +153,7 @@ const props = defineProps({
   poiAlternatives: { type: Array, default: () => [] },
   locationError: { type: String, default: null },
   poiError: { type: String, default: null },
+  poiStatus: { type: String, default: null },
 })
 
 const emit = defineEmits(['close', 'save-as-marker', 'select-poi'])
@@ -162,9 +167,20 @@ const progressRunning = ref(false)
 const progressWidth = ref('0%')
 let progressHideTimer = null
 
-watch(() => props.poiLoading, (loading) => {
+// Elapsed seconds while Overpass is slow, so it's visible the lookup is still going
+const poiElapsed = ref(0)
+let elapsedTimer = null
+
+// Also keyed on latlng so a new click while still loading restarts the timer
+watch(() => [props.poiLoading, props.latlng], ([loading]) => {
   clearTimeout(progressHideTimer)
+  clearInterval(elapsedTimer)
+  poiElapsed.value = 0
   if (loading) {
+    const start = Date.now()
+    elapsedTimer = setInterval(() => {
+      poiElapsed.value = Math.floor((Date.now() - start) / 1000)
+    }, 1000)
     progressVisible.value = true
     progressRunning.value = false
     progressWidth.value = '0%'
@@ -181,7 +197,10 @@ watch(() => props.poiLoading, (loading) => {
   }
 })
 
-onUnmounted(() => clearTimeout(progressHideTimer))
+onUnmounted(() => {
+  clearTimeout(progressHideTimer)
+  clearInterval(elapsedTimer)
+})
 
 function poiLabel(alt) {
   return alt.name || alt.categoryValue?.replace(/_/g, ' ') || alt.categoryKey || 'Unknown place'
@@ -484,6 +503,20 @@ h2 {
   font-size: 11px;
   color: var(--text-2);
   margin-top: 2px;
+}
+
+.poi-elapsed {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.poi-status {
+  color: #b08400;
+}
+
+[data-theme="dark"] .poi-status {
+  color: #e0a800;
 }
 
 .panel-warning {

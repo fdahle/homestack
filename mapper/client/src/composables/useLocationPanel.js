@@ -56,24 +56,57 @@ function elementToPoiShape(el) {
   }
 }
 
-// Mirrors are tried in order: the main instance returns 504/429 when overloaded,
-// so we fall back to alternates before giving up.
-const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
+const OVERPASS_MAIN = 'https://overpass-api.de/api/interpreter'
+const OVERPASS_MIRROR = 'https://overpass.private.coffee/api/interpreter'
+
+// The main instance often answers 504/429 when overloaded but succeeds on a
+// quick retry, so it gets a second try before falling back to the mirror.
+// Every attempt has a hard client-side timeout: mirrors can accept the
+// connection and then never respond, which used to hang the panel forever.
+const OVERPASS_ATTEMPTS = [
+  { url: OVERPASS_MAIN, timeoutMs: 15000 },
+  { url: OVERPASS_MAIN, timeoutMs: 15000, delayMs: 1000, status: 'Map data server is busy — retrying…' },
+  { url: OVERPASS_MIRROR, timeoutMs: 10000, status: 'Still busy — trying a backup server…' },
 ]
 
-async function runOverpassQuery(query, signal) {
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }, { once: true })
+  })
+}
+
+async function fetchJsonWithTimeout(url, query, signal, timeoutMs) {
+  const ctrl = new AbortController()
+  const onAbort = () => ctrl.abort()
+  signal.addEventListener('abort', onAbort, { once: true })
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { method: 'POST', body: query, signal: ctrl.signal })
+    if (!res.ok) throw new Error(`Overpass ${res.status}`)
+    return await res.json()
+  } catch (err) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    if (err.name === 'AbortError') throw new Error(`Overpass timed out after ${timeoutMs / 1000}s`)
+    throw err
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
+async function runOverpassQuery(query, signal, onStatus) {
   let lastError = null
-  for (const url of OVERPASS_ENDPOINTS) {
+  for (const { url, timeoutMs, delayMs, status } of OVERPASS_ATTEMPTS) {
+    if (lastError) {
+      onStatus?.(status)
+      if (delayMs) await sleep(delayMs, signal)
+    }
     try {
-      const res = await fetch(url, { method: 'POST', body: query, signal })
-      if (!res.ok) {
-        // 504/429/5xx → server busy; try the next mirror
-        lastError = new Error(`Overpass ${res.status}`)
-        continue
-      }
-      return await res.json()
+      return await fetchJsonWithTimeout(url, query, signal, timeoutMs)
     } catch (err) {
       if (err.name === 'AbortError') throw err
       lastError = err
@@ -141,38 +174,45 @@ function elementsToSortedCandidates(elements, lat, lon, r, excluded) {
     })
 }
 
-// Returns an async generator that yields results progressively:
-// first the fast around results, then merges in the slow is_in results.
-async function* fetchOverpassPoiProgressive(lat, lon, signal) {
+// Returns an async generator that yields results progressively: the around
+// and is_in queries run in parallel, whichever finishes first is shown, then
+// the other is merged in.
+async function* fetchOverpassPoiProgressive(lat, lon, signal, onStatus) {
   const r = getPoiRadius()
   const excluded = getExcludedAmenities()
 
-  const settle = promise => promise.then(data => ({ elements: data.elements ?? [] }), error => ({ error, elements: [] }))
-  const aroundPromise = settle(runOverpassQuery(buildAroundQuery(lat, lon, r), signal))
-  const isInPromise = settle(runOverpassQuery(buildIsInQuery(lat, lon), signal))
+  const results = []
+  const track = promise => promise.then(
+    data => results.push({ elements: data.elements ?? [] }),
+    error => results.push({ error, elements: [] }),
+  )
+  const pending = [
+    track(runOverpassQuery(buildAroundQuery(lat, lon, r), signal, onStatus)),
+    track(runOverpassQuery(buildIsInQuery(lat, lon), signal, onStatus)),
+  ]
 
-  // Yield fast around results as soon as they arrive
-  const around = await aroundPromise
-  const aroundElements = around.elements
-  const aroundCandidates = elementsToSortedCandidates(aroundElements, lat, lon, r, excluded)
-  if (aroundCandidates.length) {
-    const all = aroundCandidates.map(({ el }) => elementToPoiShape(el))
-    yield { best: all[0], all }
+  const toResult = () => {
+    const candidates = elementsToSortedCandidates(results.flatMap(x => x.elements), lat, lon, r, excluded)
+    if (!candidates.length) return null
+    const all = candidates.map(({ el }) => elementToPoiShape(el))
+    return { best: all[0], all }
   }
 
-  // Merge in is_in (containing area) results
-  const isIn = await isInPromise
+  await Promise.race(pending)
   if (signal.aborted) return
-  if (around.error && isIn.error) throw around.error
-  const isInElements = isIn.elements
-  if (!isInElements.length) return
+  const first = toResult()
+  if (first) yield first
 
-  const merged = [...aroundElements, ...isInElements]
-  const mergedCandidates = elementsToSortedCandidates(merged, lat, lon, r, excluded)
-  if (mergedCandidates.length) {
-    const all = mergedCandidates.map(({ el }) => elementToPoiShape(el))
-    yield { best: all[0], all }
+  await Promise.all(pending)
+  if (signal.aborted) return
+  const merged = toResult()
+  if (merged) {
+    if (merged.all.length !== first?.all.length) yield merged
+    return
   }
+  // Nothing found: only report "no places" if both queries actually succeeded
+  const failed = results.find(x => x.error)
+  if (failed) throw failed.error
 }
 
 export function useLocationPanel(getMap) {
@@ -184,6 +224,7 @@ export function useLocationPanel(getMap) {
   const poiData = ref(null)
   const poiLoading = ref(false)
   const poiError = ref(null)
+  const poiStatus = ref(null)
   const poiAlternatives = ref([])
 
   let locationLayer = null
@@ -218,6 +259,7 @@ export function useLocationPanel(getMap) {
     locationError.value = null
     poiData.value = null
     poiError.value = null
+    poiStatus.value = null
     poiAlternatives.value = []
     locationLoading.value = true
     poiLoading.value = true
@@ -254,7 +296,8 @@ export function useLocationPanel(getMap) {
     overpassTimer = setTimeout(async () => {
       if (signal.aborted) return
       try {
-        for await (const result of fetchOverpassPoiProgressive(latlng.lat, latlng.lng, signal)) {
+        const onStatus = status => { if (!signal.aborted) poiStatus.value = status }
+        for await (const result of fetchOverpassPoiProgressive(latlng.lat, latlng.lng, signal, onStatus)) {
           if (signal.aborted) return
           poiData.value = result.best
           poiAlternatives.value = result.all
@@ -266,7 +309,7 @@ export function useLocationPanel(getMap) {
         if (err.name === 'AbortError') return
         poiData.value = null
         poiAlternatives.value = []
-        poiError.value = 'Couldn\u2019t load nearby places \u2014 the map data service is busy. Try again shortly.'
+        poiError.value = 'Couldn\u2019t load nearby places \u2014 the map data service is busy or unreachable. Try again shortly.'
         poiLoading.value = false
       }
     }, 500)
@@ -297,6 +340,7 @@ export function useLocationPanel(getMap) {
     poiData,
     poiLoading,
     poiError,
+    poiStatus,
     poiAlternatives,
     openLocationPanel,
     closeLocationPanel,

@@ -67,6 +67,7 @@
         :poi-alternatives="poiAlternatives"
         :location-error="locationError"
         :poi-error="poiError"
+        :poi-status="poiStatus"
         @close="closeLocationPanel"
         @save-as-marker="handleSaveAsMarker"
         @select-poi="selectAlternativePoi"
@@ -454,7 +455,7 @@ function handleSearchSelect(r) {
   const latlng = selectResult(r)
   if (!r._marker) openLocationPanel(latlng)
 }
-const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, locationError, poiData, poiLoading, poiError, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
+const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, locationError, poiData, poiLoading, poiError, poiStatus, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
 const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLayer(getMap, (marker) => {
   closeLocationPanel()
   addMode.value = false
