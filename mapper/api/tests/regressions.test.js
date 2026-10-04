@@ -223,3 +223,17 @@ test('backups with stale route segments or legacy formats still restore', async 
   assert.match(rejected.data.error, /markers #1/)
 })
 
+test('share links: date-only expiry lasts the whole day, passwords travel in the body and lock out guessing', async () => {
+  const { shareExpired } = await import('../utils/validation.js')
+  assert.equal(shareExpired('2026-10-04', Date.parse('2026-10-04T23:00:00+02:00')), false)
+  assert.equal(shareExpired('2026-10-03', Date.parse('2026-10-05T12:00:00Z')), true)
+  assert.equal(shareExpired('2026-10-04T21:59:59.999Z', Date.parse('2026-10-04T22:00:00Z')), true)
+  const saved = (await request('markers', 'POST', marker)).data
+  assert.equal((await request('share-links', 'POST', { filter: { markers: [saved.id] }, password: '12345' })).status, 400)
+  const password = 'Пароль-äöü'
+  const share = (await request('share-links', 'POST', { filter: { markers: [saved.id] }, password })).data
+  assert.equal((await request(`public/share/${share.token}/data`, 'GET', undefined, '')).status, 401)
+  assert.equal((await request(`public/share/${share.token}/data`, 'POST', { password }, '')).data.markers.length, 1)
+  for (let i = 0; i < 10; i++) assert.equal((await request(`public/share/${share.token}/data`, 'POST', { password: 'wrong-guess' }, '')).status, 403)
+  assert.equal((await request(`public/share/${share.token}/data`, 'POST', { password }, '')).status, 429)
+})

@@ -217,9 +217,11 @@ function handleSearchSelect(r) {
 let requestId = 0
 let requestAbort = null
 async function fetchData(password, signal) {
-  const headers = {}
-  if (password) headers['X-Share-Password'] = password
-  const res = await fetch(`/api/public/share/${route.params.token}/data`, { headers, signal })
+  // Passwords go in a JSON body: headers cannot carry characters outside Latin-1.
+  const init = password
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }), signal }
+    : { signal }
+  const res = await fetch(`/api/public/share/${route.params.token}/data`, init)
   return { status: res.status, data: await res.json() }
 }
 
@@ -266,6 +268,7 @@ async function requestShare(password = null) {
     if (id !== requestId) return
     if (status === 401 && data.requiresPassword) { shareMeta.value = data.meta; state.value = 'password'; return }
     if (status === 403) { gateError.value = 'Incorrect password. Try again.'; state.value = 'password'; return }
+    if (status === 429 && password) { gateError.value = data.error || 'Too many attempts. Try again later.'; return }
     if (status !== 200) throw new Error(status === 404 ? 'This share link does not exist.' : status === 410 ? 'This share link has expired.' : 'Failed to load shared map. Please retry.')
     await loadMap(data, id)
   } catch (err) {

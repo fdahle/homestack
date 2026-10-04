@@ -37,6 +37,8 @@
             </div>
           </div>
 
+          <p v-if="listError" class="error">{{ listError }}</p>
+
           <div class="create-btn-row">
             <button class="btn-primary" @click="openCreateForm">
               <AppIcon name="plus" /> New share link
@@ -101,7 +103,7 @@
               <input
                 v-model="form.password"
                 :type="showPw ? 'text' : 'password'"
-                placeholder="Enter password"
+                :placeholder="`At least ${PASSWORD_MIN} characters`"
                 autocomplete="new-password"
                 class="pw-input"
               />
@@ -168,7 +170,15 @@ const createdToken = ref(null)
 const usePassword = ref(false)
 const showPw = ref(false)
 
-const todayStr = new Date().toISOString().slice(0, 10)
+const PASSWORD_MIN = 6
+const listError = ref(null)
+
+// Expiry dates are picked in local time and stored as the end of that local day.
+const localDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const isDateOnly = (value) => /^d{4}-d{2}-d{2}$/.test(value)
+const parseLocalDay = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d) }
+const endOfLocalDay = (day) => { const date = parseLocalDay(day); date.setHours(23, 59, 59, 999); return date.toISOString() }
+const todayStr = localDay(new Date())
 
 const defaultForm = () => ({
   name: '',
@@ -186,18 +196,38 @@ const hasAnyFilter = computed(() =>
 
 watch(usePassword, (val) => { if (!val) form.value.password = '' })
 
-onMounted(() => store.fetch())
+onMounted(async () => {
+  try { await store.fetch() } catch (err) { listError.value = err.message }
+})
 
 function shareUrl(token) {
   return `${window.location.origin}/share/${token}`
 }
 
-function formatDate(iso) {
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+function formatDate(value) {
+  return (isDateOnly(value) ? parseLocalDay(value) : new Date(value)).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 async function copyLink(token) {
-  await navigator.clipboard.writeText(shareUrl(token))
+  listError.value = null
+  try {
+    // navigator.clipboard only exists on HTTPS/localhost; fall back for plain-HTTP LAN setups.
+    if (navigator.clipboard) await navigator.clipboard.writeText(shareUrl(token))
+    else {
+      const area = Object.assign(document.createElement('textarea'), { value: shareUrl(token), readOnly: true })
+      area.style.cssText = 'position:fixed;opacity:0'
+      document.body.appendChild(area)
+      area.select()
+      const ok = document.execCommand('copy')
+      area.remove()
+      if (!ok) throw new Error()
+    }
+  } catch {
+    const message = 'Could not copy automatically. Copy this link manually: ' + shareUrl(token)
+    if (showForm.value) error.value = message
+    else listError.value = message
+    return
+  }
   copied.value = token
   setTimeout(() => { copied.value = null }, 2000)
 }
@@ -217,7 +247,7 @@ function editLink(link) {
   form.value = {
     name: link.name || '',
     password: '',
-    expiresAt: link.expiresAt ? link.expiresAt.slice(0, 10) : '',
+    expiresAt: !link.expiresAt ? '' : isDateOnly(link.expiresAt) ? link.expiresAt : localDay(new Date(link.expiresAt)),
     filter: {
       all: link.filter.all,
       categories: [...link.filter.categories],
@@ -249,13 +279,17 @@ async function save() {
     error.value = 'Enter a password or disable password protection.'
     return
   }
+  if (usePassword.value && form.value.password && [...form.value.password].length < PASSWORD_MIN) {
+    error.value = `Use a password with at least ${PASSWORD_MIN} characters.`
+    return
+  }
 
   saving.value = true
   try {
     const payload = {
       name: form.value.name || null,
       filter: form.value.filter,
-      expiresAt: form.value.expiresAt || null,
+      expiresAt: form.value.expiresAt ? endOfLocalDay(form.value.expiresAt) : null,
     }
     if (usePassword.value && form.value.password) {
       payload.password = form.value.password
@@ -281,8 +315,11 @@ async function save() {
 async function deleteLink(token) {
   if (!confirm('Delete this share link? Anyone with the link will lose access.')) return
   deleting.value = token
+  listError.value = null
   try {
     await store.remove(token)
+  } catch (err) {
+    listError.value = err.message
   } finally {
     deleting.value = null
   }

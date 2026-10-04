@@ -1,6 +1,8 @@
 import { validDate, validateDates, parseDate } from '../../shared/dates.js'
 import { validLatLng } from '../../shared/markers.js'
 
+export const SHARE_PASSWORD_MIN = 6
+
 export function invalid(message) {
   return Object.assign(new Error(message), { status: 400 })
 }
@@ -95,7 +97,14 @@ export function validateShare(body) {
   requireObject(body, 'Share link')
   if (body.name != null && typeof body.name !== 'string') throw invalid('Name must be text')
   if (body.password != null && (typeof body.password !== 'string' || Buffer.byteLength(body.password) > 72)) throw invalid('Password must be text and at most 72 bytes')
+  if (body.password && [...body.password].length < SHARE_PASSWORD_MIN) throw invalid(`Password must be at least ${SHARE_PASSWORD_MIN} characters`)
   if (body.expiresAt && (typeof body.expiresAt !== 'string' || !validDate(body.expiresAt.slice(0, 10)) || !Number.isFinite(Date.parse(body.expiresAt)))) throw invalid('Expiry must be a valid date')
   if (body.filter !== undefined) requireObject(body.filter, 'Filter')
 }
 
+// Date-only expiries (older links) stay valid until that day has ended in every time zone.
+export function shareExpired(expiresAt, now = Date.now()) {
+  if (!expiresAt) return false
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(expiresAt) ? Date.parse(expiresAt + 'T23:59:59.999-12:00') : Date.parse(expiresAt)
+  return Number.isFinite(end) && end < now
+}
