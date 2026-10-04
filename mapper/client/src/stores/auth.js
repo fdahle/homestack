@@ -63,6 +63,12 @@ export const useAuthStore = defineStore('auth', {
       this._sessionChecked = false
     },
 
+    async logoutEverywhere() {
+      await apiFetch('/api/auth/logout-all', { method: 'POST' })
+      this.isAuthenticated = false
+      this._sessionChecked = false
+    },
+
     async changePassword(currentPassword, newPassword) {
       const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',

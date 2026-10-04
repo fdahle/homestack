@@ -87,6 +87,12 @@
         <AppIcon name="share" />
       </button>
 
+      <!-- Locate me -->
+      <button class="share-btn locate-btn" :class="{ busy: locating }" :disabled="locating" @click="locateMe" title="Show my location" aria-label="Show my location">
+        <AppIcon name="location" />
+      </button>
+      <div v-if="locateError" class="map-status" role="alert">{{ locateError }} <button @click="locateError = ''">Dismiss</button></div>
+
       <!-- Color mode dropdown -->
       <div class="color-mode-control" ref="colorModeRef">
         <button class="cm-trigger" @click.stop="colorMenuOpen = !colorMenuOpen" :title="'Color by: ' + currentColorMode.label">
@@ -321,6 +327,36 @@ async function undoRouteEdit() {
   } catch (err) { routeError.value = err.message }
   finally { routeEditBusy.value = false }
   if (!disposed) await renderTripRoute()
+}
+
+// ── Locate me ───────────────────────────────────────────────────────────────
+const locating = ref(false)
+const locateError = ref('')
+let locationLayer = null
+
+function locateMe() {
+  if (!navigator.geolocation) { locateError.value = 'This browser cannot share your location.'; return }
+  locating.value = true
+  locateError.value = ''
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      locating.value = false
+      if (!map) return
+      const { latitude, longitude, accuracy } = pos.coords
+      locationLayer?.remove()
+      locationLayer = L.layerGroup([
+        L.circle([latitude, longitude], { radius: accuracy, color: '#2563eb', weight: 1, fillOpacity: 0.08, interactive: false }),
+        L.circleMarker([latitude, longitude], { radius: 7, color: '#fff', weight: 2, fillColor: '#2563eb', fillOpacity: 1, interactive: false }),
+      ]).addTo(map)
+      map.flyTo([latitude, longitude], Math.max(map.getZoom(), 15), { duration: 0.8 })
+    },
+    (err) => {
+      locating.value = false
+      // Geolocation also requires HTTPS; browsers report that as a permission error.
+      locateError.value = err.code === 1 ? 'Location access was denied (it also needs HTTPS).' : 'Could not determine your location.'
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+  )
 }
 
 // ── Move a marker ───────────────────────────────────────────────────────────
@@ -785,6 +821,8 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
   transition: background 0.1s, color 0.1s;
 }
 .share-btn:hover { background: var(--surface-2); color: var(--text); }
+.locate-btn { top: 94px; }
+.locate-btn.busy { color: var(--accent); }
 
 .color-mode-control {
   position: absolute;
@@ -951,6 +989,9 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 
   .share-btn {
     top: calc(96px + var(--sat, 0px));
+  }
+  .locate-btn {
+    top: calc(136px + var(--sat, 0px));
   }
 }
 </style>

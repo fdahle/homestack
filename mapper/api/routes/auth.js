@@ -63,6 +63,13 @@ router.post('/logout', (_req, res) => {
   res.json({ ok: true })
 })
 
+// Rotating the session version invalidates every issued cookie, this one included.
+router.post('/logout-all', requireAuth, (req, res) => {
+  db.prepare('UPDATE users SET session_version=? WHERE id=?').run(randomBytes(32).toString('hex'), req.user.sub)
+  clearAuthCookie(res)
+  res.json({ ok: true })
+})
+
 router.get('/me', requireAuth, (req, res) => {
   res.json({ loggedIn: true, id: req.user.sub })
 })

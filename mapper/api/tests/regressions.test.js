@@ -250,3 +250,10 @@ test('public shares include route segments of shared trips between shared marker
   assert.deepEqual(data.segments[0].via_points, [{ lat: 52.1, lng: 5.1 }])
   assert.equal(data.segments[0].mode, 'bike')
 })
+
+test('signing out everywhere revokes every existing session', async () => {
+  const other = token
+  const result = await request('auth/logout-all', 'POST', {})
+  assert.equal(result.status, 200)
+  assert.equal((await request('markers', 'GET', undefined, other)).status, 401)
+})

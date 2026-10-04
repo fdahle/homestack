@@ -169,6 +169,20 @@
             </div>
           </form>
 
+          <div class="data-group">
+            <div class="group-label">Sessions</div>
+            <p class="hint">Sign out on every browser and device, including this one — for example after using a shared computer or losing a phone.</p>
+            <p v-if="logoutAllError" class="msg error">{{ logoutAllError }}</p>
+            <div class="actions">
+              <div class="spacer" />
+              <template v-if="confirmLogoutAll">
+                <button type="button" class="btn-secondary" @click="confirmLogoutAll = false">Cancel</button>
+                <button type="button" class="btn-logout" @click="logoutEverywhere">Yes, sign out everywhere</button>
+              </template>
+              <button v-else type="button" class="btn-secondary" @click="confirmLogoutAll = true">Sign out everywhere…</button>
+            </div>
+          </div>
+
         </template>
 
         <!-- ── Data ── -->
@@ -315,6 +329,18 @@ const tab          = ref('general')
 async function logout() {
   await authStore.logout()
   router.push('/login')
+}
+
+const confirmLogoutAll = ref(false)
+const logoutAllError = ref('')
+async function logoutEverywhere() {
+  logoutAllError.value = ''
+  try {
+    await authStore.logoutEverywhere()
+    router.push('/login')
+  } catch (err) {
+    logoutAllError.value = err.message
+  }
 }
 
 // ── General ──────────────────────────────────────────────
