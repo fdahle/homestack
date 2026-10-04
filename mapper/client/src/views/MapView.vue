@@ -112,6 +112,15 @@
         title="Undo (Ctrl+Z)"
       ><AppIcon name="undo" /> Undo</button>
 
+<!-- Active trip: distance, duration and GPX export -->
+      <div v-if="tripSummary" class="trip-summary" role="status">
+        <AppIcon name="trip" />
+        <span>
+          {{ formatDistance(tripSummary.distance) }}<template v-if="!tripSummary.routed"> (straight)</template><template v-if="tripSummary.duration != null"> · {{ formatDuration(tripSummary.duration) }}</template>
+        </span>
+        <button type="button" class="trip-gpx-btn" title="Download the trip as GPX" @click="downloadGpx">GPX</button>
+      </div>
+
 <!-- Add marker FAB -->
       <button
         class="add-marker-btn"
@@ -225,6 +234,7 @@ import { useModals } from '../composables/useModals.js'
 import { useStyleStore } from '../stores/style.js'
 import { loadSegments, saveSegment, fetchSegmentRoute } from '../composables/useTripRouting.js'
 import { useMapControl } from '../composables/useMapControl.js'
+import { haversineMeters, formatDistance, formatDuration, summarizeLegs, buildGpx, gpxFilename } from '../utils/trip.js'
 
 const styleStore = useStyleStore()
 const markersStore = useMarkersStore()
@@ -247,6 +257,7 @@ let csvPreviewLayer = null
 let routeHandles = []
 let renderToken = 0
 const undoStack = ref([])
+const tripSummary = ref(null)
 
 // Settings state (stays in MapView — it needs direct map access)
 const savedSettings = ref(null)
@@ -340,6 +351,7 @@ async function renderTripRoute() {
   const signal = routeAbort.signal
   const token = ++renderToken
   clearRouteLayer()
+  tripSummary.value = null
   if (!map) return
   const markers = tripRouteMarkers.value
   if (!markers || markers.length < 2) return
@@ -353,12 +365,16 @@ async function renderTripRoute() {
   let segmentMap
   try { segmentMap = await loadSegments(colId, signal) } catch (err) { if (!signal.aborted) routeError.value = err.message; return }
   if (token !== renderToken) return
+  const legs = []
 
   for (let i = 0; i < markers.length - 1; i++) {
     const from = markers[i]
     const to   = markers[i + 1]
     const seg  = segmentMap[`${from.id}-${to.id}`]
     const viaPoints = seg?.via_points || []
+    const straightPath = [[from.lat, from.lng], [to.lat, to.lng]]
+    const leg = { path: straightPath, distance: haversineMeters(from, to), duration: null }
+    legs.push(leg)
 
     // Straight reference line
     if (showStraight) {
@@ -369,12 +385,18 @@ async function renderTripRoute() {
     }
 
     if (showExact) {
-      let routedPath = [[from.lat, from.lng], [to.lat, to.lng]]
-      try { routedPath = await fetchSegmentRoute(from, to, viaPoints, seg?.mode || 'walk', signal) } catch (err) { if (!signal.aborted) routeError.value = 'Route unavailable; showing a straight line. ' + err.message }
+      let routedPath = straightPath
+      const mode = seg?.mode || 'walk'
+      try {
+        const route = await fetchSegmentRoute(from, to, viaPoints, mode, signal)
+        routedPath = route.path
+        Object.assign(leg, { path: route.path, distance: route.distance ?? leg.distance, duration: route.duration })
+      } catch (err) { if (!signal.aborted) routeError.value = 'Route unavailable; showing a straight line. ' + err.message }
       if (token !== renderToken) return
       if (!map) return
 
       const routedPoly = L.polyline(routedPath, { color, weight: 4, opacity: 0.88 }).addTo(map)
+      routedPoly.bindTooltip([formatDistance(leg.distance), formatDuration(leg.duration), MODE_LABELS[mode]].filter(Boolean).join(' · '), { sticky: true })
       routePolylines.push(routedPoly)
 
       // Click on the routed line to insert a via-point
@@ -447,6 +469,20 @@ async function renderTripRoute() {
       }
     }
   }
+  if (token !== renderToken) return
+  tripSummary.value = { name: col?.name || 'Trip', stops: markers, legs, routed: showExact, ...summarizeLegs(legs) }
+}
+
+const MODE_LABELS = { walk: 'walking', hike: 'hiking', bike: 'cycling', drive: 'driving' }
+
+function downloadGpx() {
+  const trip = tripSummary.value
+  if (!trip) return
+  const blob = new Blob([buildGpx(trip.name, trip.stops, trip.legs)], { type: 'application/gpx+xml' })
+  const url = URL.createObjectURL(blob)
+  const a = Object.assign(document.createElement('a'), { href: url, download: gpxFilename(trip.name) })
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 async function openSidebar() {
@@ -923,6 +959,40 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 .cm-option:last-child { border-bottom: none; }
 .cm-option:hover { background: var(--surface-2); color: var(--text); }
 .cm-option.active { color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+
+.trip-summary {
+  position: absolute;
+  bottom: calc(22px + var(--sab, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  white-space: nowrap;
+}
+.trip-gpx-btn {
+  padding: 3px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.trip-gpx-btn:hover { background: var(--border); }
+@media (max-width: 640px) {
+  .trip-summary { left: auto; right: 10px; transform: none; bottom: calc(76px + var(--sab, 0px)); }
+}
 
 .undo-btn {
   position: absolute;

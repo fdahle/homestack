@@ -310,3 +310,18 @@ test('smart lists filter favorites and unvisited planned markers', () => {
   store.setGroupFilter({ type: 'smart', id: 'planned' })
   assert.deepEqual(store.filtered.map(m => m.id), [2])
 })
+
+test('trip summaries format totals and export escaped GPX', async () => {
+  const { formatDistance, formatDuration, summarizeLegs, buildGpx, gpxFilename, haversineMeters } = await import('../src/utils/trip.js')
+  assert.equal(formatDistance(850), '850 m')
+  assert.equal(formatDistance(12345), '12.3 km')
+  assert.equal(formatDuration(45 * 60), '45 min')
+  assert.equal(formatDuration(190 * 60), '3 h 10 min')
+  assert.deepEqual(summarizeLegs([{ distance: 1000, duration: 60 }, { distance: 500, duration: null }]), { distance: 1500, duration: null })
+  assert.ok(Math.abs(haversineMeters({ lat: 52, lng: 5 }, { lat: 53, lng: 5 }) - 111195) < 100)
+  const gpx = buildGpx('Rock & Roll <Tour>', [{ lat: 52, lng: 5, label: 'A&B' }, { lat: 53, lng: 5, label: 'C' }], [{ path: [[52, 5], [52.5, 5.1], [53, 5]] }])
+  assert.match(gpx, /<name>Rock &amp; Roll &lt;Tour&gt;<\/name>/)
+  assert.match(gpx, /<name>1\. A&amp;B<\/name>/)
+  assert.equal((gpx.match(/<trkpt /g) || []).length, 3)
+  assert.equal(gpxFilename('Rock & Roll Tour 2026'), 'rock-roll-tour-2026.gpx')
+})

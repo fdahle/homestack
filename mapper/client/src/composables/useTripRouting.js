@@ -34,14 +34,16 @@ export async function fetchSegmentRoute(from, to, viaPoints, mode, signal) {
   return route
 }
 
+// Routes resolve to { path: [[lat, lng], ...], distance (m), duration (s) }.
 async function fetchOsrmRoute(points, mode, signal) {
   const profile = { walk: 'foot', hike: 'foot', bike: 'bike', drive: 'car' }[mode] || 'foot'
   const coords = points.map(p => `${+p.lng.toFixed(6)},${+p.lat.toFixed(6)}`).join(';')
   const res = await fetch(`https://router.project-osrm.org/route/v1/${profile}/${coords}?overview=full&geometries=geojson`, { signal })
   if (!res.ok) throw new Error('OSRM routing failed')
   const data = await res.json()
-  if (!data.routes?.[0]) throw new Error('No route found')
-  return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng])
+  const route = data.routes?.[0]
+  if (!route) throw new Error('No route found')
+  return { path: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), distance: route.distance, duration: route.duration }
 }
 
 async function fetchOrsRoute(points, mode, apiKey, signal) {
@@ -54,6 +56,8 @@ async function fetchOrsRoute(points, mode, apiKey, signal) {
     body: JSON.stringify({ coordinates }),
   })
   if (!res.ok) throw new Error('ORS routing failed')
-  const data = await res.json()
-  return data.features[0].geometry.coordinates.map(([lng, lat]) => [lat, lng])
+  const feature = (await res.json()).features?.[0]
+  if (!feature) throw new Error('No route found')
+  const summary = feature.properties?.summary ?? {}
+  return { path: feature.geometry.coordinates.map(([lng, lat]) => [lat, lng]), distance: summary.distance ?? null, duration: summary.duration ?? null }
 }
