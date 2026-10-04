@@ -22,6 +22,8 @@ try {
   // An outdated chunk after a redeploy must fail loudly instead of returning index.html.
   assert.equal((await fetch(base + '/assets/MapView-outdated.js')).status, 404)
   assert.equal((await fetch(base + '/share/some-token')).status, 200)
+  assert.equal((await fetch(base + '/manifest.webmanifest')).headers.get('content-type'), 'application/manifest+json')
+  assert.equal((await fetch(base + '/sw.js')).status, 200)
   const oversized = JSON.stringify({ password: 'x'.repeat(3 * 1024 * 1024) })
   assert.equal((await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: oversized })).status, 413)
   assert.equal((await fetch(base + '/api/unknown')).status, 404)

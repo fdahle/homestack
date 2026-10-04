@@ -21,3 +21,8 @@ setUnauthorizedHandler(() => {
 })
 app.use(router)
 app.mount('#app')
+
+// Installable app + fast start; skipped in development so Vite's live reload stays untouched.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))
+}
