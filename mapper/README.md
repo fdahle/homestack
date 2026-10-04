@@ -8,12 +8,17 @@ Built for my own use — but feel free to use it, fork it, or adapt it however y
 
 ## Features
 
-- Add markers to a map with labels, descriptions, photos, ratings, and more
+- Add markers to a map with labels, descriptions, photos, ratings, favorites, websites and more; move them by dragging
+- **Wishlist** — give places a planned date; favorites and planned places get their own lists
 - Organise markers into **categories** (by type) and **collections** (by trip or theme)
-- **Trip mode** — order stops, draw routes via OSRM or OpenRouteService
+- **Trip mode** — order stops, draw walking/cycling/driving routes via OSRM or OpenRouteService, see distance and travel time, export as GPX
 - **Persons** — associate places with people and store their addresses
-- **Share links** — share a filtered view (read-only) with optional password and expiry
-- Import from Google Maps CSV exports or generic JSON; export/backup to JSON
+- **Share links** — share a filtered view (read-only, including trip routes) with optional password and expiry
+- Save places found on the map with their website and Wikipedia image
+- Search across names, notes, addresses and groups (accent-insensitive)
+- **Trash** — deleted markers can be undone or restored for 30 days
+- Import from Google Maps CSV exports or generic JSON; export/backup to JSON or download the full database
+- Installable on phones (PWA); "locate me"; sign out of all devices
 - Single-user, self-hosted, no external accounts required
 
 ## Tech stack
