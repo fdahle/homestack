@@ -115,7 +115,8 @@ test('stale requests cannot overwrite coordinate searches or cleared searches', 
   const search = useSearch(() => null, () => [])
   search.searchQuery.value = 'old place'
   search.onSearchInput()
-  await new Promise(resolve => setTimeout(resolve, 430))
+  search.onSearchSubmit()
+  await new Promise(resolve => setTimeout(resolve, 5))
   search.searchQuery.value = '52,5'
   search.onSearchInput()
   finish(response([{ display_name: 'stale' }]))
@@ -256,3 +257,28 @@ test('public share recovers from network errors and reloads when token changes',
   assert.equal(state.shareMeta.name, 'Second')
   app.unmount()
 })
+
+test('typing searches local markers only; Nominatim runs on Enter and repeated lookups are cached', async () => {
+  const calls = []
+  globalThis.fetch = async url => { calls.push(String(url)); return response([{ place_id: 1, display_name: 'Cached town', lat: '1', lon: '2' }]) }
+  const search = useSearch(() => null, () => [{ id: 1, label: 'Cached café', lat: 1, lng: 2 }])
+  search.searchQuery.value = 'cached'
+  search.onSearchInput()
+  await new Promise(resolve => setTimeout(resolve, 450))
+  assert.equal(calls.length, 0)
+  assert.equal(search.searchResults.value[0]._marker, true)
+  await search.onSearchSubmit()
+  assert.equal(calls.length, 1)
+  assert.equal(search.searchResults.value.length, 2)
+  assert.equal(search.searchSubmitted.value, true)
+})
+
+test('Nominatim requests are spaced at least one second apart', async () => {
+  const { nominatim } = await import('../src/utils/nominatim.js')
+  const times = []
+  globalThis.fetch = async () => { times.push(Date.now()); return response([]) }
+  await Promise.all([nominatim('search', { q: 'spacing-a' }), nominatim('search', { q: 'spacing-b' })])
+  assert.equal(times.length, 2)
+  assert.ok(times[1] - times[0] >= 1000)
+})
+

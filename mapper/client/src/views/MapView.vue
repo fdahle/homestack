@@ -17,6 +17,7 @@
             class="search-input"
             v-model="searchQuery"
             @input="onSearchInput"
+            @keydown.enter.prevent="onSearchSubmit"
             @focus="searchOpen = true"
             @blur="onSearchBlur"
             placeholder="Search address…"
@@ -44,6 +45,9 @@
             </button>
             <div v-if="searchError && !searchLoading" class="search-error">
               <span class="search-error-icon">⚠</span>{{ searchError }}
+            </div>
+            <div v-else-if="!searchSubmitted && !searchLoading && !searchResults[0]?._coord" class="search-no-results">
+              Press Enter to search places
             </div>
             <div v-else-if="!searchResults.length && !searchLoading" class="search-no-results">
               No results found
@@ -449,7 +453,7 @@ async function closeSidebar() {
 }
 
 // Composables
-const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, clearSearch, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, clearSearch, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
   getMap,
   () => markersStore.filtered,
   (marker) => { closeLocationPanel(); addMode.value = false; openMarkerModal(marker) },

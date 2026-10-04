@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { nominatim } from '../utils/nominatim.js'
 
 const COORD_RE = /^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/
 
@@ -22,12 +23,13 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
   const searchLoading = ref(false)
   const searchError = ref(null)
   const searchJustClosed = ref(false)
-  let searchTimer = null
+  // Address lookups run on Enter: Nominatim's usage policy forbids search-as-you-type.
+  const searchSubmitted = ref(false)
   let controller = null
   let requestId = 0
+  let localResults = []
   function cancelPending() {
     requestId++
-    clearTimeout(searchTimer)
     controller?.abort()
     controller = null
     searchLoading.value = false
@@ -38,6 +40,7 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
     searchResults.value = []
     searchError.value = null
     searchOpen.value = false
+    searchSubmitted.value = false
   }
 
   function buildMarkerResults(q) {
@@ -62,9 +65,11 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
 
   function onSearchInput() {
     cancelPending()
-    const currentId = requestId
     searchError.value = null
+    searchSubmitted.value = false
+    searchOpen.value = true
     const q = searchQuery.value.trim()
+    localResults = []
     if (!q) { searchResults.value = []; searchLoading.value = false; return }
 
     // Coordinate shortcut — no network request needed
@@ -85,28 +90,32 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
       }
     }
 
-    // Show local marker matches immediately while geocoding request is in-flight
-    const markerResults = buildMarkerResults(q)
-    searchResults.value = markerResults
+    // Local marker matches appear while typing; places are looked up on Enter.
+    localResults = buildMarkerResults(q)
+    searchResults.value = localResults
+  }
 
+  async function onSearchSubmit() {
+    const q = searchQuery.value.trim()
+    if (!q) return
+    if (q.match(COORD_RE) && searchResults.value[0]?._coord) return selectResult(searchResults.value[0])
+    cancelPending()
+    const currentId = requestId
+    searchOpen.value = true
+    searchError.value = null
     searchLoading.value = true
-    searchTimer = setTimeout(async () => {
-      controller = new AbortController()
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=7&addressdetails=1`, { signal: controller.signal }
-        )
-        if (!res.ok) throw new Error(`Nominatim ${res.status}`)
-        const results = await res.json()
-        if (currentId !== requestId) return
-        searchResults.value = [...markerResults, ...results]
-      } catch {
-        if (currentId !== requestId) return
-        searchResults.value = [...markerResults]
-        searchError.value = 'Search is temporarily unavailable — the geocoding service didn’t respond.'
-      }
-      if (currentId === requestId) searchLoading.value = false
-    }, 400)
+    controller = new AbortController()
+    try {
+      const results = await nominatim('search', { q, limit: 7, addressdetails: 1 }, { signal: controller.signal })
+      if (currentId !== requestId) return
+      searchResults.value = [...localResults, ...results]
+    } catch {
+      if (currentId !== requestId) return
+      searchResults.value = [...localResults]
+      searchError.value = 'Search is temporarily unavailable — the geocoding service didn’t respond.'
+    }
+    searchSubmitted.value = true
+    searchLoading.value = false
   }
 
   function onSearchBlur() {
@@ -135,5 +144,5 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
     cancelPending()
   }
 
-  return { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, onSearchInput, onSearchBlur, selectResult, clearSearch, cleanup }
+  return { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, clearSearch, cleanup }
 }

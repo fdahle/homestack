@@ -1,5 +1,6 @@
 import { ref, onScopeDispose, getCurrentScope } from 'vue'
 import { loadSettings } from '../utils/settings.js'
+import { reverseGeocode } from '../utils/nominatim.js'
 import L from 'leaflet'
 
 const PIN_ICON = L.divIcon({
@@ -231,14 +232,7 @@ export function useLocationPanel(getMap) {
     }
 
     // Nominatim: resolves first (~200ms) — update address immediately
-    fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${latlng.lat}&lon=${latlng.lng}&format=json&addressdetails=1&extratags=1&polygon_geojson=1`,
-      { signal }
-    )
-      .then(r => {
-        if (!r.ok) throw new Error(`Nominatim ${r.status}`)
-        return r.json()
-      })
+    reverseGeocode(latlng.lat, latlng.lng, { addressdetails: 1, extratags: 1, polygon_geojson: 1 }, { signal })
       .then(data => {
         const dist = haversineMeters(latlng.lat, latlng.lng, parseFloat(data.lat), parseFloat(data.lon))
         if (dist > 250) {

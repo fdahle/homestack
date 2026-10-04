@@ -49,6 +49,7 @@
               class="search-input"
               v-model="searchQuery"
               @input="onSearchInput"
+              @keydown.enter.prevent="onSearchSubmit"
               @focus="searchOpen = true"
               @blur="onSearchBlur"
               placeholder="Search address or marker…"
@@ -60,7 +61,7 @@
               v-else-if="searchQuery"
               class="search-clear"
               type="button"
-              @mousedown.prevent="searchQuery = ''; searchResults = []"
+              @mousedown.prevent="clearSearch"
               aria-label="Clear search"
             >✕</button>
             <div class="search-results" v-if="searchOpen && (searchResults.length || (!searchLoading && searchQuery.trim()))">
@@ -74,7 +75,10 @@
               >
                 <span v-if="r._marker" class="result-pin">◉</span>{{ r.display_name }}
               </button>
-              <div v-if="!searchResults.length && !searchLoading" class="search-no-results">
+              <div v-if="!searchSubmitted && !searchLoading && !searchResults[0]?._coord" class="search-no-results">
+                Press Enter to search places
+              </div>
+              <div v-else-if="!searchResults.length && !searchLoading" class="search-no-results">
                 No results found
               </div>
             </div>
@@ -204,7 +208,7 @@ const { renderMarkers, initClusterGroup, clearAll } = useMarkerLayer(getMap, (ma
 })
 
 // Search
-const { searchQuery, searchResults, searchOpen, searchLoading, onSearchInput, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+const { searchQuery, searchResults, searchOpen, searchLoading, searchSubmitted, clearSearch, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
   getMap,
   () => markersStore.items,
   (marker) => { openedMarker.value = marker },

@@ -22,7 +22,7 @@
         <div v-if="stats.visited > 0" class="stat-row">
           <span class="stat-label">
             Countries visited
-            <span v-if="geocoding" class="geocoding-hint">geocoding…</span>
+            <span v-if="geocoding" class="geocoding-hint">looking up {{ geocodeRemaining }}…</span>
           </span>
           <span class="stat-value">{{ stats.countriesVisited }}</span>
         </div>
@@ -69,15 +69,24 @@
   </div>
 </template>
 
+<script>
+// Background country lookups are shared across openings of this modal and capped per opening.
+const MAX_LOOKUPS_PER_OPEN = 50
+const attempted = new Set()
+let lookupRunning = false
+</script>
+
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useMarkersStore } from '../stores/markers.js'
+import { reverseGeocode, countryName } from '../utils/nominatim.js'
 import AppIcon from './AppIcon.vue'
 
 defineEmits(['close'])
 
 const markersStore = useMarkersStore()
 const geocoding = ref(false)
+const geocodeRemaining = ref(0)
 
 const stats = computed(() => {
   const markers = markersStore.items
@@ -117,24 +126,38 @@ function pct(n, total) {
   return Math.round((n / total) * 100)
 }
 
+const controller = new AbortController()
+onUnmounted(() => controller.abort())
+
 onMounted(async () => {
-  const toGeocode = markersStore.items.filter((m) => m.visited_at && !m.country)
+  if (lookupRunning) return
+  const toGeocode = markersStore.items
+    .filter((m) => m.visited_at && !m.country && !attempted.has(m.id))
+    .slice(0, MAX_LOOKUPS_PER_OPEN)
   if (!toGeocode.length) return
+  lookupRunning = true
   geocoding.value = true
-  for (let i = 0; i < toGeocode.length; i++) {
-    const m = toGeocode[i]
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${m.lat}&lon=${m.lng}&format=json`,
-        { headers: { 'Accept-Language': 'en' } }
-      )
-      const data = await res.json()
-      const country = data.address?.country ?? null
-      await markersStore.patchCountry(m.id, country)
-    } catch {}
-    if (i < toGeocode.length - 1) await new Promise((r) => setTimeout(r, 1100))
+  geocodeRemaining.value = toGeocode.length
+  try {
+    for (const m of toGeocode) {
+      attempted.add(m.id)
+      let country = null
+      try {
+        country = countryName((await reverseGeocode(m.lat, m.lng, { zoom: 3, addressdetails: 1 }, { signal: controller.signal })).address)
+      } catch {
+        if (controller.signal.aborted) return
+      }
+      // Places without a country (e.g. at sea) stay unset and are not retried this session.
+      if (country) {
+        try { await markersStore.patchCountry(m.id, country) }
+        catch { return } // most likely the write rate limit: never compete with the user's own edits
+      }
+      geocodeRemaining.value--
+    }
+  } finally {
+    lookupRunning = false
+    geocoding.value = false
   }
-  geocoding.value = false
 })
 </script>
 

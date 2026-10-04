@@ -1,5 +1,6 @@
 import { ref, getCurrentScope, onScopeDispose } from 'vue'
 import { apiFetch } from '../api.js'
+import { nominatim, countryName } from '../utils/nominatim.js'
 import { markerFields, validLatLng } from '../../../shared/markers.js'
 import { useShareLinksStore } from '../stores/shareLinks.js'
 
@@ -396,12 +397,9 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
         continue
       }
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(row.title)}&format=json&limit=1&addressdetails=1`, { signal: controller.signal }
-        )
-        const data = await res.json()
+        const data = await nominatim('search', { q: row.title, limit: 1, addressdetails: 1 }, { signal: controller.signal })
         if (data.length) {
-          const country = data[0].address?.country ?? null
+          const country = countryName(data[0].address)
           results.push({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label: row.label, description: row.description, country })
         } else {
           failed++
@@ -410,7 +408,6 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
         failed++
       }
       geocodeProgress.value++
-      await new Promise((r) => setTimeout(r, 1100))
     }
 
     geocoding.value = false

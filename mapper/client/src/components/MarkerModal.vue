@@ -270,7 +270,7 @@
         <div class="field coords">
           <span class="coords-mono">{{ latStr }}, {{ lngStr }}</span>
           <label class="checkbox-item coords-toggle" style="margin:0">
-            <input type="checkbox" v-model="useCoordLink" style="width:auto" />
+            <input type="checkbox" v-model="useCoordLink" style="width:auto" @change="useCoordLink && (form.address = '')" />
             use coords
           </label>
         </div>
@@ -300,13 +300,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useMarkersStore } from '../stores/markers.js'
 import { useStyleStore } from '../stores/style.js'
+import { reverseGeocode, formatAddress, countryName } from '../utils/nominatim.js'
 
 const COLOR_PRESETS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
@@ -406,9 +407,9 @@ watch(visitedDate, (val) => {
   if (visitedChecked.value) form.value.visited_at = val || 'yes'
 })
 
-watch(useCoordLink, (val) => {
-  if (val) form.value.address = ''
-})
+// Closing the modal cancels a queued address lookup so it does not hold up later ones.
+const lookup = new AbortController()
+onUnmounted(() => lookup.abort())
 
 onMounted(async () => {
   imageChangeMode.value = false
@@ -433,24 +434,17 @@ onMounted(async () => {
     visitedDate.value = (props.marker.visited_at && props.marker.visited_at !== 'yes') ? props.marker.visited_at.slice(0, 10) : ''
     useCoordLink.value = !!props.marker.use_coords
 
+    imageSearchQuery.value = form.value.label
+    // Markers with a stored address need no lookup (keeps Nominatim traffic low, also for share viewers).
+    if (form.value.address) return
     addressLoading.value = true
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${props.marker.lat}&lon=${props.marker.lng}&format=json&addressdetails=1&namedetails=1&extratags=1`
-      )
-      const data = await res.json()
-      const a = data.address
-      if (a) {
-        const street = [a.house_number, a.road].filter(Boolean).join(' ')
-        const city = a.city || a.town || a.village || a.hamlet || a.municipality
-        const parts = [street, [a.postcode, city].filter(Boolean).join(' '), a.country].filter(Boolean)
-        const geocoded = parts.join(', ') || null
-        addressLine.value = geocoded
-        if (!useCoordLink.value && !form.value.address && geocoded) form.value.address = geocoded
-      }
-
+      const data = await reverseGeocode(props.marker.lat, props.marker.lng, { addressdetails: 1, namedetails: 1 }, { signal: lookup.signal })
+      const geocoded = formatAddress(data.address) || null
+      addressLine.value = geocoded
+      if (!useCoordLink.value && !form.value.address && geocoded) form.value.address = geocoded
       // Pre-fill the image search query with the place name for later use
-      imageSearchQuery.value = data.namedetails?.['name:en'] || data.namedetails?.name || data.name || form.value.label || ''
+      if (!imageSearchQuery.value) imageSearchQuery.value = data.namedetails?.['name:en'] || data.namedetails?.name || data.name || ''
     } catch { /* silent */ }
     finally { addressLoading.value = false }
   } else if (props.latlng) {
@@ -469,18 +463,12 @@ onMounted(async () => {
 
     addressLoading.value = true
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${props.latlng.lat}&lon=${props.latlng.lng}&format=json&addressdetails=1`
-      )
-      const data = await res.json()
-      const a = data.address
-      if (a) {
-        const street = [a.house_number, a.road].filter(Boolean).join(' ')
-        const city = a.city || a.town || a.village || a.hamlet || a.municipality
-        const parts = [street, [a.postcode, city].filter(Boolean).join(' '), a.country].filter(Boolean)
-        const geocoded = parts.join(', ') || null
-        if (!form.value.address && geocoded) form.value.address = geocoded
-      }
+      const data = await reverseGeocode(props.latlng.lat, props.latlng.lng, { addressdetails: 1 }, { signal: lookup.signal })
+      const geocoded = formatAddress(data.address) || null
+      if (!form.value.address && geocoded) form.value.address = geocoded
+      // Stored now so statistics never need to look it up later.
+      const country = countryName(data.address)
+      if (country) form.value.country = country
     } catch { /* silent */ }
     finally { addressLoading.value = false }
   }
