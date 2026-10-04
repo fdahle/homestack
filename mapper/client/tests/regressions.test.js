@@ -351,3 +351,21 @@ test('moving a marker saves only its coordinates and reopens it', async () => {
   assert.equal(state.editingMarker.lat, 48.1)
   app.unmount()
 })
+
+test('saving a place uses its own position, website and Wikipedia article', async () => {
+  const LocationPanel = await component('LocationPanel')
+  const saved = []
+  const poi = { name: 'Museum', lat: 52.37, lon: 4.88, tags: { website: 'https://museum.example', wikipedia: 'nl:Rijksmuseum' } }
+  const { app, state } = mount(LocationPanel, { open: true, latlng: { lat: 52.3, lng: 4.8 }, info: { address: { road: 'Museumstraat', country_code: 'nl', country: 'Nederland' } }, poiData: poi, onSaveAsMarker: e => saved.push(e) })
+  state.saveAsMarker()
+  assert.deepEqual(saved[0].latlng, { lat: 52.37, lng: 4.88 })
+  assert.equal(saved[0].suggestedLabel, 'Museum')
+  assert.deepEqual(saved[0].prefill, { external_url: 'https://museum.example', wikipedia: 'nl:Rijksmuseum' })
+  app.unmount()
+  const plain = mount(LocationPanel, { open: true, latlng: { lat: 52.3, lng: 4.8 }, info: { address: { road: 'Museumstraat', house_number: '1', country_code: 'nl', country: 'Nederland' } }, onSaveAsMarker: e => saved.push(e) })
+  plain.state.saveAsMarker()
+  assert.deepEqual(saved[1].latlng, { lat: 52.3, lng: 4.8 })
+  assert.equal(saved[1].prefill.address, '1 Museumstraat, Nederland')
+  assert.equal(saved[1].prefill.country, 'Netherlands')
+  plain.app.unmount()
+})

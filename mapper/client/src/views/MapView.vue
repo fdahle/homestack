@@ -165,6 +165,7 @@
       :marker="editingMarker"
       :latlng="pendingLatLng"
       :suggested-label="markerSuggestedLabel"
+      :prefill="markerPrefill"
       :save-marker="onMarkerSave"
       :delete-marker="onMarkerDelete"
       @close="closeModal"
@@ -400,7 +401,7 @@ const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLaye
   openMarkerModal(marker)
 })
 const {
-  modalOpen, editingMarker, pendingLatLng, markerSuggestedLabel,
+  modalOpen, editingMarker, pendingLatLng, markerSuggestedLabel, markerPrefill,
   manageOpen, manageType, manageItem, settingsOpen, markerTableOpen, csvImportOpen,
   closeModal, openManageModal, openMarkerModal, openNewMarkerModal,
   onMarkerSave, onMarkerDelete,
@@ -547,9 +548,9 @@ watch(addMode, (val) => {
 
 function toggleAddMode() { addMode.value = !addMode.value }
 
-function handleSaveAsMarker({ latlng, suggestedLabel }) {
+function handleSaveAsMarker({ latlng, suggestedLabel, prefill }) {
   closeLocationPanel()
-  openNewMarkerModal(latlng, suggestedLabel || '')
+  openNewMarkerModal(latlng, suggestedLabel || '', prefill)
 }
 
 function handleOpenSettings() {

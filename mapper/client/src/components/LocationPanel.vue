@@ -111,7 +111,7 @@
         <button
           class="btn-save"
           :disabled="loading"
-          @click="$emit('save-as-marker', { latlng, suggestedLabel })"
+          @click="saveAsMarker"
         >
           + Save as Marker
         </button>
@@ -137,6 +137,7 @@
 
 <script setup>
 import { computed, ref, watch, onUnmounted } from 'vue'
+import { formatAddress, countryName } from '../utils/nominatim.js'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -329,6 +330,22 @@ const googleMapsLink = computed(() => {
     ? `https://www.google.com/maps?q=${encodeURIComponent(addr)}`
     : `https://www.google.com/maps?q=${props.latlng.lat},${props.latlng.lng}`
 })
+
+// A selected place is saved at its own position, with its website and Wikipedia article;
+// without one, the address already looked up for the clicked point is reused.
+function saveAsMarker() {
+  const poi = props.poiData
+  const latlng = poi?.lat != null && poi?.lon != null ? { lat: poi.lat, lng: poi.lon } : props.latlng
+  const prefill = {
+    external_url: safeWebsite.value,
+    wikipedia: poi?.tags?.wikipedia || (!poi && props.info?.extratags?.wikipedia) || null,
+  }
+  if (!poi && props.info?.address) {
+    prefill.address = formatAddress(props.info.address) || null
+    prefill.country = countryName(props.info.address)
+  }
+  emit('save-as-marker', { latlng, suggestedLabel: suggestedLabel.value, prefill })
+}
 
 const suggestedLabel = computed(() => {
   if (props.poiData?.name) return props.poiData.name

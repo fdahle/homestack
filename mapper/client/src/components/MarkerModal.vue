@@ -368,6 +368,8 @@ const props = defineProps({
   marker: { type: Object, default: null },
   latlng: { type: Object, default: null },
   suggestedLabel: { type: String, default: '' },
+  // New markers from a place: { external_url, wikipedia ('lang:Title'), address, country }
+  prefill: { type: Object, default: null },
   readOnly: { type: Boolean, default: false },
   saveMarker: { type: Function, default: null },
   deleteMarker: { type: Function, default: null },
@@ -513,6 +515,11 @@ onMounted(async () => {
     form.value.lng = props.latlng.lng
     form.value.label = props.suggestedLabel || ''
     imageSearchQuery.value = props.suggestedLabel || ''
+    const prefill = props.prefill ?? {}
+    if (prefill.external_url) form.value.external_url = prefill.external_url
+    if (prefill.address) form.value.address = prefill.address
+    if (prefill.country) form.value.country = prefill.country
+    if (prefill.wikipedia) suggestWikipediaImage(prefill.wikipedia)
     const gf = markersStore.activeGroupFilter
     if (gf?.type === 'category' && gf.id !== '__none__') {
       form.value.category_ids = [gf.id]
@@ -522,6 +529,8 @@ onMounted(async () => {
       form.value.person_ids = [gf.id]
     }
 
+    // The location panel already looked up this point: no second request needed.
+    if (form.value.address && form.value.country) return
     addressLoading.value = true
     try {
       const data = await reverseGeocode(props.latlng.lat, props.latlng.lng, { addressdetails: 1 }, { signal: lookup.signal })
@@ -647,6 +656,22 @@ async function searchCommons() {
     imageResultsSource.value = 'commons'
   } catch { imageResults.value = [] }
   finally { imageSearchLoading.value = false }
+}
+
+// Offers the lead image of the place's Wikipedia article (any language) as a suggestion.
+async function suggestWikipediaImage(tag) {
+  const match = /^([a-z][a-z-]{1,11}):(.+)$/.exec(tag)
+  if (!match) return
+  const [, lang, title] = match
+  if (!imageSearchQuery.value) imageSearchQuery.value = title
+  try {
+    const res = await fetch(`https://${lang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=pageimages&pithumbsize=400&format=json&origin=*`, { signal: lookup.signal })
+    const page = Object.values((await res.json()).query?.pages ?? {})[0]
+    if (page?.thumbnail?.source && !form.value.image_url && imageResults.value === null) {
+      imageResults.value = [{ url: page.thumbnail.source, title: page.title }]
+      imageResultsSource.value = 'wiki'
+    }
+  } catch { /* the suggestion is optional */ }
 }
 
 function selectImage(url) {

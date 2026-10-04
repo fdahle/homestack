@@ -8,6 +8,7 @@ export function useModals() {
   const editingMarker = ref(null)
   const pendingLatLng = ref(null)
   const markerSuggestedLabel = ref('')
+  const markerPrefill = ref(null)
 
   const manageOpen = ref(false)
   const manageType = ref('category')
@@ -24,6 +25,7 @@ export function useModals() {
     editingMarker.value = null
     pendingLatLng.value = null
     markerSuggestedLabel.value = ''
+    markerPrefill.value = null
   }
 
   function openManageModal(type, item) {
@@ -39,10 +41,11 @@ export function useModals() {
     modalOpen.value = true
   }
 
-  function openNewMarkerModal(latlng, suggestedLabel = '') {
+  function openNewMarkerModal(latlng, suggestedLabel = '', prefill = null) {
     editingMarker.value = null
     pendingLatLng.value = latlng
     markerSuggestedLabel.value = suggestedLabel
+    markerPrefill.value = prefill
     modalOpen.value = true
   }
 
@@ -65,6 +68,7 @@ export function useModals() {
     editingMarker,
     pendingLatLng,
     markerSuggestedLabel,
+    markerPrefill,
     manageOpen,
     manageType,
     manageItem,
