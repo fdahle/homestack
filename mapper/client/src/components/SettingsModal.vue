@@ -211,6 +211,10 @@
               </button>
             </div>
             <p v-if="backupError" class="msg error">{{ backupError }}</p>
+            <p class="hint">
+              <a href="/api/backup/database" download class="db-download">Download the complete database</a>
+              (.db, includes the account and share links). To restore it, stop the app and replace <code>data/mapper.db</code>.
+            </p>
 
             <!-- Restore state -->
             <template v-if="restoreFile || restoreError || restoreStatus">
@@ -813,6 +817,7 @@ h2 { font-size: 16px; font-weight: 700; }
 .btn-logout:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 
 /* ── Data / Import / Export ── */
+.db-download { color: var(--accent); font-weight: 500; }
 .data-group {
   margin-bottom: 24px;
 }

@@ -1,5 +1,9 @@
 import { validateBackup, MARKER_BACKUP_FIELDS } from '../utils/backup.js'
 import { Router } from 'express'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import db from '../db.js'
 import { requireAuth } from '../middleware/auth.js'
 
@@ -53,6 +57,19 @@ router.get('/', (_req, res) => {
     markers,
     trip_waypoints,
   })
+})
+
+// Consistent snapshot of the whole SQLite database (account and share links included),
+// safe to take while the app is running.
+router.get('/database', (_req, res, next) => {
+  const file = join(tmpdir(), `mapper-snapshot-${randomBytes(8).toString('hex')}.db`)
+  try {
+    db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`)
+  } catch (err) {
+    rm(file, { force: true }).catch(() => {})
+    return next(err)
+  }
+  res.download(file, `mapper-${new Date().toISOString().slice(0, 10)}.db`, () => rm(file, { force: true }).catch(() => {}))
 })
 
 router.post('/restore', (req, res) => {

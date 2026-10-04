@@ -74,7 +74,7 @@ server {
 
 The SQLite database is stored in `./data/mapper.db` (mounted as a Docker volume). For a live backup, use Settings → Backup. JSON backups include markers, categories, collections, persons, and trip routes; they exclude the account, share links, and browser preferences. Restoring revokes existing share links.
 
-For a complete database backup including the account and share links, stop the app (`docker compose stop`), copy the entire `data` directory (including any SQLite WAL files), then restart it (`docker compose start`). Do not copy just the main database file while the app is writing to it.
+For a complete database backup including the account and share links, use Settings → Data → "Download the complete database" (a consistent snapshot taken while the app runs), or stop the app (`docker compose stop`) and copy the entire `data` directory (including any SQLite WAL files). Do not copy just the main database file while the app is writing to it. To restore a database file, stop the app, replace `data/mapper.db` (and delete any `mapper.db-wal`/`mapper.db-shm`), then start it again.
 
 ### Forgotten password
 
