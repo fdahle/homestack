@@ -237,3 +237,16 @@ test('share links: date-only expiry lasts the whole day, passwords travel in the
   for (let i = 0; i < 10; i++) assert.equal((await request(`public/share/${share.token}/data`, 'POST', { password: 'wrong-guess' }, '')).status, 403)
   assert.equal((await request(`public/share/${share.token}/data`, 'POST', { password }, '')).status, 429)
 })
+
+test('public shares include route segments of shared trips between shared markers only', async () => {
+  const trip = await createTrip()
+  const ids = []
+  for (const position of [1, 2, 3]) ids.push((await request('markers', 'POST', { ...marker, label: 'Stop ' + position, collection_ids: [trip.id], collection_positions: { [trip.id]: position } })).data.id)
+  await request(`collections/${trip.id}/segments/${ids[0]}/${ids[1]}`, 'PUT', { mode: 'bike', via_points: [{ lat: 52.1, lng: 5.1 }] })
+  await request(`collections/${trip.id}/segments/${ids[1]}/${ids[2]}`, 'PUT', { mode: 'drive', via_points: [] })
+  const share = (await request('share-links', 'POST', { filter: { markers: [ids[0], ids[1]] } })).data
+  const data = (await request(`public/share/${share.token}/data`, 'GET', undefined, '')).data
+  assert.equal(data.segments.length, 1)
+  assert.deepEqual(data.segments[0].via_points, [{ lat: 52.1, lng: 5.1 }])
+  assert.equal(data.segments[0].mode, 'bike')
+})

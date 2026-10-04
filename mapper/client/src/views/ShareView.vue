@@ -107,6 +107,8 @@
           <AppIcon name="hamburger" />
         </button>
 
+        <TripSummaryChip v-if="tripSummary" :summary="tripSummary" />
+
       </div>
 
       <!-- Mobile backdrop -->
@@ -155,6 +157,8 @@ import AppIcon from '../components/AppIcon.vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import MarkerModal from '../components/MarkerModal.vue'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
+import { useTripRouteLayer } from '../composables/useTripRouteLayer.js'
+import TripSummaryChip from '../components/TripSummaryChip.vue'
 import { useSearch } from '../composables/useSearch.js'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
@@ -182,6 +186,12 @@ const openedMarker = ref(null)
 const mapEl = ref(null)
 let map = null
 let tileLayer = null
+
+// Trip routes come with the share payload: { collectionId: { 'fromId-toId': segment } }
+let sharedSegments = {}
+const { tripSummary, render: renderTripRoute, dispose: disposeTripRoute } = useTripRouteLayer(() => map, {
+  getSegments: async (collectionId) => sharedSegments[collectionId] ?? {},
+})
 
 // Tile switcher
 const currentTile = ref('osm')
@@ -232,7 +242,10 @@ async function fetchData(password, signal) {
 async function loadMap(data, id) {
   shareMeta.value = data.meta
   clearAll()
+  disposeTripRoute()
   if (map) { map.remove(); map = null }
+  sharedSegments = {}
+  for (const s of data.segments ?? []) (sharedSegments[s.collection_id] ??= {})[`${s.from_marker_id}-${s.to_marker_id}`] = s
   markersStore.items = data.markers
   markersStore.activeGroupFilter = null
   markersStore.visitedFilter = 'all'
@@ -254,6 +267,7 @@ async function loadMap(data, id) {
 
   initClusterGroup(s?.cluster !== false)
   renderMarkers(markersStore.filtered)
+  renderTripRoute()
 
   if (markersStore.items.length > 0) {
     const bounds = L.latLngBounds(markersStore.items.map((m) => [m.lat, m.lng]))
@@ -287,6 +301,7 @@ watch(() => route.params.token, () => {
   openedMarker.value = null
   passwordInput.value = ''
   clearAll()
+  disposeTripRoute()
   if (map) { map.remove(); map = null }
   markersStore.$reset()
   categoriesStore.items = []; collectionsStore.items = []; personsStore.items = []
@@ -297,6 +312,7 @@ onUnmounted(() => {
   requestId++
   requestAbort?.abort()
   clearAll()
+  disposeTripRoute()
   if (map) { map.remove(); map = null }
   cleanupSearch()
   markersStore.$reset()

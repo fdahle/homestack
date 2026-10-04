@@ -113,13 +113,7 @@
       ><AppIcon name="undo" /> Undo</button>
 
 <!-- Active trip: distance, duration and GPX export -->
-      <div v-if="tripSummary" class="trip-summary" role="status">
-        <AppIcon name="trip" />
-        <span>
-          {{ formatDistance(tripSummary.distance) }}<template v-if="!tripSummary.routed"> (straight)</template><template v-if="tripSummary.duration != null"> · {{ formatDuration(tripSummary.duration) }}</template>
-        </span>
-        <button type="button" class="trip-gpx-btn" title="Download the trip as GPX" @click="downloadGpx">GPX</button>
-      </div>
+      <TripSummaryChip v-if="tripSummary" :summary="tripSummary" />
 
 <!-- Add marker FAB -->
       <button
@@ -210,7 +204,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { loadSettings } from '../utils/settings.js'
-import { COLOR_MODES, tileOptions, tooltipText, safeHex } from '../utils/mapStyle.js'
+import { COLOR_MODES, tileOptions, tooltipText } from '../utils/mapStyle.js'
 import AppIcon from '../components/AppIcon.vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -232,9 +226,10 @@ import { useLocationPanel } from '../composables/useLocationPanel.js'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
 import { useModals } from '../composables/useModals.js'
 import { useStyleStore } from '../stores/style.js'
-import { loadSegments, saveSegment, fetchSegmentRoute } from '../composables/useTripRouting.js'
+import { loadSegments, saveSegment } from '../composables/useTripRouting.js'
 import { useMapControl } from '../composables/useMapControl.js'
-import { haversineMeters, formatDistance, formatDuration, summarizeLegs, buildGpx, gpxFilename } from '../utils/trip.js'
+import { useTripRouteLayer } from '../composables/useTripRouteLayer.js'
+import TripSummaryChip from '../components/TripSummaryChip.vue'
 
 const styleStore = useStyleStore()
 const markersStore = useMarkersStore()
@@ -246,18 +241,12 @@ const mapEl = ref(null)
 let map = null
 let clickTimer = null
 let disposed = false
-let routeAbort = null
 const mapLoading = ref(false)
 const mapLoadError = ref('')
-const routeError = ref('')
 const routeEditBusy = ref(false)
 const getMap = () => map
-let routePolylines = []
 let csvPreviewLayer = null
-let routeHandles = []
-let renderToken = 0
 const undoStack = ref([])
-const tripSummary = ref(null)
 
 // Settings state (stays in MapView — it needs direct map access)
 const savedSettings = ref(null)
@@ -287,33 +276,10 @@ const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 640 
 
 const displayMarkers = computed(() => markersStore.filtered)
 
-const tripRouteMarkers = computed(() => {
-  const filter = markersStore.activeGroupFilter
-  if (!filter || filter.type !== 'collection' || filter.id === '__none__') return null
-  const col = collectionsStore.items.find((c) => c.id === filter.id)
-  if (!col?.is_trip || (!col?.show_route_line && !col?.show_exact_route)) return null
-  return markersStore.filtered
-    .map((m) => ({ m, pos: m.collections.find((c) => c.id === filter.id)?.position ?? null }))
-    .filter(({ pos }) => pos !== null)
-    .sort((a, b) => a.pos - b.pos)
-    .map(({ m }) => m)
+const { tripSummary, routeError, render: renderTripRoute, dispose: disposeTripRoute } = useTripRouteLayer(getMap, {
+  getSegments: loadSegments,
+  onEdit: applyRouteEdit,
 })
-
-// Re-route only when the trip's stops, their coordinates or the route settings change,
-// not whenever any marker object is replaced.
-const tripRouteKey = computed(() => {
-  const markers = tripRouteMarkers.value
-  if (!markers) return ''
-  const col = collectionsStore.items.find((c) => c.id === markersStore.activeGroupFilter?.id)
-  return JSON.stringify([col?.id, col?.color, col?.show_route_line, col?.show_exact_route, markers.map((m) => [m.id, m.lat, m.lng])])
-})
-
-function clearRouteLayer() {
-  routePolylines.forEach(p => p.remove())
-  routeHandles.forEach(h => h.remove())
-  routePolylines = []
-  routeHandles = []
-}
 
 function pushUndo(colId, fromId, toId, viaPoints) {
   undoStack.value = [...undoStack.value, { colId, fromId, toId, via_points: [...viaPoints] }]
@@ -343,146 +309,6 @@ async function undoRouteEdit() {
   } catch (err) { routeError.value = err.message }
   finally { routeEditBusy.value = false }
   if (!disposed) await renderTripRoute()
-}
-
-async function renderTripRoute() {
-  routeAbort?.abort()
-  routeAbort = new AbortController()
-  const signal = routeAbort.signal
-  const token = ++renderToken
-  clearRouteLayer()
-  tripSummary.value = null
-  if (!map) return
-  const markers = tripRouteMarkers.value
-  if (!markers || markers.length < 2) return
-
-  const colId = markersStore.activeGroupFilter?.id
-  const col = collectionsStore.items.find((c) => c.id === colId)
-  const color = safeHex(col?.color || '#3b82f6')
-  const showStraight = !!col?.show_route_line
-  const showExact = !!col?.show_exact_route
-
-  let segmentMap
-  try { segmentMap = await loadSegments(colId, signal) } catch (err) { if (!signal.aborted) routeError.value = err.message; return }
-  if (token !== renderToken) return
-  const legs = []
-
-  for (let i = 0; i < markers.length - 1; i++) {
-    const from = markers[i]
-    const to   = markers[i + 1]
-    const seg  = segmentMap[`${from.id}-${to.id}`]
-    const viaPoints = seg?.via_points || []
-    const straightPath = [[from.lat, from.lng], [to.lat, to.lng]]
-    const leg = { path: straightPath, distance: haversineMeters(from, to), duration: null }
-    legs.push(leg)
-
-    // Straight reference line
-    if (showStraight) {
-      const straight = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
-        color, weight: showExact ? 2 : 3, opacity: showExact ? 0.4 : 0.8, dashArray: showExact ? '6,5' : null,
-      }).addTo(map)
-      routePolylines.push(straight)
-    }
-
-    if (showExact) {
-      let routedPath = straightPath
-      const mode = seg?.mode || 'walk'
-      try {
-        const route = await fetchSegmentRoute(from, to, viaPoints, mode, signal)
-        routedPath = route.path
-        Object.assign(leg, { path: route.path, distance: route.distance ?? leg.distance, duration: route.duration })
-      } catch (err) { if (!signal.aborted) routeError.value = 'Route unavailable; showing a straight line. ' + err.message }
-      if (token !== renderToken) return
-      if (!map) return
-
-      const routedPoly = L.polyline(routedPath, { color, weight: 4, opacity: 0.88 }).addTo(map)
-      routedPoly.bindTooltip([formatDistance(leg.distance), formatDuration(leg.duration), MODE_LABELS[mode]].filter(Boolean).join(' · '), { sticky: true })
-      routePolylines.push(routedPoly)
-
-      // Click on the routed line to insert a via-point
-      routedPoly.on('click', async (e) => {
-        L.DomEvent.stopPropagation(e)
-        const clickLat = e.latlng.lat
-        const clickLng = e.latlng.lng
-        const allWps = [{ lat: from.lat, lng: from.lng }, ...viaPoints, { lat: to.lat, lng: to.lng }]
-        let bestIdx = 0, bestDist = Infinity
-        for (let k = 0; k < allWps.length - 1; k++) {
-          const d = (clickLat - (allWps[k].lat + allWps[k+1].lat)/2)**2 + (clickLng - (allWps[k].lng + allWps[k+1].lng)/2)**2
-          if (d < bestDist) { bestDist = d; bestIdx = k }
-        }
-        const newVia = [...viaPoints]
-        newVia.splice(bestIdx, 0, { lat: +clickLat.toFixed(6), lng: +clickLng.toFixed(6) })
-        await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
-      })
-
-      // Existing via-point handles: drag to move, click to delete
-      for (let j = 0; j < viaPoints.length; j++) {
-        const vp = viaPoints[j]
-        const capturedJ = j
-        const vpHandle = L.marker([vp.lat, vp.lng], {
-          draggable: true,
-          title: 'Drag to move · Click to delete',
-          icon: L.divIcon({
-            className: '',
-            html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;cursor:grab;box-shadow:0 1px 5px rgba(0,0,0,0.45)"></div>`,
-            iconSize: [14, 14],
-            iconAnchor: [7, 7],
-          }),
-        }).addTo(map)
-        vpHandle.on('dragend', async (e) => {
-          const p = e.target.getLatLng()
-            const newVia = viaPoints.map((v, k) => k === capturedJ ? { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) } : v)
-          await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
-        })
-        vpHandle.on('click', async (ev) => {
-          L.DomEvent.stopPropagation(ev)
-            const newVia = viaPoints.filter((_, k) => k !== capturedJ)
-          await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
-        })
-        routeHandles.push(vpHandle)
-      }
-
-      // Ghost "add" handles at midpoints between consecutive waypoints
-      const allWps = [{ lat: from.lat, lng: from.lng }, ...viaPoints, { lat: to.lat, lng: to.lng }]
-      for (let j = 0; j < allWps.length - 1; j++) {
-        const midLat = (allWps[j].lat + allWps[j+1].lat) / 2
-        const midLng = (allWps[j].lng + allWps[j+1].lng) / 2
-        const capturedJ = j
-        const addHandle = L.marker([midLat, midLng], {
-          draggable: true,
-          title: 'Drag to add a waypoint here',
-          icon: L.divIcon({
-            className: '',
-            html: `<div style="width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid ${color};opacity:0.75;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>`,
-            iconSize: [10, 10],
-            iconAnchor: [5, 5],
-          }),
-          zIndexOffset: -100,
-        }).addTo(map)
-        addHandle.on('dragend', async (e) => {
-          const p = e.target.getLatLng()
-            const newVia = [...viaPoints]
-          newVia.splice(capturedJ, 0, { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) })
-          await applyRouteEdit(colId, from.id, to.id, seg?.mode || 'walk', newVia, viaPoints)
-        })
-        routeHandles.push(addHandle)
-      }
-    }
-  }
-  if (token !== renderToken) return
-  tripSummary.value = { name: col?.name || 'Trip', stops: markers, legs, routed: showExact, ...summarizeLegs(legs) }
-}
-
-const MODE_LABELS = { walk: 'walking', hike: 'hiking', bike: 'cycling', drive: 'driving' }
-
-function downloadGpx() {
-  const trip = tripSummary.value
-  if (!trip) return
-  const blob = new Blob([buildGpx(trip.name, trip.stops, trip.legs)], { type: 'application/gpx+xml' })
-  const url = URL.createObjectURL(blob)
-  const a = Object.assign(document.createElement('a'), { href: url, download: gpxFilename(trip.name) })
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 async function openSidebar() {
@@ -608,12 +434,10 @@ onMounted(initializeMap)
 
 onUnmounted(() => {
   disposed = true
-  renderToken++
-  routeAbort?.abort()
+  disposeTripRoute()
   closeLocationPanel()
   document.body.style.overscrollBehaviorY = ''
   clearTimeout(clickTimer)
-  clearRouteLayer()
   if (map) { map.remove(); map = null }
   window.removeEventListener('keydown', onKeyDown)
   cleanupSearch()
@@ -690,7 +514,6 @@ watch(() => styleStore.colorMode, () => {
 
 watch(() => markersStore.revision, () => { undoStack.value = []; closeModal(); manageOpen.value = false; renderTripRoute() })
 
-watch(tripRouteKey, () => renderTripRoute())
 watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 </script>
 
@@ -959,40 +782,6 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 .cm-option:last-child { border-bottom: none; }
 .cm-option:hover { background: var(--surface-2); color: var(--text); }
 .cm-option.active { color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
-
-.trip-summary {
-  position: absolute;
-  bottom: calc(22px + var(--sab, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 6px 6px 12px;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: var(--shadow-lg);
-  white-space: nowrap;
-}
-.trip-gpx-btn {
-  padding: 3px 10px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.trip-gpx-btn:hover { background: var(--border); }
-@media (max-width: 640px) {
-  .trip-summary { left: auto; right: 10px; transform: none; bottom: calc(76px + var(--sab, 0px)); }
-}
 
 .undo-btn {
   position: absolute;

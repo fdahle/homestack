@@ -63,7 +63,20 @@ async function shareData(req, res, next) {
     const collections = unique('collections').map(({ position: _position, ...c }) => c)
     const persons = unique('persons')
 
-    res.json({ meta, markers, categories, collections, persons })
+    // Route segments of shared trips, limited to legs between shared markers.
+    const shared = new Set(markers.map(m => m.id))
+    const tripIds = collections.filter(c => c.is_trip).map(c => c.id)
+    const segments = tripIds.length
+      ? db.prepare('SELECT collection_id, from_marker_id, to_marker_id, mode, via_points FROM trip_waypoints WHERE collection_id IN (SELECT value FROM json_each(?))').all(JSON.stringify(tripIds))
+        .filter(s => shared.has(s.from_marker_id) && shared.has(s.to_marker_id))
+        .map(s => {
+          let via_points
+          try { via_points = JSON.parse(s.via_points) } catch { via_points = [] }
+          return { ...s, via_points }
+        })
+      : []
+
+    res.json({ meta, markers, categories, collections, persons, segments })
   } catch (err) {
     next(err)
   }

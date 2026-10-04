@@ -153,6 +153,7 @@ async function component(name, folder = 'components') {
       if (specifier === 'leaflet') target = 'data:text/javascript,export default new Proxy({}, {get(_, key) {return globalThis.__testLeaflet[key]}})'
       if (specifier === 'vue-router') target = 'data:text/javascript,export const useRoute = () => globalThis.__testRoute'
       if (specifier.endsWith('useMarkerLayer.js')) target = 'data:text/javascript,export const useMarkerLayer = () => ({renderMarkers(){}, initClusterGroup(){}, reconfigureClustering(){}, clearAll(){}})'
+      if (specifier.endsWith('useTripRouteLayer.js')) target = 'data:text/javascript,' + encodeURIComponent(`import { ref } from ${JSON.stringify(import.meta.resolve('vue'))}; export const useTripRouteLayer = () => ({ tripSummary: ref(null), routeError: ref(''), render() { globalThis.__routeRenders = (globalThis.__routeRenders || 0) + 1 }, dispose() { globalThis.__routeDisposed = true } })`)
       if (specifier.endsWith('useLocationPanel.js')) target = 'data:text/javascript,' + encodeURIComponent(`import { ref } from ${JSON.stringify(import.meta.resolve('vue'))}; export const useLocationPanel = () => ({ locationPanelOpen:ref(false), locationLatLng:ref(null), locationInfo:ref(null),locationLoading:ref(false),locationError:ref(null),poiData:ref(null),poiLoading:ref(false),poiError:ref(null),poiAlternatives:ref([]),openLocationPanel(){},closeLocationPanel(){},selectAlternativePoi(){} })`)
     }
     return 'from ' + JSON.stringify(target)
