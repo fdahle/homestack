@@ -171,6 +171,7 @@ import { useMarkersStore } from '../stores/markers.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useCategoriesStore } from '../stores/categories.js'
+import { searchTerms, matchesTerms } from '../utils/markerSearch.js'
 
 defineEmits(['close', 'open-marker'])
 const markersStore     = useMarkersStore()
@@ -187,9 +188,9 @@ const savingIds   = ref(new Set())
 const saveError = ref('')
 
 const filteredMarkers = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  if (!q) return markersStore.items
-  return markersStore.items.filter(m => (m.label || '').toLowerCase().includes(q))
+  const terms = searchTerms(search.value)
+  if (!terms.length) return markersStore.items
+  return markersStore.items.filter(m => matchesTerms(m, terms))
 })
 
 const page = ref(1)

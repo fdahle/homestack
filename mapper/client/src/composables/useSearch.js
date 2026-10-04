@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { nominatim } from '../utils/nominatim.js'
+import { searchMarkers } from '../utils/markerSearch.js'
 
 const COORD_RE = /^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/
 
@@ -45,14 +46,7 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
 
   function buildMarkerResults(q) {
     if (!getMarkers) return []
-    const ql = q.toLowerCase()
-    return getMarkers()
-      .filter((m) =>
-        (m.label || '').toLowerCase().includes(ql) ||
-        (m.description || '').toLowerCase().includes(ql) ||
-        (m.address || '').toLowerCase().includes(ql)
-      )
-      .slice(0, 3)
+    return searchMarkers(getMarkers(), q, 5)
       .map((m) => ({
         place_id: `__marker__${m.id}`,
         display_name: m.label || `${Number(m.lat).toFixed(4)}, ${Number(m.lng).toFixed(4)}`,

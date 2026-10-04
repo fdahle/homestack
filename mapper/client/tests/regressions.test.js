@@ -388,3 +388,16 @@ test('deleting a marker offers undo, which restores it from the trash', async ()
   assert.equal(store.lastDeleted, null)
   assert.ok(calls.includes('GET /api/persons'))
 })
+
+test('marker search ignores accents, matches all words across fields and ranks label matches first', async () => {
+  const { searchMarkers } = await import('../src/utils/markerSearch.js')
+  const markers = [
+    { id: 1, label: 'Lunch spot', description: 'Great café near the Hôtel de Ville', categories: [{ name: 'Food' }] },
+    { id: 2, label: 'Café de Flore', address: 'Paris', categories: [] },
+    { id: 3, label: 'Museum', country: 'France', persons: [{ name: 'Zoë' }] },
+  ]
+  assert.deepEqual(searchMarkers(markers, 'cafe').map(m => m.id), [2, 1])
+  assert.deepEqual(searchMarkers(markers, 'hotel food').map(m => m.id), [1])
+  assert.deepEqual(searchMarkers(markers, 'zoe france').map(m => m.id), [3])
+  assert.deepEqual(searchMarkers(markers, '   '), [])
+})

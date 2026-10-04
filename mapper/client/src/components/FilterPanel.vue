@@ -298,6 +298,7 @@ import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useStyleStore } from '../stores/style.js'
+import { searchTerms, matchesTerms } from '../utils/markerSearch.js'
 
 const props = defineProps({
   readOnly: { type: Boolean, default: false },
@@ -570,13 +571,8 @@ function tripPosition(m) {
 
 const detailMarkers = computed(() => {
   let markers = markersStore.filtered
-  const q = detailQuery.value.trim().toLowerCase()
-  if (q) {
-    markers = markers.filter((m) =>
-      (m.label || '').toLowerCase().includes(q) ||
-      (m.description || '').toLowerCase().includes(q)
-    )
-  }
+  const terms = searchTerms(detailQuery.value)
+  if (terms.length) markers = markers.filter((m) => matchesTerms(m, terms))
   const copy = [...markers]
   if (sortBy.value === 'name') return copy.sort((a, b) => (a.label || '').localeCompare(b.label || ''))
   if (sortBy.value === 'visited') {
