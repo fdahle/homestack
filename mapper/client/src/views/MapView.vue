@@ -448,12 +448,12 @@ async function closeSidebar() {
 const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, clearSearch, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
   getMap,
   () => markersStore.filtered,
-  (marker) => { closeLocationPanel(); addMode.value = false; openMarkerModal(marker) },
 )
 
+// Search results only move the map; clicking the spot or marker opens details.
 function handleSearchSelect(r) {
-  const latlng = selectResult(r)
-  if (!r._marker) openLocationPanel(latlng)
+  closeLocationPanel()
+  selectResult(r)
 }
 const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, locationError, poiData, poiLoading, poiError, poiStatus, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
 const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLayer(getMap, (marker) => {

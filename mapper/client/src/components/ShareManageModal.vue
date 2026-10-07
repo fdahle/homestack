@@ -13,15 +13,16 @@
             No share links yet. Create one to let others view your markers.
           </div>
 
-          <div v-for="link in store.items" :key="link.token" class="link-row">
+          <div v-for="link in store.items" :key="link.token" class="link-row" :class="{ expired: isExpired(link) }">
             <div class="link-info">
               <div class="link-name">
                 {{ link.name || 'Untitled link' }}
                 <AppIcon v-if="link.hasPassword" name="lock" class="lock-icon" title="Password protected" />
+                <span v-if="isExpired(link)" class="expired-badge">Expired</span>
               </div>
               <div class="link-meta">
                 {{ link.markerCount }} marker{{ link.markerCount === 1 ? '' : 's' }}
-                <template v-if="link.expiresAt"> · Expires {{ formatDate(link.expiresAt) }}</template>
+                <template v-if="link.expiresAt"> · {{ isExpired(link) ? 'Expired' : 'Expires' }} {{ formatDate(link.expiresAt) }}</template>
               </div>
             </div>
             <div class="link-actions">
@@ -118,7 +119,7 @@
 
           <div class="field">
             <label>Expiry date <span class="optional">(optional)</span></label>
-            <input v-model="form.expiresAt" type="date" :min="todayStr" />
+            <input v-model="form.expiresAt" type="date" :min="form.expiresAt && form.expiresAt < todayStr ? undefined : todayStr" />
           </div>
 
           <p v-if="error" class="error">{{ error }}</p>
@@ -175,7 +176,7 @@ const listError = ref(null)
 
 // Expiry dates are picked in local time and stored as the end of that local day.
 const localDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-const isDateOnly = (value) => /^d{4}-d{2}-d{2}$/.test(value)
+const isDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const parseLocalDay = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d) }
 const endOfLocalDay = (day) => { const date = parseLocalDay(day); date.setHours(23, 59, 59, 999); return date.toISOString() }
 const todayStr = localDay(new Date())
@@ -206,6 +207,12 @@ function shareUrl(token) {
 
 function formatDate(value) {
   return (isDateOnly(value) ? parseLocalDay(value) : new Date(value)).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function isExpired(link) {
+  if (!link.expiresAt) return false
+  const end = isDateOnly(link.expiresAt) ? endOfLocalDay(link.expiresAt) : link.expiresAt
+  return new Date(end) < new Date()
 }
 
 async function copyLink(token) {
@@ -407,6 +414,20 @@ form { display: flex; flex-direction: column; gap: 0; }
 }
 
 .lock-icon { color: var(--text-2); flex-shrink: 0; }
+
+.link-row.expired .link-name { color: var(--text-2); }
+
+.expired-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
 
 .link-meta { font-size: 12px; color: var(--text-2); margin-top: 2px; }
 
