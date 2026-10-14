@@ -155,6 +155,7 @@ import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useDialog } from '../composables/useDialog.js'
+import { copyText } from '../utils/clipboard.js'
 
 const emit = defineEmits(['close'])
 
@@ -228,17 +229,7 @@ function isExpired(link) {
 async function copyLink(token) {
   listError.value = null
   try {
-    // navigator.clipboard only exists on HTTPS/localhost; fall back for plain-HTTP LAN setups.
-    if (navigator.clipboard) await navigator.clipboard.writeText(shareUrl(token))
-    else {
-      const area = Object.assign(document.createElement('textarea'), { value: shareUrl(token), readOnly: true })
-      area.style.cssText = 'position:fixed;opacity:0'
-      document.body.appendChild(area)
-      area.select()
-      const ok = document.execCommand('copy')
-      area.remove()
-      if (!ok) throw new Error()
-    }
+    await copyText(shareUrl(token))
   } catch {
     const message = 'Could not copy automatically. Copy this link manually: ' + shareUrl(token)
     if (showForm.value) error.value = message

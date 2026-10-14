@@ -13,6 +13,15 @@
             :title="form.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
             @click="toggleFavorite"
           >♥</button>
+          <button
+            v-if="viewing"
+            type="button"
+            class="share-btn"
+            :class="{ done: shareCopied }"
+            :aria-label="shareCopied ? 'Copied' : 'Share this place'"
+            :title="shareCopied ? 'Copied to clipboard' : 'Share this place'"
+            @click="sharePlace"
+          ><AppIcon :name="shareCopied ? 'check' : 'share'" /></button>
           <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
         </div>
       </div>
@@ -369,6 +378,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { copyText } from '../utils/clipboard.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
@@ -655,6 +665,30 @@ const googleMapsHref = computed(() => {
 
 function setPosition(collectionId, value) {
   const num = value === '' ? null : parseInt(value, 10)
+// Shares one place without creating a share link: the phone's share sheet where available,
+// otherwise name, address and map link go to the clipboard.
+const shareCopied = ref(false)
+let shareCopiedTimer = null
+onUnmounted(() => clearTimeout(shareCopiedTimer))
+async function sharePlace() {
+  error.value = null
+  const title = form.value.label?.trim() || 'Place'
+  const address = form.value.address || addressLine.value || ''
+  const url = googleMapsHref.value
+  if (navigator.share) {
+    try { return await navigator.share({ title, text: [title, address].filter(Boolean).join('\n'), url }) }
+    catch (err) { if (err.name === 'AbortError') return } // closed by the user; other errors fall back to copying
+  }
+  try {
+    await copyText([title, address, url].filter(Boolean).join('\n'))
+    shareCopied.value = true
+    clearTimeout(shareCopiedTimer)
+    shareCopiedTimer = setTimeout(() => { shareCopied.value = false }, 2000)
+  } catch {
+    error.value = `Could not copy automatically. Map link: ${url}`
+  }
+}
+
   form.value.collection_positions = {
     ...form.value.collection_positions,
     [collectionId]: (value === '' || isNaN(num)) ? null : num,
@@ -867,6 +901,16 @@ h2 {
 .fav-btn.active { color: #e11d48; opacity: 1; }
 
 .view-badges {
+.share-btn {
+  display: flex;
+  align-items: center;
+  background: none;
+  color: var(--text-2);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.share-btn:hover { background: var(--surface-2); color: var(--text); }
+.share-btn.done { color: var(--accent); }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
