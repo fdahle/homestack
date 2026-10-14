@@ -230,7 +230,9 @@
         <div class="field">
           <label>Collections</label>
           <div class="checkbox-list">
-            <div v-for="col in collectionsStore.items" :key="col.id" class="collection-row">
+            <template v-for="(col, i) in collectionChoices.items" :key="col.id">
+            <hr v-if="i > 0 && i === collectionChoices.recentCount" class="recent-divider" />
+            <div class="collection-row">
               <label class="checkbox-item">
                 <input
                   type="checkbox"
@@ -254,6 +256,7 @@
                 <span v-if="hasDuplicate(col.id)" class="stop-warning" title="This stop number is already used in this trip">⚠</span>
               </div>
             </div>
+            </template>
             <span v-if="collectionsStore.items.length === 0" class="empty-hint">No collections yet</span>
           </div>
         </div>
@@ -261,11 +264,14 @@
         <div class="field">
           <label>Categories</label>
           <div class="checkbox-list">
-            <label v-for="cat in categoriesStore.items" :key="cat.id" class="checkbox-item">
-              <input type="checkbox" :value="cat.id" v-model="form.category_ids" style="width:auto" />
-              <span class="dot" :style="{ background: cat.color }" />
-              {{ cat.name }}
-            </label>
+            <template v-for="(cat, i) in categoryChoices.items" :key="cat.id">
+              <hr v-if="i > 0 && i === categoryChoices.recentCount" class="recent-divider" />
+              <label class="checkbox-item">
+                <input type="checkbox" :value="cat.id" v-model="form.category_ids" style="width:auto" />
+                <span class="dot" :style="{ background: cat.color }" />
+                {{ cat.name }}
+              </label>
+            </template>
             <span v-if="categoriesStore.items.length === 0" class="empty-hint">No categories yet</span>
           </div>
         </div>
@@ -273,11 +279,14 @@
         <div class="field">
           <label>With</label>
           <div class="checkbox-list">
-            <label v-for="person in personsStore.items" :key="person.id" class="checkbox-item">
-              <input type="checkbox" :value="person.id" v-model="form.person_ids" style="width:auto" />
-              <span class="dot" :style="{ background: person.color }" />
-              {{ person.name }}
-            </label>
+            <template v-for="(person, i) in personChoices.items" :key="person.id">
+              <hr v-if="i > 0 && i === personChoices.recentCount" class="recent-divider" />
+              <label class="checkbox-item">
+                <input type="checkbox" :value="person.id" v-model="form.person_ids" style="width:auto" />
+                <span class="dot" :style="{ background: person.color }" />
+                {{ person.name }}
+              </label>
+            </template>
             <span v-if="personsStore.items.length === 0" class="empty-hint">No persons yet</span>
           </div>
         </div>
@@ -361,6 +370,7 @@ import { usePersonsStore } from '../stores/persons.js'
 import { useMarkersStore } from '../stores/markers.js'
 import { useStyleStore } from '../stores/style.js'
 import { reverseGeocode, formatAddress, countryName } from '../utils/nominatim.js'
+import { rememberPicks, recentPicks, recentFirst } from '../utils/recentPicks.js'
 
 const COLOR_PRESETS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
@@ -432,6 +442,12 @@ const effectiveColor = computed(() =>
 const selectedCollections = computed(() =>
   collectionsStore.items.filter((c) => form.value.collection_ids.includes(c.id))
 )
+
+// Recently picked entries come first, above a divider; the order is fixed while the form is open.
+const recent = recentPicks()
+const collectionChoices = computed(() => recentFirst(collectionsStore.items, recent.collection_ids))
+const categoryChoices = computed(() => recentFirst(categoriesStore.items, recent.category_ids))
+const personChoices = computed(() => recentFirst(personsStore.items, recent.person_ids))
 
 const displayImage = computed(() => form.value.image_url || null)
 
@@ -709,6 +725,11 @@ async function save() {
       planned_at: visitedChecked.value ? null : form.value.planned_at || null,
       external_url: normalizeUrl(form.value.external_url),
       use_coords: useCoordLink.value,
+    })
+    rememberPicks(form.value, {
+      collection_ids: props.marker?.collections?.map((c) => c.id),
+      category_ids: props.marker?.categories?.map((c) => c.id),
+      person_ids: props.marker?.persons?.map((p) => p.id),
     })
   } catch (err) {
     error.value = err.message
@@ -1162,6 +1183,12 @@ textarea { resize: vertical; }
   margin-left: 4px;
   display: flex;
   align-items: center;
+}
+
+.recent-divider {
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 2px 0;
 }
 
 .checkbox-list {
