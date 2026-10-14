@@ -1,8 +1,8 @@
 <template>
-  <div class="csv-panel">
+  <div ref="dialogEl" class="csv-panel" role="dialog" aria-labelledby="csv-import-title" tabindex="-1">
     <div class="panel-header">
-      <h2>Import Google Maps CSV</h2>
-      <button class="close-btn" @click="handleClose"><AppIcon name="close" /></button>
+      <h2 id="csv-import-title">Import Google Maps CSV</h2>
+      <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
     </div>
 
     <!-- Phase: Select & Geocode -->
@@ -19,7 +19,7 @@
         <div class="file-summary">
           <span class="file-name">{{ csvFiles.length === 1 ? csvFiles[0].name : `${csvFiles.length} files` }}</span>
           <span class="file-count">{{ csvRows.length }} places</span>
-          <button type="button" class="icon-btn" @click="resetCsv" title="Clear">✕</button>
+          <button type="button" class="icon-btn" @click="resetCsv" title="Clear" aria-label="Clear selected files">✕</button>
         </div>
         <p v-if="csvError" class="msg error">{{ csvError }}</p>
 
@@ -33,7 +33,7 @@
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: geocodePercent + '%' }" />
           </div>
-          <button type="button" class="btn-ghost full" @click="resetCsv">Cancel</button>
+          <button type="button" class="btn-ghost full" @click="cancelGeocode">Cancel</button>
         </template>
       </template>
     </div>
@@ -49,8 +49,20 @@
         >{{ country || '?' }} ({{ count }})</span>
       </div>
 
+      <div v-if="csvError || csvStatus || csvNotFound.length || csvFailed.length" class="preview-messages">
+        <p v-if="csvError" class="msg error" role="alert">{{ csvError }}</p>
+        <p v-if="csvStatus" class="msg">{{ csvStatus }}</p>
+        <details v-if="csvNotFound.length" class="not-found">
+          <summary>{{ csvNotFound.length }} not found</summary>
+          <ul><li v-for="(title, i) in csvNotFound" :key="i">{{ title }}</li></ul>
+        </details>
+        <div v-if="csvFailed.length" class="failed-list">
+          Failed: {{ csvFailed.map(f => f.label).join(', ') }}
+        </div>
+      </div>
+
       <div class="filter-row">
-        <select v-model="countryFilter" class="country-select">
+        <select v-model="countryFilter" class="country-select" aria-label="Country">
           <option value="">All countries</option>
           <option v-for="c in uniqueCountries" :key="c" :value="c">{{ c || 'Unknown' }}</option>
         </select>
@@ -74,6 +86,7 @@
             :class="{ active: rejectedSet.has(m._origIdx) }"
             @click="toggleReject(m._origIdx)"
             :title="rejectedSet.has(m._origIdx) ? 'Restore' : 'Reject'"
+            :aria-label="rejectedSet.has(m._origIdx) ? 'Restore' : 'Reject'"
           >
             <AppIcon :name="rejectedSet.has(m._origIdx) ? 'undo' : 'trash'" />
           </button>
@@ -83,13 +96,13 @@
 
       <div class="panel-footer">
         <div class="nav-controls">
-          <button class="nav-btn" @click="navigate(-1)" :disabled="filteredMarkers.length === 0 || currentNavIdx === 0">
+          <button class="nav-btn" aria-label="Previous place" @click="navigate(-1)" :disabled="filteredMarkers.length === 0 || currentNavIdx === 0">
             <AppIcon name="chevronLeft" />
           </button>
           <span class="nav-pos">
             {{ filteredMarkers.length > 0 ? currentNavIdx + 1 : 0 }} / {{ filteredMarkers.length }}
           </span>
-          <button class="nav-btn nav-next" @click="navigate(1)" :disabled="filteredMarkers.length === 0 || currentNavIdx >= filteredMarkers.length - 1">
+          <button class="nav-btn nav-next" aria-label="Next place" @click="navigate(1)" :disabled="filteredMarkers.length === 0 || currentNavIdx >= filteredMarkers.length - 1">
             <AppIcon name="chevronLeft" />
           </button>
         </div>
@@ -113,7 +126,7 @@
       <div v-if="csvFailed.length" class="failed-list">
         Failed: {{ csvFailed.map(f => f.label).join(', ') }}
       </div>
-      <button class="btn-primary full" @click="handleClose">Close</button>
+      <button class="btn-primary full" @click="requestClose">Close</button>
     </div>
   </div>
 </template>
@@ -124,16 +137,27 @@ import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useMapControl } from '../composables/useMapControl.js'
+import { useDialog } from '../composables/useDialog.js'
 
 const emit = defineEmits(['close'])
 
 const markersStore = useMarkersStore()
 const {
-  csvInput, csvFiles, csvRows, csvError, csvStatus,
+  csvInput, csvFiles, csvRows, csvError, csvStatus, csvNotFound,
   geocoding, geocodeProgress, geocodedMarkers,
   csvImporting, csvImportProgress, csvFailed,
-  resetCsv, onCsvSelected, doGeocode, doCsvImport,
+  resetCsv, cancelGeocode, onCsvSelected, doGeocode, doCsvImport,
 } = useImportExport(markersStore)
+
+// Closing drops processed places (geocoding them again takes a second each) and stops a running import.
+const dialogEl = ref(null)
+const { requestClose } = useDialog(dialogEl, {
+  close: handleClose,
+  isDirty: () => geocoding.value || csvImporting.value || !!geocodedMarkers.value,
+  message: () => csvImporting.value ? 'The import is still running. Closing stops it; markers imported so far stay saved. Close anyway?'
+    : geocoding.value ? 'Stop processing the places and close?'
+    : 'Close and discard the processed places?',
+})
 
 const { csvPreviewMarkers, flyTo } = useMapControl()
 
@@ -289,6 +313,22 @@ onUnmounted(() => {
   z-index: 1200;
   overflow: hidden;
 }
+
+.csv-panel:focus { outline: none; }
+
+.preview-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  max-height: 30%;
+  overflow-y: auto;
+}
+.not-found { font-size: 12px; color: var(--text-muted); }
+.not-found summary { cursor: pointer; }
+.not-found ul { margin: 4px 0 0; padding-left: 18px; }
 
 .panel-header {
   display: flex;

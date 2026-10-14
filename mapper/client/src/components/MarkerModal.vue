@@ -1,8 +1,8 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="marker-modal-title" tabindex="-1">
       <div class="modal-header">
-        <h2>{{ viewing ? (form.label || 'Marker') : isEdit ? 'Edit Marker' : 'Add Marker' }}</h2>
+        <h2 id="marker-modal-title">{{ viewing ? (form.label || 'Marker') : isEdit ? 'Edit Marker' : 'Add Marker' }}</h2>
         <div class="header-actions">
           <button
             v-if="viewing && !props.readOnly && styleStore.showRatings"
@@ -13,7 +13,7 @@
             :title="form.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
             @click="toggleFavorite"
           >♥</button>
-          <button class="close-btn" aria-label="Close" @click="$emit('close')"><AppIcon name="close" /></button>
+          <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
         </div>
       </div>
 
@@ -120,31 +120,31 @@
 
       <div v-if="viewing" class="modal-actions">
         <div class="spacer" />
-        <button type="button" class="btn-secondary" @click="$emit('close')">Close</button>
-        <button v-if="!props.readOnly" type="button" class="btn-primary" @click="viewing = false; confirmDelete = false">Edit</button>
+        <button type="button" class="btn-secondary" @click="requestClose">Close</button>
+        <button v-if="!props.readOnly" type="button" class="btn-primary" @click="startEdit">Edit</button>
       </div>
 
       <!-- Edit / create form -->
       <form v-else @submit.prevent="save">
         <div class="edit-body">
         <div class="field">
-          <label>Label</label>
-          <input v-model="form.label" type="text" placeholder="e.g. Eiffel Tower" />
+          <label for="marker-label">Label</label>
+          <input id="marker-label" v-model="form.label" type="text" placeholder="e.g. Eiffel Tower" />
         </div>
 
         <div class="field">
-          <label>Description</label>
-          <textarea v-model="form.description" rows="3" placeholder="Notes about this place…" />
+          <label for="marker-description">Description</label>
+          <textarea id="marker-description" v-model="form.description" rows="3" placeholder="Notes about this place…" />
         </div>
 
         <div class="field">
-          <label>Visited</label>
+          <label for="marker-visited">Visited</label>
           <div class="visited-row">
             <label class="checkbox-item" style="margin:0">
-              <input type="checkbox" v-model="visitedChecked" style="width:auto" />
+              <input id="marker-visited" type="checkbox" v-model="visitedChecked" style="width:auto" />
               Yes
             </label>
-            <input v-model="visitedDate" type="date" class="visited-date" :style="{ visibility: visitedChecked ? 'visible' : 'hidden' }" />
+            <input v-model="visitedDate" type="date" class="visited-date" aria-label="Visited on" :style="{ visibility: visitedChecked ? 'visible' : 'hidden' }" />
           </div>
         </div>
 
@@ -176,7 +176,7 @@
         </div>
 
         <div class="field">
-          <label>Image</label>
+          <span class="field-label">Image</span>
           <div v-if="form.image_url && !imageChangeMode" class="img-current">
             <img :src="form.image_url" class="img-current-thumb" @error="$event.target.style.display='none'" />
             <div class="img-current-actions">
@@ -190,6 +190,7 @@
                 v-model="imageSearchQuery"
                 type="text"
                 class="img-search-input"
+                aria-label="Image search"
                 placeholder="Search name…"
                 @keydown.enter.prevent="searchWiki"
               />
@@ -216,7 +217,7 @@
               </div>
             </div>
             <div class="img-url-row">
-              <input v-model="form.image_url" type="url" placeholder="Paste image URL…" class="img-url-input" />
+              <input v-model="form.image_url" type="text" inputmode="url" aria-label="Image URL" placeholder="Paste image URL…" class="img-url-input" />
               <a
                 :href="`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(imageSearchQuery.trim() || form.label || '')}`"
                 target="_blank"
@@ -228,8 +229,8 @@
         </div>
 
         <div class="field">
-          <label>Collections</label>
-          <div class="checkbox-list">
+          <span id="marker-collections-label" class="field-label">Collections</span>
+          <div class="checkbox-list" role="group" aria-labelledby="marker-collections-label">
             <template v-for="(col, i) in collectionChoices.items" :key="col.id">
             <hr v-if="i > 0 && i === collectionChoices.recentCount" class="recent-divider" />
             <div class="collection-row">
@@ -239,6 +240,7 @@
                   :value="col.id"
                   v-model="form.collection_ids"
                   style="width:auto"
+                  @change="onCollectionToggle(col, $event.target.checked)"
                 />
                 <span class="dot" :style="{ background: col.color }" />
                 {{ col.name }}
@@ -249,6 +251,7 @@
                   type="number"
                   min="1"
                   class="stop-input"
+                  :aria-label="`Stop number in ${col.name}`"
                   :value="form.collection_positions[col.id] ?? ''"
                   @input="setPosition(col.id, $event.target.value)"
                   placeholder="–"
@@ -262,8 +265,8 @@
         </div>
 
         <div class="field">
-          <label>Categories</label>
-          <div class="checkbox-list">
+          <span id="marker-categories-label" class="field-label">Categories</span>
+          <div class="checkbox-list" role="group" aria-labelledby="marker-categories-label">
             <template v-for="(cat, i) in categoryChoices.items" :key="cat.id">
               <hr v-if="i > 0 && i === categoryChoices.recentCount" class="recent-divider" />
               <label class="checkbox-item">
@@ -277,8 +280,8 @@
         </div>
 
         <div class="field">
-          <label>With</label>
-          <div class="checkbox-list">
+          <span id="marker-persons-label" class="field-label">With</span>
+          <div class="checkbox-list" role="group" aria-labelledby="marker-persons-label">
             <template v-for="(person, i) in personChoices.items" :key="person.id">
               <hr v-if="i > 0 && i === personChoices.recentCount" class="recent-divider" />
               <label class="checkbox-item">
@@ -292,14 +295,15 @@
         </div>
 
         <div class="field">
-          <label>Color</label>
-          <div class="color-row">
+          <span id="marker-color-label" class="field-label">Color</span>
+          <div class="color-row" role="group" aria-labelledby="marker-color-label">
             <button
               type="button"
               class="color-swatch inherit"
               :class="{ selected: !form.color }"
               @click="form.color = ''"
               title="Inherit from category"
+              aria-label="Inherit from category"
             >
               <AppIcon name="colorInherit" />
             </button>
@@ -310,6 +314,7 @@
               class="color-swatch"
               :class="{ selected: form.color === c }"
               :style="{ background: c }"
+              :aria-label="`Color ${c}`"
               @click="form.color = c"
             />
             <span class="effective-color">
@@ -319,20 +324,20 @@
         </div>
 
         <div class="field">
-          <label>Address</label>
-          <input v-model="form.address" type="text" :placeholder="addressLoading ? 'Fetching address…' : 'e.g. 123 Main St, City'" />
+          <label for="marker-address">Address <span v-if="useCoordLink" class="optional">(not saved while "use coords" is on)</span></label>
+          <input id="marker-address" v-model="form.address" type="text" :disabled="useCoordLink" :placeholder="addressLoading ? 'Fetching address…' : 'e.g. 123 Main St, City'" />
         </div>
 
         <div class="field">
           <label for="marker-website">Website</label>
-          <input id="marker-website" v-model="form.external_url" type="url" placeholder="https://…" />
+          <input id="marker-website" v-model="form.external_url" type="text" inputmode="url" placeholder="https://…" />
         </div>
 
         <div class="field coords">
           <span class="coords-mono">{{ latStr }}, {{ lngStr }}</span>
-          <button v-if="isEdit && !props.readOnly" type="button" class="btn-ghost btn-sm move-btn" title="Move this marker on the map" @click="emit('move', props.marker)">Move…</button>
+          <button v-if="isEdit && !props.readOnly" type="button" class="btn-ghost btn-sm move-btn" title="Move this marker on the map" @click="startMove">Move…</button>
           <label class="checkbox-item coords-toggle" style="margin:0">
-            <input type="checkbox" v-model="useCoordLink" style="width:auto" @change="useCoordLink && (form.address = '')" />
+            <input type="checkbox" v-model="useCoordLink" style="width:auto" />
             use coords
           </label>
         </div>
@@ -345,11 +350,11 @@
             <button v-if="!confirmDelete" type="button" class="btn-danger" @click="confirmDelete = true" :disabled="saving">Delete</button>
             <template v-else>
               <button type="button" class="btn-danger" @click="del" :disabled="saving">Yes, delete</button>
-              <button type="button" class="btn-ghost" @click="confirmDelete = false"><AppIcon name="close" /></button>
+              <button type="button" class="btn-ghost" aria-label="Keep marker" title="Keep marker" @click="confirmDelete = false"><AppIcon name="close" /></button>
             </template>
           </template>
           <div class="spacer" />
-          <button type="button" class="btn-secondary" @click="isEdit ? (viewing = true, confirmDelete = false) : $emit('close')">
+          <button type="button" class="btn-secondary" @click="isEdit ? backToView() : requestClose()">
             {{ isEdit ? '← Back' : 'Cancel' }}
           </button>
           <button type="submit" class="btn-primary" :disabled="saving">
@@ -371,6 +376,8 @@ import { useMarkersStore } from '../stores/markers.js'
 import { useStyleStore } from '../stores/style.js'
 import { reverseGeocode, formatAddress, countryName } from '../utils/nominatim.js'
 import { rememberPicks, recentPicks, recentFirst } from '../utils/recentPicks.js'
+import { normalizeUrl, parseWikipediaTag } from '../utils/url.js'
+import { useDialog } from '../composables/useDialog.js'
 
 const COLOR_PRESETS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
@@ -410,6 +417,7 @@ const imageSearchLoading = ref(false) // false | 'wiki' | 'commons'
 const imageResults = ref(null) // null | [{ url, title }]
 const imageChangeMode = ref(false)
 const imageResultsSource = ref(null) // null | 'wiki' | 'commons'
+const imageResultsQuery = ref(null) // the query the shown results belong to
 
 const form = ref({
   label: '',
@@ -469,18 +477,76 @@ watch(() => form.value.image_url, (val) => {
   if (val) imageChangeMode.value = false
 })
 
-watch(visitedChecked, (val) => {
-  if (!val) {
-    form.value.visited_at = ''
-    visitedDate.value = ''
-  } else {
-    form.value.visited_at = visitedDate.value || 'yes'
-  }
+// The date stays in its (hidden) field while Visited is unticked, so ticking it again restores
+// the date; an unticked Visited is only applied on save.
+watch([visitedChecked, visitedDate], ([checked, date]) => {
+  form.value.visited_at = checked ? date || 'yes' : ''
 })
 
-watch(visitedDate, (val) => {
-  if (visitedChecked.value) form.value.visited_at = val || 'yes'
+// ── Unsaved changes ─────────────────────────────────────────
+// A copy of the editable state taken when editing starts; Back restores it.
+let snapshot = null
+const draft = () => JSON.parse(JSON.stringify({ form: form.value, visitedChecked: visitedChecked.value, visitedDate: visitedDate.value, useCoordLink: useCoordLink.value }))
+// visited_at is derived from the two visited fields, and positions only count for ticked collections.
+const draftKey = ({ form: f, ...rest }) => JSON.stringify({
+  ...rest,
+  form: { ...f, visited_at: null, collection_positions: f.collection_ids.map(id => f.collection_positions[id] ?? null) },
 })
+const isDirty = () => !viewing.value && !props.readOnly && snapshot !== null && draftKey(draft()) !== draftKey(snapshot)
+function takeSnapshot() { snapshot = draft() }
+
+// Lookups that finish after editing started fill untouched fields without counting as a change.
+function autoFill(key, value) {
+  if (snapshot && snapshot.form[key] === form.value[key]) snapshot.form[key] = value
+  form.value[key] = value
+}
+
+const dialogEl = ref(null)
+const { requestClose, confirmLeave, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, { close: () => emit('close'), isDirty })
+
+function startEdit() {
+  viewing.value = false
+  confirmDelete.value = false
+  takeSnapshot()
+}
+
+function backToView() {
+  if (!confirmLeave()) return
+  if (snapshot) {
+    form.value = snapshot.form
+    visitedChecked.value = snapshot.visitedChecked
+    visitedDate.value = snapshot.visitedDate
+    useCoordLink.value = snapshot.useCoordLink
+  }
+  snapshot = null
+  error.value = null
+  imageChangeMode.value = false
+  confirmDelete.value = false
+  viewing.value = true
+}
+
+// MapView closes this form to show the move pin, which would drop unsaved edits.
+function startMove() {
+  if (confirmLeave('Moving the marker discards your unsaved changes. Continue?')) emit('move', props.marker)
+}
+
+// Groups preselected from the active filter were not picked by the user.
+const preselected = { collection_ids: [], category_ids: [], person_ids: [] }
+
+// A marker newly ticked into a trip becomes its next stop.
+function nextFreeStop(collectionId) {
+  let max = 0
+  for (const m of markersStore.items) {
+    if (m.id === props.marker?.id) continue
+    for (const c of m.collections ?? []) if (c.id === collectionId && c.position > max) max = c.position
+  }
+  return max + 1
+}
+function onCollectionToggle(col, checked) {
+  if (!checked || !col.is_trip || form.value.collection_positions[col.id] != null) return
+  if (props.marker?.collections?.some((c) => c.id === col.id)) return // keeps an existing stop (or exclusion) when re-ticked
+  setPosition(col.id, String(nextFreeStop(col.id)))
+}
 
 // Closing the modal cancels a queued address lookup so it does not hold up later ones.
 const lookup = new AbortController()
@@ -521,7 +587,7 @@ onMounted(async () => {
       const data = await reverseGeocode(props.marker.lat, props.marker.lng, { addressdetails: 1, namedetails: 1 }, { signal: lookup.signal })
       const geocoded = formatAddress(data.address) || null
       addressLine.value = geocoded
-      if (!useCoordLink.value && !form.value.address && geocoded) form.value.address = geocoded
+      if (!useCoordLink.value && !form.value.address && geocoded) autoFill('address', geocoded)
       // Pre-fill the image search query with the place name for later use
       if (!imageSearchQuery.value) imageSearchQuery.value = data.namedetails?.['name:en'] || data.namedetails?.name || data.name || ''
     } catch { /* silent */ }
@@ -537,13 +603,14 @@ onMounted(async () => {
     if (prefill.country) form.value.country = prefill.country
     if (prefill.wikipedia) suggestWikipediaImage(prefill.wikipedia)
     const gf = markersStore.activeGroupFilter
-    if (gf?.type === 'category' && gf.id !== '__none__') {
-      form.value.category_ids = [gf.id]
-    } else if (gf?.type === 'collection' && gf.id !== '__none__') {
-      form.value.collection_ids = [gf.id]
-    } else if (gf?.type === 'person' && gf.id !== '__none__') {
-      form.value.person_ids = [gf.id]
+    const key = { category: 'category_ids', collection: 'collection_ids', person: 'person_ids' }[gf?.type]
+    if (key && gf.id !== '__none__') {
+      form.value[key] = [gf.id]
+      preselected[key] = [gf.id]
+      const col = key === 'collection_ids' && collectionsStore.items.find((c) => c.id === gf.id)
+      if (col) onCollectionToggle(col, true)
     }
+    takeSnapshot()
 
     // The location panel already looked up this point: no second request needed.
     if (form.value.address && form.value.country) return
@@ -551,10 +618,10 @@ onMounted(async () => {
     try {
       const data = await reverseGeocode(props.latlng.lat, props.latlng.lng, { addressdetails: 1 }, { signal: lookup.signal })
       const geocoded = formatAddress(data.address) || null
-      if (!form.value.address && geocoded) form.value.address = geocoded
+      if (!form.value.address && geocoded) autoFill('address', geocoded)
       // Stored now so statistics never need to look it up later.
       const country = countryName(data.address)
-      if (country) form.value.country = country
+      if (country) autoFill('country', country)
     } catch { /* silent */ }
     finally { addressLoading.value = false }
   }
@@ -608,14 +675,17 @@ function filterBy(type, id) {
   emit('close')
 }
 
+// Clicking the active source again hides its results, unless the query changed since: then it searches anew.
+function toggleOff(source, q) {
+  if (imageResultsSource.value !== source || q !== imageResultsQuery.value) return false
+  imageResults.value = null
+  imageResultsSource.value = null
+  return true
+}
+
 async function searchWiki() {
-  if (imageResultsSource.value === 'wiki') {
-    imageResults.value = null
-    imageResultsSource.value = null
-    return
-  }
   const q = imageSearchQuery.value.trim()
-  if (!q) return
+  if (toggleOff('wiki', q) || !q) return
   imageSearchLoading.value = 'wiki'
   imageResults.value = null
   imageResultsSource.value = null
@@ -635,18 +705,14 @@ async function searchWiki() {
       .map(p => ({ url: p.thumbnail?.source ?? null, title: p.title }))
       .filter(r => r.url)
     imageResultsSource.value = 'wiki'
+    imageResultsQuery.value = q
   } catch { imageResults.value = [] }
   finally { imageSearchLoading.value = false }
 }
 
 async function searchCommons() {
-  if (imageResultsSource.value === 'commons') {
-    imageResults.value = null
-    imageResultsSource.value = null
-    return
-  }
   const q = imageSearchQuery.value.trim()
-  if (!q) return
+  if (toggleOff('commons', q) || !q) return
   imageSearchLoading.value = 'commons'
   imageResults.value = null
   imageResultsSource.value = null
@@ -670,15 +736,15 @@ async function searchCommons() {
       .filter(r => r.url)
     imageResults.value = results.slice(0, 3)
     imageResultsSource.value = 'commons'
+    imageResultsQuery.value = q
   } catch { imageResults.value = [] }
   finally { imageSearchLoading.value = false }
 }
 
 // Offers the lead image of the place's Wikipedia article (any language) as a suggestion.
 async function suggestWikipediaImage(tag) {
-  const match = /^([a-z][a-z-]{1,11}):(.+)$/.exec(tag)
-  if (!match) return
-  const [, lang, title] = match
+  const { lang, title } = parseWikipediaTag(tag) ?? {}
+  if (!lang) return
   if (!imageSearchQuery.value) imageSearchQuery.value = title
   try {
     const res = await fetch(`https://${lang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=pageimages&pithumbsize=400&format=json&origin=*`, { signal: lookup.signal })
@@ -686,6 +752,7 @@ async function suggestWikipediaImage(tag) {
     if (page?.thumbnail?.source && !form.value.image_url && imageResults.value === null) {
       imageResults.value = [{ url: page.thumbnail.source, title: page.title }]
       imageResultsSource.value = 'wiki'
+      imageResultsQuery.value = null // not a search of the query field: clicking Wiki searches
     }
   } catch { /* the suggestion is optional */ }
 }
@@ -693,13 +760,6 @@ async function suggestWikipediaImage(tag) {
 function selectImage(url) {
   form.value.image_url = url
   imageResults.value = null
-}
-
-// Accept "example.com" by assuming https.
-function normalizeUrl(value) {
-  const url = value?.trim()
-  if (!url) return null
-  return /^[a-z][a-z\d+.-]*:/i.test(url) ? url : 'https://' + url
 }
 
 async function save() {
@@ -720,16 +780,16 @@ async function save() {
       ...form.value,
       collection_positions: Object.fromEntries(form.value.collection_ids.map(id => [id, form.value.collection_positions[id] ?? null])),
       color: form.value.color || null,
-      image_url: form.value.image_url || null,
-      address: form.value.address || null,
+      image_url: normalizeUrl(form.value.image_url),
+      address: useCoordLink.value ? null : form.value.address || null,
       planned_at: visitedChecked.value ? null : form.value.planned_at || null,
       external_url: normalizeUrl(form.value.external_url),
       use_coords: useCoordLink.value,
     })
     rememberPicks(form.value, {
-      collection_ids: props.marker?.collections?.map((c) => c.id),
-      category_ids: props.marker?.categories?.map((c) => c.id),
-      person_ids: props.marker?.persons?.map((p) => p.id),
+      collection_ids: [...(props.marker?.collections?.map((c) => c.id) ?? []), ...preselected.collection_ids],
+      category_ids: [...(props.marker?.categories?.map((c) => c.id) ?? []), ...preselected.category_ids],
+      person_ids: [...(props.marker?.persons?.map((p) => p.id) ?? []), ...preselected.person_ids],
     })
   } catch (err) {
     error.value = err.message
@@ -763,10 +823,12 @@ async function del() {
   width: 420px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
+.modal:focus { outline: none; }
 
 .modal-header {
   display: flex;
@@ -863,7 +925,8 @@ form {
 }
 
 .field { margin-bottom: 14px; }
-.field > label:first-child { margin-bottom: 8px; }
+.field > label:first-child,
+.field > .field-label:first-child { margin-bottom: 8px; }
 textarea { resize: vertical; }
 
 /* ── View body ───────────────────────────────────────────── */

@@ -1,14 +1,14 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
     <TripOrderModal
       v-if="tripOrderOpen && props.item"
       :collection="props.item"
       @close="tripOrderOpen = false"
     />
-    <div class="modal">
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="manage-modal-title" tabindex="-1">
       <div class="modal-header">
-        <h2>{{ isEdit ? `Edit ${label}` : `New ${label}` }}</h2>
-        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
+        <h2 id="manage-modal-title">{{ isEdit ? `Edit ${label}` : `New ${label}` }}</h2>
+        <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
       </div>
 
       <form @submit.prevent="save">
@@ -124,12 +124,18 @@
           <p v-if="error" class="error">{{ error }}</p>
         </div>
 
+        <p v-if="confirmDelete" class="delete-warning" role="alert">{{ deleteWarning }}</p>
+
         <div class="modal-actions">
-          <button v-if="isEdit" type="button" class="btn-danger" @click="del" :disabled="saving">
-            Delete
-          </button>
+          <template v-if="isEdit">
+            <button v-if="!confirmDelete" type="button" class="btn-danger" @click="confirmDelete = true" :disabled="saving">Delete</button>
+            <template v-else>
+              <button type="button" class="btn-danger" @click="del" :disabled="saving">Yes, delete</button>
+              <button type="button" class="btn-ghost" :aria-label="`Keep ${label.toLowerCase()}`" :title="`Keep ${label.toLowerCase()}`" @click="confirmDelete = false"><AppIcon name="close" /></button>
+            </template>
+          </template>
           <div class="spacer" />
-          <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
+          <button type="button" class="btn-secondary" @click="requestClose">Cancel</button>
           <button type="submit" class="btn-primary" :disabled="saving">
             {{ saving ? '...' : 'Save' }}
           </button>
@@ -148,6 +154,7 @@ import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useMarkersStore } from '../stores/markers.js'
 import TripOrderModal from './TripOrderModal.vue'
+import { useDialog } from '../composables/useDialog.js'
 
 const props = defineProps({
   type: { type: String, required: true }, // 'category' | 'collection' | 'person'
@@ -165,7 +172,26 @@ const label = computed(() => props.type === 'category' ? 'Category' : props.type
 const saving = ref(false)
 const error = ref(null)
 const tripOrderOpen = ref(false)
+const confirmDelete = ref(false)
 const markerSearch = ref('')
+
+let initialForm = null
+const isDirty = () => initialForm !== null && JSON.stringify(form.value) !== initialForm
+const dialogEl = ref(null)
+const { requestClose, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, { close: () => emit('close'), isDirty })
+
+// Deleting cannot be undone, so the confirmation says what it affects.
+const deleteWarning = computed(() => {
+  if (!props.item) return ''
+  const key = { category: 'categories', collection: 'collections', person: 'persons' }[props.type]
+  const count = markersStore.items.filter((m) => m[key]?.some((x) => x.id === props.item.id)).length
+  const kind = label.value.toLowerCase()
+  const usage = count
+    ? `${count} marker${count === 1 ? '' : 's'} ${count === 1 ? 'uses' : 'use'} it; the markers are kept without this ${kind}.`
+    : `No markers use this ${kind}.`
+  const trip = props.item.is_trip ? ' Its stop order and routes are removed.' : ''
+  return `Delete "${props.item.name}"? ${usage}${trip} This cannot be undone.`
+})
 const markerDropdownOpen = ref(false)
 
 const filteredMarkers = computed(() => {
@@ -242,6 +268,7 @@ onMounted(() => {
   } else {
     form.value.color = generateAutoColor()
   }
+  initialForm = JSON.stringify(form.value)
 })
 
 const store = computed(() => props.type === 'category' ? categoriesStore : props.type === 'collection' ? collectionsStore : personsStore)
@@ -307,7 +334,14 @@ async function del() {
   box-shadow: var(--shadow-lg);
   width: 360px;
   max-width: calc(100vw - 32px);
+  /* Long trip forms scroll inside the modal so Save stays reachable in short windows. */
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+.modal:focus { outline: none; }
 
 .modal-header {
   display: flex;
@@ -315,6 +349,7 @@ async function del() {
   justify-content: space-between;
   padding: 16px 20px 12px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 h2 { font-size: 16px; font-weight: 700; }
@@ -327,9 +362,11 @@ h2 { font-size: 16px; font-weight: 700; }
 }
 .close-btn:hover { background: var(--surface-2); }
 
-form { display: flex; flex-direction: column; }
+form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
-.form-body { padding: 16px 20px 20px; }
+.form-body { padding: 16px 20px 20px; flex: 1; min-height: 0; overflow-y: auto; }
+
+.delete-warning { color: var(--danger); font-size: 13px; padding: 8px 20px 0; flex-shrink: 0; }
 
 .field { margin-bottom: 14px; }
 
@@ -463,9 +500,13 @@ textarea { resize: vertical; }
   gap: 8px;
   align-items: center;
   padding: 4px 20px 20px;
+  flex-shrink: 0;
 }
 
 .spacer { flex: 1; }
+
+.btn-ghost { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--border); color: var(--text); }
 
 .btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
@@ -484,12 +525,9 @@ textarea { resize: vertical; }
     height: 100dvh;
     max-height: 100dvh;
     border-radius: 0;
-    display: flex;
-    flex-direction: column;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
-  form { flex: 1; min-height: 0; }
-  .form-body { flex: 1; overflow-y: auto; padding-bottom: 8px; }
-  .modal-actions { flex-shrink: 0; padding-bottom: calc(20px + var(--sab, 0px)); }
+  .form-body { padding-bottom: 8px; }
+  .modal-actions { padding-bottom: calc(20px + var(--sab, 0px)); }
 }
 </style>

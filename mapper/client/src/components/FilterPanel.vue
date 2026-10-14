@@ -46,7 +46,7 @@
               <button v-if="overviewQuery" class="search-clear" type="button" @click="overviewQuery = ''" title="Clear">✕</button>
             </div>
             <div class="sort-wrap" ref="sortBtnRef">
-              <button class="icon-btn sort-btn" :class="{ active: sortOverview !== 'default' }" @click.stop="toggleSortMenu" title="Sort">
+              <button class="icon-btn sort-btn" :class="{ active: sortOverview !== DEFAULT_SORT }" @click.stop="toggleSortMenu" title="Sort" aria-label="Sort">
                 <AppIcon name="sort" />
               </button>
               <div v-if="sortMenuOpen" class="sort-menu">
@@ -64,7 +64,7 @@
                 </button>
               </div>
             </div>
-            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Close">
+            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Close" aria-label="Close">
               <AppIcon name="close" />
             </button>
           </div>
@@ -203,14 +203,14 @@
 
         <div class="sidebar-header">
           <div class="header-row1">
-            <button class="back-btn" @click="goBack" title="Back">
+            <button class="back-btn" @click="goBack" title="Back" aria-label="Back">
               <AppIcon name="chevronLeft" />
             </button>
             <span v-if="detailGroup" class="group-dot" :style="{ background: detailGroup.color }" />
             <span class="detail-title">{{ detailGroup?.name ?? '' }}</span>
-            <span class="detail-count">({{ markersStore.filtered.length }})</span>
+            <span class="detail-count">({{ detailQuery.trim() ? `${detailMarkers.length} of ${markersStore.filtered.length}` : markersStore.filtered.length }})</span>
             <div class="sort-wrap" ref="detailSortBtnRef">
-              <button class="icon-btn sort-btn" :class="{ active: sortBy !== 'added' }" @click.stop="toggleDetailSortMenu" title="Sort">
+              <button class="icon-btn sort-btn" :class="{ active: sortBy !== 'added' }" @click.stop="toggleDetailSortMenu" title="Sort" aria-label="Sort">
                 <AppIcon name="sort" />
               </button>
               <div v-if="detailSortMenuOpen" class="sort-menu">
@@ -223,10 +223,10 @@
                 >{{ opt.label }}</button>
               </div>
             </div>
-            <button v-if="!props.readOnly && detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit">
+            <button v-if="!props.readOnly && detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit" aria-label="Edit">
               <AppIcon name="edit" />
             </button>
-            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Collapse">
+            <button class="icon-btn collapse-btn" @click="$emit('close')" title="Collapse" aria-label="Collapse">
               <AppIcon name="close" />
             </button>
           </div>
@@ -395,7 +395,11 @@ function goBack() {
 // drillInto sets detailFilter *before* setGroupFilter, so by the time this watcher fires the
 // IDs already match when the change originated here — no double-navigation occurs.
 watch(() => markersStore.activeGroupFilter, (filter) => {
-  if (!filter) return
+  // Cleared elsewhere (e.g. by a backup restore): the detail pane would list every marker.
+  if (!filter) {
+    if (pane.value === 'detail') { pane.value = 'overview'; detailFilter.value = null }
+    return
+  }
   if (detailFilter.value?.type !== filter.type || detailFilter.value?.id !== filter.id) {
     detailFilter.value = { type: filter.type, id: filter.id }
     pane.value = 'detail'
@@ -413,8 +417,9 @@ function editDetailGroup() {
 // ── Overview ────────────────────────────────────────────────────────────────
 const overviewQuery = ref('')
 
+// The stores keep groups sorted by name, so a separate "Default" order would be the same list.
+const DEFAULT_SORT = 'name-asc'
 const BASE_SORT_OPTIONS = [
-  { value: 'default', label: 'Default' },
   { value: 'name',    label: 'Name' },
   { value: 'count',   label: 'Count' },
 ]
@@ -453,15 +458,18 @@ const noPersonCount = computed(() =>
 )
 
 const SORT_STORAGE_KEY = 'mapper_sort'
-const sortOverview = ref(localStorage.getItem(SORT_STORAGE_KEY) || 'default')
+function storedSort() {
+  let value = null
+  try { value = localStorage.getItem(SORT_STORAGE_KEY) } catch { /* storage blocked */ }
+  return /^(name|count|start|end)-(asc|desc)$/.test(value ?? '') ? value : DEFAULT_SORT // includes the old 'default'
+}
+const sortOverview = ref(storedSort())
 const sortMenuOpen = ref(false)
 const sortBtnRef   = ref(null)
 
 function toggleSortMenu() { sortMenuOpen.value = !sortMenuOpen.value }
 function setSortOverview(base) {
-  if (base === 'default') {
-    sortOverview.value = 'default'
-  } else if (sortOverview.value === `${base}-asc`) {
+  if (sortOverview.value === `${base}-asc`) {
     sortOverview.value = `${base}-desc`
   } else if (sortOverview.value === `${base}-desc`) {
     sortOverview.value = `${base}-asc`
@@ -474,14 +482,14 @@ function setSortOverview(base) {
 function onDocClick(e) {
   if (sortBtnRef.value && !sortBtnRef.value.contains(e.target)) sortMenuOpen.value = false
 }
-watch(sortOverview, (v) => localStorage.setItem(SORT_STORAGE_KEY, v))
+watch(sortOverview, (v) => { try { localStorage.setItem(SORT_STORAGE_KEY, v) } catch { /* storage blocked */ } }, { immediate: true })
 watch(sortMenuOpen, (open) => {
   if (open) document.addEventListener('click', onDocClick)
   else document.removeEventListener('click', onDocClick)
 })
 watch(activeTab, (tab) => {
   if (tab !== 'collection' && (sortOverview.value.startsWith('start-') || sortOverview.value.startsWith('end-'))) {
-    sortOverview.value = 'default'
+    sortOverview.value = DEFAULT_SORT
   }
 })
 onUnmounted(() => {
@@ -500,7 +508,9 @@ const detailSortOptions = computed(() => {
     { value: 'visited', label: 'Visited' },
     { value: 'rating',  label: 'Rating' },
     { value: 'planned', label: 'Planned date' },
-  ].filter(o => o.value !== 'rating' || styleStore.showRatings)
+  ].filter(o => o.value !== 'rating' || (styleStore.showRatings && markersStore.items.some(m => m.rating)))
+    // Share links never include ratings or planned dates, so these sorts would do nothing there.
+    .filter(o => o.value !== 'planned' || markersStore.items.some(m => m.planned_at))
   if (detailGroup.value?.item?.is_trip) opts.push({ value: 'stop', label: 'Stop #' })
   return opts
 })
@@ -576,11 +586,13 @@ const detailMarkers = computed(() => {
   const copy = [...markers]
   if (sortBy.value === 'name') return copy.sort((a, b) => (a.label || '').localeCompare(b.label || ''))
   if (sortBy.value === 'visited') {
+    // Newest visit first; visited without a date ('yes') counts as oldest, never visited comes last.
+    const visitKey = (m) => (m.visited_at === 'yes' ? '' : m.visited_at)
     return copy.sort((a, b) => {
       if (!a.visited_at && !b.visited_at) return 0
       if (!a.visited_at) return 1
       if (!b.visited_at) return -1
-      return b.visited_at.localeCompare(a.visited_at)
+      return visitKey(b).localeCompare(visitKey(a))
     })
   }
   if (sortBy.value === 'rating') return copy.sort((a, b) => (b.rating || 0) - (a.rating || 0))

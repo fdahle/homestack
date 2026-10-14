@@ -1,12 +1,12 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="trip-order-title" tabindex="-1">
       <div class="modal-header">
-        <h2>Stop order — {{ collection.name }}</h2>
-        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
+        <h2 id="trip-order-title">Stop order — {{ collection.name }}</h2>
+        <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
       </div>
 
-      <p class="hint">Drag to reorder. Set transport mode between stops. Click ⊘ to exclude a marker from the route.</p>
+      <p class="hint">Drag or use ↑ ↓ to reorder. Set transport mode between stops. Click ⊘ to exclude a marker from the route.</p>
 
       <div class="modal-body">
         <p v-if="localItems.length === 0" class="empty">No markers in this trip yet.</p>
@@ -24,7 +24,9 @@
             <span class="stop-num">{{ item.excluded ? '–' : stopNum(item) }}</span>
             <span class="dot" :style="{ background: effectiveColor(item.marker) }" />
             <span class="marker-name">{{ item.marker.label || coords(item.marker) }}</span>
-            <button type="button" class="exclude-btn" :class="{ active: item.excluded }" @click="toggleExclude(item)" title="Exclude from route">⊘</button>
+            <button type="button" class="move-btn" :disabled="index === 0" :aria-label="`Move ${item.marker.label || 'stop'} up`" title="Move up" @click="move(index, -1)">↑</button>
+            <button type="button" class="move-btn" :disabled="index === localItems.length - 1" :aria-label="`Move ${item.marker.label || 'stop'} down`" title="Move down" @click="move(index, 1)">↓</button>
+            <button type="button" class="exclude-btn" :class="{ active: item.excluded }" :aria-pressed="item.excluded" :aria-label="`Exclude ${item.marker.label || 'stop'} from route`" @click="toggleExclude(item)" title="Exclude from route">⊘</button>
           </div>
           <div v-if="!item.excluded && nextStop(index)" class="segment-row">
             <div class="seg-line" :style="{ background: collection.color || '#10b981' }" />
@@ -46,7 +48,7 @@
 
       <div class="modal-actions">
         <div class="spacer" />
-        <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
+        <button type="button" class="btn-secondary" @click="requestClose">Cancel</button>
         <button type="button" class="btn-primary" @click="save" :disabled="saving || loading || loadError">
           {{ saving ? '…' : 'Save' }}
         </button>
@@ -60,6 +62,7 @@ import { ref, onMounted } from 'vue'
 import { loadSegments } from '../composables/useTripRouting.js'
 import { useMarkersStore } from '../stores/markers.js'
 import AppIcon from './AppIcon.vue'
+import { useDialog } from '../composables/useDialog.js'
 
 const MODES = [
   { value: 'walk',  label: 'Walk'  },
@@ -81,6 +84,13 @@ const segments = ref({})
 const loading = ref(true)
 const loadError = ref(false)
 
+// Order, exclusions and modes as loaded; any difference counts as unsaved.
+let initialState = null
+const orderKey = () => JSON.stringify([localItems.value.map((item) => [item.markerId, item.excluded]), segments.value])
+const isDirty = () => initialState !== null && orderKey() !== initialState
+const dialogEl = ref(null)
+const { requestClose, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, { close: () => emit('close'), isDirty })
+
 onMounted(async () => {
   localItems.value = markersStore.items
     .filter((m) => m.collections.some((c) => c.id === props.collection.id))
@@ -92,8 +102,16 @@ onMounted(async () => {
 
   try { segments.value = await loadSegments(props.collection.id) }
   catch (err) { error.value = err.message + '. Close and reopen to retry.'; loadError.value = true }
-  finally { loading.value = false }
+  finally { loading.value = false; initialState = orderKey() }
 })
+
+// Keyboard- and touch-friendly alternative to dragging.
+function move(index, dir) {
+  const to = index + dir
+  if (to < 0 || to >= localItems.value.length) return
+  const [item] = localItems.value.splice(index, 1)
+  localItems.value.splice(to, 0, item)
+}
 
 function nextStop(index) { return localItems.value.slice(index + 1).find(item => !item.excluded) }
 function getSegMode(index) {
@@ -190,9 +208,11 @@ function coords(m) { return `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})` }
   width: 380px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
 }
+.modal:focus { outline: none; }
 
 .modal-header {
   display: flex;
@@ -294,9 +314,26 @@ h2 { font-size: 15px; font-weight: 700; }
   transition: opacity 0.12s, color 0.12s;
   border-radius: 4px;
 }
-.order-row:hover .exclude-btn { opacity: 1; }
+.order-row:hover .exclude-btn,
+.exclude-btn:focus-visible { opacity: 1; }
 .exclude-btn.active { opacity: 1; color: var(--danger, #ef4444); }
 .exclude-btn:hover { background: var(--surface-2); }
+/* Touch screens have no hover to reveal it. */
+@media (hover: none) { .exclude-btn { opacity: 1; } }
+
+.move-btn {
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.move-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.move-btn:disabled { opacity: 0.3; cursor: default; }
 
 .segment-row {
   display: flex;
@@ -358,8 +395,8 @@ h2 { font-size: 15px; font-weight: 700; }
   .modal {
     width: 100vw;
     max-width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
     border-radius: 0;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }

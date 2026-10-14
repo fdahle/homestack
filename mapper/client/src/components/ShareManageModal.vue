@@ -1,9 +1,9 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="share-modal-title" tabindex="-1">
       <div class="modal-header">
-        <h2>Share Links</h2>
-        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
+        <h2 id="share-modal-title">Share Links</h2>
+        <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
       </div>
 
       <div class="modal-body">
@@ -21,18 +21,18 @@
                 <span v-if="isExpired(link)" class="expired-badge">Expired</span>
               </div>
               <div class="link-meta">
-                {{ link.markerCount }} marker{{ link.markerCount === 1 ? '' : 's' }}
+                <template v-if="link.markerCount != null">{{ link.markerCount }} marker{{ link.markerCount === 1 ? '' : 's' }}</template><template v-else>Marker count unavailable</template>
                 <template v-if="link.expiresAt"> · {{ isExpired(link) ? 'Expired' : 'Expires' }} {{ formatDate(link.expiresAt) }}</template>
               </div>
             </div>
             <div class="link-actions">
-              <button class="icon-btn" :title="copied === link.token ? 'Copied!' : 'Copy link'" @click="copyLink(link.token)">
+              <button class="icon-btn" :title="copied === link.token ? 'Copied!' : 'Copy link'" :aria-label="`Copy link ${link.name || ''}`" @click="copyLink(link.token)">
                 <AppIcon :name="copied === link.token ? 'check' : 'copy'" />
               </button>
-              <button class="icon-btn edit-btn" title="Edit" @click="editLink(link)">
+              <button class="icon-btn edit-btn" title="Edit" :aria-label="`Edit ${link.name || 'link'}`" @click="editLink(link)">
                 <AppIcon name="edit" />
               </button>
-              <button class="icon-btn danger-btn" title="Delete" @click="deleteLink(link.token)" :disabled="deleting === link.token">
+              <button class="icon-btn danger-btn" title="Delete" :aria-label="`Delete ${link.name || 'link'}`" @click="deleteLink(link.token)" :disabled="deleting === link.token">
                 <AppIcon name="trash" />
               </button>
             </div>
@@ -55,7 +55,7 @@
           </div>
 
           <div class="field">
-            <label>What to share</label><p class="hint-text">Matching markers are shared with their descriptions, images and all associated categories, collections and person names. Person address references are excluded.</p>
+            <label>What to share</label><p class="hint-text">Matching markers are shared with their descriptions and images. Viewers only see the categories, collections and persons selected here ("All markers" shows categories and collections, but no persons). Ratings, favorites and planned dates are never shared.</p>
             <label class="checkbox-label bold-label">
               <input type="checkbox" v-model="form.filter.all" />
               All markers
@@ -108,7 +108,7 @@
                 autocomplete="new-password"
                 class="pw-input"
               />
-              <button type="button" class="icon-btn" @click="showPw = !showPw">
+              <button type="button" class="icon-btn" :aria-label="showPw ? 'Hide password' : 'Show password'" @click="showPw = !showPw">
                 <AppIcon :name="showPw ? 'eyeOff' : 'eye'" />
               </button>
             </div>
@@ -125,7 +125,7 @@
           <p v-if="error" class="error">{{ error }}</p>
 
           <div class="modal-actions">
-            <button type="button" class="btn-secondary" @click="cancelForm">Cancel</button>
+            <button type="button" class="btn-secondary" @click="cancelForm">{{ createdToken ? 'Done' : 'Cancel' }}</button>
             <button type="submit" class="btn-primary" :disabled="saving || (!form.filter.all && !hasAnyFilter)">
               {{ saving ? '…' : editingLink ? 'Save changes' : 'Create link' }}
             </button>
@@ -135,7 +135,7 @@
             <p class="created-label">Share this link:</p>
             <div class="created-url-row">
               <input readonly :value="shareUrl(createdToken)" class="url-input" />
-              <button type="button" class="icon-btn" :title="copied === createdToken ? 'Copied!' : 'Copy'" @click="copyLink(createdToken)">
+              <button type="button" class="icon-btn" :title="copied === createdToken ? 'Copied!' : 'Copy'" aria-label="Copy link" @click="copyLink(createdToken)">
                 <AppIcon :name="copied === createdToken ? 'check' : 'copy'" />
               </button>
             </div>
@@ -153,8 +153,9 @@ import { useShareLinksStore } from '../stores/shareLinks.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
+import { useDialog } from '../composables/useDialog.js'
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
 
 const store = useShareLinksStore()
 const categoriesStore = useCategoriesStore()
@@ -196,6 +197,14 @@ const hasAnyFilter = computed(() =>
 )
 
 watch(usePassword, (val) => { if (!val) form.value.password = '' })
+
+// The open form as it was when opened (or last saved); any difference is unsaved.
+let formSnapshot = null
+const formKey = () => JSON.stringify([form.value, usePassword.value])
+function takeSnapshot() { formSnapshot = formKey() }
+const isDirty = () => showForm.value && formSnapshot !== null && formKey() !== formSnapshot
+const dialogEl = ref(null)
+const { requestClose, confirmLeave, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, { close: () => emit('close'), isDirty })
 
 onMounted(async () => {
   try { await store.fetch() } catch (err) { listError.value = err.message }
@@ -247,6 +256,7 @@ function openCreateForm() {
   error.value = null
   createdToken.value = null
   showForm.value = true
+  takeSnapshot()
 }
 
 function editLink(link) {
@@ -268,9 +278,11 @@ function editLink(link) {
   error.value = null
   createdToken.value = null
   showForm.value = true
+  takeSnapshot()
 }
 
 function cancelForm() {
+  if (!confirmLeave()) return
   showForm.value = false
   editingLink.value = null
   createdToken.value = null
@@ -311,6 +323,11 @@ async function save() {
     } else {
       const created = await store.create(payload)
       createdToken.value = created.token
+      // Further saves edit the new link instead of creating another one.
+      editingLink.value = created
+      form.value.password = ''
+      usePassword.value = !!created.hasPassword
+      takeSnapshot()
     }
   } catch (err) {
     error.value = err.message
@@ -351,9 +368,11 @@ async function deleteLink(token) {
   width: 420px;
   max-width: calc(100vw - 32px);
   max-height: 90vh;
+  max-height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
 }
+.modal:focus { outline: none; }
 
 .modal-header {
   display: flex;

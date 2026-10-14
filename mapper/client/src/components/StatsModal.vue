@@ -1,9 +1,9 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="stats-modal-title" tabindex="-1">
       <div class="modal-header">
-        <h2>Statistics</h2>
-        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
+        <h2 id="stats-modal-title">Statistics</h2>
+        <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
       </div>
 
       <div class="modal-body">
@@ -81,8 +81,11 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useMarkersStore } from '../stores/markers.js'
 import { reverseGeocode, countryName } from '../utils/nominatim.js'
 import AppIcon from './AppIcon.vue'
+import { useDialog } from '../composables/useDialog.js'
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+const dialogEl = ref(null)
+const { requestClose, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, { close: () => emit('close') })
 
 const markersStore = useMarkersStore()
 const geocoding = ref(false)
@@ -179,9 +182,11 @@ onMounted(async () => {
   width: 380px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
 }
+.modal:focus { outline: none; }
 
 .modal-header {
   display: flex;
@@ -294,8 +299,8 @@ h2 { font-size: 16px; font-weight: 700; }
   .modal {
     width: 100vw;
     max-width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
     border-radius: 0;
   }
   .modal-header { padding-top: calc(16px + var(--sat, 0px)); }

@@ -81,9 +81,31 @@ function parseGoogleCsv(text) {
 
 // ── Composable ────────────────────────────────────────────────────────────────
 
+const roundCoord = value => Math.round(value / COORD_EPSILON)
+const duplicateKey = m => roundCoord(m.lat) + ',' + roundCoord(m.lng) + ',' + (m.label || '')
+
+const COLLECTION_FIELDS = ['description', 'is_trip', 'start_date', 'end_date', 'color', 'show_route_line', 'show_exact_route']
+
+// Collection settings as exported; only well-formed values are sent so older or edited files still import.
+function collectionMeta(c) {
+  const meta = {}
+  if (typeof c?.description === 'string' && c.description) meta.description = c.description
+  if (typeof c?.color === 'string' && /^#[\da-f]{6}$/i.test(c.color)) meta.color = c.color
+  for (const key of ['is_trip', 'show_route_line', 'show_exact_route']) if (c?.[key] != null) meta[key] = !!c[key]
+  for (const key of ['start_date', 'end_date']) if (typeof c?.[key] === 'string' && c[key]) meta[key] = c[key]
+  return meta
+}
+
 export function useImportExport(markersStore, categoriesStore, collectionsStore, personsStore) {
   const controller = new AbortController()
-  if (getCurrentScope()) onScopeDispose(() => controller.abort())
+  // Each geocoding run has its own controller, so Cancel or a new file stops just that run.
+  let geocodeRun = null
+  function cancelGeocode() {
+    geocodeRun?.abort()
+    geocodeRun = null
+    geocoding.value = false
+  }
+  if (getCurrentScope()) onScopeDispose(() => { controller.abort(); geocodeRun?.abort() })
   const requestOptions = { signal: controller.signal, retryRateLimit: true, onRetry: seconds => {
     const message = 'Write limit reached. Continuing in ' + seconds + ' seconds…'
     if (importing.value) importStatus.value = message
@@ -144,6 +166,8 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
         if (data?.type !== 'backup' || !Array.isArray(data.markers)) {
           throw new Error('Not a valid backup file')
         }
+        // Older backups may lack some lists; the server restores a missing list as empty.
+        for (const key of ['categories', 'collections', 'persons']) if (!Array.isArray(data[key])) data[key] = []
         restoreData.value = data
       } catch (err) {
         restoreError.value = 'Invalid file: ' + err.message
@@ -200,10 +224,14 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       const res = await apiFetch('/api/markers')
       if (!res.ok) throw new Error(`Export failed (${res.status})`)
       const markers = await res.json()
+      // Collections carry settings (trip, dates, colors, route display) that marker entries name only.
+      const used = new Set(markers.flatMap(m => m.collections?.map(c => c.id) ?? []))
+      const collections = (collectionsStore?.items ?? []).filter(c => used.has(c.id))
       const payload = {
-        version: 4,
+        version: 5,
         type: 'export',
         exported_at: new Date().toISOString(),
+        collections: collections.map(c => ({ name: c.name, ...Object.fromEntries(COLLECTION_FIELDS.map(key => [key, c[key] ?? null])) })),
         markers: markers.map((m) => ({
           ...markerFields(m),
           categories: m.categories?.map((c) => c.name) ?? [],
@@ -234,11 +262,13 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
   const importing      = ref(false)
   const importProgress = ref(0)
   const importFailed   = ref([])
+  let importCollections = new Map() // name → settings from the export's collections list
 
   function onFileSelected(e) {
     importError.value  = null
     importStatus.value = null
     importMarkers.value = null
+    importCollections = new Map()
     const file = e.target.files[0]
     if (!file) return
     importFile.value = file
@@ -247,9 +277,12 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       try {
         const data = JSON.parse(ev.target.result)
         if (data?.type === 'backup') throw new Error('Use Restore for backup files')
-        if (data?.version != null && ![1,2,3,4].includes(data.version)) throw new Error('Unsupported export version')
+        if (data?.version != null && ![1,2,3,4,5].includes(data.version)) throw new Error('Unsupported export version')
         const list = Array.isArray(data) ? data : data.markers
         if (!Array.isArray(list)) throw new Error('Expected an array of markers')
+        if (Array.isArray(data.collections)) {
+          importCollections = new Map(data.collections.filter(c => typeof c?.name === 'string').map(c => [c.name, collectionMeta(c)]))
+        }
         importMarkers.value = list
       } catch (err) {
         importError.value = 'Invalid file: ' + err.message
@@ -264,7 +297,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     importError.value = null
     importStatus.value = null
     importFailed.value = []
-    let ok = 0
+    let ok = 0, skipped = 0, stopped = false
     try {
       const maps = [categoriesStore, collectionsStore, personsStore].map(store => new Map((store?.items ?? []).map(item => [item.name, item.id])))
       const failedNames = new Map()
@@ -280,7 +313,15 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
           if (!maps[index].has(name)) {
             try {
               const data = index === 2 ? { first_name: typeof item === 'object' ? item.first_name || name : name, last_name: typeof item === 'object' ? item.last_name || null : null } : { name }
-              maps[index].set(name, (await store.create(data, requestOptions)).id)
+              const meta = index === 1 ? importCollections.get(name) : null
+              let created
+              try { created = await store.create(meta ? { ...data, ...meta } : data, requestOptions) }
+              catch (err) {
+                // Settings the server rejects (e.g. a hand-edited date) must not cost the markers their collection.
+                if (err.name === 'AbortError' || !meta || !Object.keys(meta).length) throw err
+                created = await store.create(data, requestOptions)
+              }
+              maps[index].set(name, created.id)
             } catch (err) {
               if (err.name === 'AbortError') throw err
               const message = 'Could not create "' + name + '": ' + err.message
@@ -293,9 +334,15 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
         return ids
       }
       const rows = []
+      // A marker already on the map (or earlier in the file) at the same spot with the same label
+      // is skipped, so importing a file twice does not double everything.
+      const seen = new Set(markersStore.items.map(duplicateKey))
       for (const [index, m] of importMarkers.value.entries()) {
         try {
           if (!m || !validLatLng(m.lat, m.lng)) throw new Error('Invalid coordinates')
+          const key = duplicateKey(m)
+          if (seen.has(key)) { skipped++; importProgress.value++; continue }
+          seen.add(key)
           const category_ids = await resolve(m.categories ?? [], 0)
           const collection_ids = await resolve(m.collections ?? [], 1)
           const person_ids = await resolve(m.persons ?? [], 2)
@@ -316,10 +363,11 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       importFile.value = null
       if (fileInput.value) fileInput.value.value = ''
     } catch (err) {
-      importError.value = err.name === 'AbortError' ? 'Import cancelled' : err.message + '. Completed batches remain saved; check them before retrying.'
+      stopped = true
+      importError.value = err.name === 'AbortError' ? 'Import cancelled' : err.message + '. Completed batches remain saved; importing again skips them as duplicates.'
     } finally {
       importing.value = false
-      importStatus.value = 'Done — ' + ok + ' imported, ' + importFailed.value.length + ' failed.'
+      importStatus.value = (stopped ? 'Stopped — ' : 'Done — ') + ok + ' imported, ' + skipped + ' duplicates skipped, ' + importFailed.value.length + ' failed.'
     }
   }
 
@@ -329,19 +377,23 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
   const csvRows           = ref(null)
   const csvError          = ref(null)
   const csvStatus         = ref(null)
+  const csvNotFound       = ref([]) // titles geocoding could not place
   const geocoding         = ref(false)
   const geocodeProgress   = ref(0)
   const geocodedMarkers   = ref(null)
   const csvImporting      = ref(false)
   const csvImportProgress = ref(0)
   const csvFailed         = ref([])
+  let csvSelection = 0 // ignores file reads that finish after a reset or a newer selection
 
   function resetCsv() {
+    cancelGeocode()
+    csvSelection++
     csvFiles.value = null
     csvRows.value = null
     csvError.value = null
     csvStatus.value = null
-    geocoding.value = false
+    csvNotFound.value = []
     geocodedMarkers.value = null
     csvImporting.value = false
     csvFailed.value = []
@@ -349,8 +401,11 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
   }
 
   async function onCsvSelected(e) {
+    cancelGeocode()
+    const selection = ++csvSelection
     csvError.value = null
     csvStatus.value = null
+    csvNotFound.value = []
     csvRows.value = null
     geocodedMarkers.value = null
     const files = [...e.target.files]
@@ -366,6 +421,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
 
     try {
       const results = await Promise.all(files.map(readFile))
+      if (selection !== csvSelection) return
       const allRows = []
       const errors = []
       for (const { name, text } of results) {
@@ -376,57 +432,58 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       if (!allRows.length) throw new Error('No valid rows found in any file')
       csvRows.value = allRows
     } catch (err) {
-      csvError.value = err.message
+      if (selection === csvSelection) csvError.value = err.message
     }
   }
 
   async function doGeocode() {
+    cancelGeocode()
+    const run = geocodeRun = new AbortController()
+    const rows = csvRows.value ?? []
     geocoding.value = true
     geocodeProgress.value = 0
     geocodedMarkers.value = null
     csvStatus.value = null
     csvError.value = null
+    csvNotFound.value = []
     const results = []
-    let failed = 0
+    const notFound = []
 
-    for (const row of csvRows.value) {
-      if (controller.signal.aborted) { geocoding.value = false; return }
+    for (const row of rows) {
+      if (run.signal.aborted) return
       if (row.coords) {
         results.push({ lat: row.coords.lat, lng: row.coords.lng, label: row.label, description: row.description, country: null })
         geocodeProgress.value++
         continue
       }
       try {
-        const data = await nominatim('search', { q: row.title, limit: 1, addressdetails: 1 }, { signal: controller.signal })
+        const data = await nominatim('search', { q: row.title, limit: 1, addressdetails: 1 }, { signal: run.signal })
+        if (run.signal.aborted) return
         if (data.length) {
           const country = countryName(data[0].address)
           results.push({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label: row.label, description: row.description, country })
         } else {
-          failed++
+          notFound.push(row.title)
         }
       } catch {
-        failed++
+        // A cancelled run stops here and never publishes its partial results.
+        if (run.signal.aborted) return
+        notFound.push(row.title)
       }
       geocodeProgress.value++
     }
 
+    geocodeRun = null
     geocoding.value = false
     geocodedMarkers.value = results
-    const pinned  = csvRows.value.filter(r => r.coords).length
+    csvNotFound.value = notFound
+    const pinned  = rows.filter(r => r.coords).length
     const geocoded = results.length - pinned
     const parts = []
     if (pinned)   parts.push(`${pinned} pinned`)
     if (geocoded) parts.push(`${geocoded} geocoded`)
     const summary = `${results.length} markers ready (${parts.join(', ')}).`
-    csvStatus.value = failed ? `${summary} ${failed} not found — skipped.` : summary
-  }
-
-  function isExistingMarker(m) {
-    return markersStore.items.some(
-      (e) => Math.abs(e.lat - m.lat) < COORD_EPSILON &&
-             Math.abs(e.lng - m.lng) < COORD_EPSILON &&
-             (e.label || null) === (m.label || null)
-    )
+    csvStatus.value = notFound.length ? `${summary} ${notFound.length} not found — skipped.` : summary
   }
 
   async function doCsvImport(list = null) {
@@ -435,14 +492,19 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     csvImportProgress.value = 0
     csvError.value = null
     csvFailed.value = []
-    let ok = 0, skipped = 0
+    let ok = 0, skipped = 0, stopped = false
     try {
       const rows = []
+      const seen = new Set(markersStore.items.map(duplicateKey))
       for (const [i, m] of markers.entries()) {
-        if (isExistingMarker(m) || rows.some(r => Math.abs(r.payload.lat - m.lat) < COORD_EPSILON && Math.abs(r.payload.lng - m.lng) < COORD_EPSILON && (r.payload.label || null) === (m.label || null))) {
+        const key = duplicateKey(m)
+        if (seen.has(key)) {
           skipped++
           csvImportProgress.value++
-        } else rows.push({ label: m.label || 'Line ' + (i + 1), payload: { ...markerFields(m), source: 'google_maps_csv', visited_at: null, category_ids: [], collection_ids: [] } })
+          continue
+        }
+        seen.add(key)
+        rows.push({ label: m.label || 'Line ' + (i + 1), payload: { ...markerFields(m), source: 'google_maps_csv', visited_at: null, category_ids: [], collection_ids: [] } })
       }
       await importBatches(rows, (row, result) => {
         if (result.error) csvFailed.value.push({ label: row.label + ': ' + result.error })
@@ -452,12 +514,15 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       geocodedMarkers.value = null
       csvRows.value = null
       csvFiles.value = null
+      csvNotFound.value = []
       if (csvInput.value) csvInput.value.value = ''
     } catch (err) {
-      csvError.value = err.name === 'AbortError' ? 'Import cancelled' : err.message
+      stopped = true
+      // The preview stays open: importing again skips what was already saved as duplicates.
+      csvError.value = err.name === 'AbortError' ? 'Import cancelled.' : err.message + '. Importing again skips the markers already saved.'
     } finally {
       csvImporting.value = false
-      csvStatus.value = 'Done — ' + ok + ' imported, ' + skipped + ' duplicates skipped, ' + csvFailed.value.length + ' failed.'
+      csvStatus.value = (stopped ? 'Stopped — ' : 'Done — ') + ok + ' imported, ' + skipped + ' duplicates skipped, ' + csvFailed.value.length + ' failed.'
     }
   }
 
@@ -472,9 +537,9 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     fileInput, importFile, importMarkers, importError, importStatus,
     importing, importProgress, importFailed, onFileSelected, doImport,
     // csv import
-    csvInput, csvFiles, csvRows, csvError, csvStatus,
+    csvInput, csvFiles, csvRows, csvError, csvStatus, csvNotFound,
     geocoding, geocodeProgress, geocodedMarkers,
     csvImporting, csvImportProgress, csvFailed,
-    resetCsv, onCsvSelected, doGeocode, doCsvImport,
+    resetCsv, cancelGeocode, onCsvSelected, doGeocode, doCsvImport,
   }
 }

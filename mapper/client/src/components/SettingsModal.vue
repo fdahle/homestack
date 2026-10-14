@@ -1,9 +1,9 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" tabindex="-1">
       <div class="modal-header">
-        <h2>Settings</h2>
-        <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
+        <h2 id="settings-modal-title">Settings</h2>
+        <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
       </div>
 
       <div class="tabs">
@@ -202,7 +202,7 @@
           <div class="data-group">
             <div class="group-label">Review</div>
             <p class="hint">Browse and edit all markers in a table — useful for quickly checking labels, images, and relations.</p>
-            <button type="button" class="btn-secondary full" @click="$emit('open-marker-table')">
+            <button type="button" class="btn-secondary full" @click="leaveFor('open-marker-table')">
               Open marker table
             </button>
           </div>
@@ -270,7 +270,7 @@
               <button type="button" class="btn-secondary" @click="fileInput.click()">
                 JSON export
               </button>
-              <button type="button" class="btn-secondary" @click="$emit('open-csv-import')">
+              <button type="button" class="btn-secondary" @click="leaveFor('open-csv-import')">
                 Google Maps CSV
               </button>
             </div>
@@ -306,7 +306,7 @@
       <div class="modal-footer">
         <button v-if="tab === 'account'" type="button" class="btn-logout" @click="logout">Sign out</button>
         <div class="spacer" />
-        <button type="button" class="btn-secondary" @click="$emit('close')">Done</button>
+        <button type="button" class="btn-secondary" @click="requestClose">Done</button>
       </div>
     </div>
   </div>
@@ -326,6 +326,7 @@ import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useStyleStore } from '../stores/style.js'
+import { useDialog } from '../composables/useDialog.js'
 
 const TILE_OPTIONS = Object.entries(TILES).map(([key, tile]) => ({ key, ...tile }))
 
@@ -518,6 +519,21 @@ const {
   fileInput, importFile, importMarkers, importError, importStatus,
   importing, importProgress, importFailed, onFileSelected, doImport,
 } = useImportExport(markersStore, categoriesStore, collectionsStore, personsStore)
+
+// Closing stops a running import (its requests are cancelled with this modal), so it asks first;
+// a typed password change counts as unsaved too.
+const dialogEl = ref(null)
+const { requestClose, confirmLeave, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, {
+  close: () => emit('close'),
+  isDirty: () => importing.value || restoring.value || Object.values(pwForm.value).some(Boolean),
+  message: () => importing.value ? 'The import is still running. Closing stops it; markers imported so far stay saved. Close anyway?'
+    : restoring.value ? 'The restore is still running and its result would not be shown. Close anyway?'
+    : 'Discard the password change you started?',
+})
+
+function leaveFor(event) {
+  if (confirmLeave()) emit(event)
+}
 </script>
 
 <style scoped>
@@ -539,9 +555,16 @@ const {
   width: 400px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 100px);
+  max-height: calc(100dvh - 100px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.modal:focus { outline: none; }
+/* Short windows (landscape phones): less space above, so the tab body keeps room to scroll. */
+@media (max-height: 520px) and (min-width: 641px) {
+  .overlay { padding-top: 16px; }
+  .modal { max-height: calc(100dvh - 32px); }
 }
 
 .modal-header {

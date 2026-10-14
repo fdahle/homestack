@@ -1,11 +1,11 @@
 <template>
-  <div class="overlay" @click.self="$emit('close')">
-    <div class="modal">
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="marker-table-title" tabindex="-1">
       <div class="modal-header">
-        <h2>Markers <span class="count">{{ filteredMarkers.length }}</span></h2>
+        <h2 id="marker-table-title">Markers <span class="count">{{ filteredMarkers.length }}</span></h2>
         <div class="header-right">
-          <input v-model="search" class="search-input" placeholder="Filter by label…" autocomplete="off" />
-          <button class="close-btn" @click="$emit('close')"><AppIcon name="close" /></button>
+          <input v-model="search" class="search-input" aria-label="Filter markers" placeholder="Filter by label…" autocomplete="off" />
+          <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
         </div>
       </div>
 
@@ -35,7 +35,7 @@
               <td class="td-editable">
                 <input v-if="isEditing(m.id, 'label')"
                   class="cell-input" v-model="draftValue"
-                  @keydown.enter="commit" @keydown.esc="cancelEdit" @blur="commit"
+                  @keydown.enter="commit" @keydown.esc.stop="cancelEdit" @blur="commit"
                   v-focus />
                 <span v-else class="cell-text" :class="{ 'cell-muted': !m.label }" @click="startEdit(m.id, 'label', m.label)">
                   {{ m.label || 'Unnamed' }}
@@ -46,7 +46,7 @@
               <td class="td-image td-editable">
                 <input v-if="isEditing(m.id, 'image_url')"
                   class="cell-input" v-model="draftValue" placeholder="https://…"
-                  @keydown.enter="commit" @keydown.esc="cancelEdit" @blur="commit"
+                  @keydown.enter="commit" @keydown.esc.stop="cancelEdit" @blur="commit"
                   v-focus />
                 <template v-else>
                   <img v-if="m.image_url" :src="m.image_url" class="thumb"
@@ -60,7 +60,7 @@
               <td class="td-editable td-desc">
                 <textarea v-if="isEditing(m.id, 'description')"
                   class="cell-input cell-textarea" v-model="draftValue" rows="3"
-                  @keydown.esc="cancelEdit" @blur="commit"
+                  @keydown.esc.stop="cancelEdit" @blur="commit"
                   v-focus />
                 <span v-else class="cell-text cell-clamp" :class="{ 'cell-muted': !m.description }"
                   @click="startEdit(m.id, 'description', m.description)">
@@ -72,7 +72,7 @@
               <td class="td-editable">
                 <input v-if="isEditing(m.id, 'address')"
                   class="cell-input" v-model="draftValue"
-                  @keydown.enter="commit" @keydown.esc="cancelEdit" @blur="commit"
+                  @keydown.enter="commit" @keydown.esc.stop="cancelEdit" @blur="commit"
                   v-focus />
                 <span v-else class="cell-text" :class="{ 'cell-muted': !m.address }"
                   @click="startEdit(m.id, 'address', m.address)">
@@ -84,7 +84,7 @@
               <td class="td-editable">
                 <input v-if="isEditing(m.id, 'external_url')"
                   class="cell-input" v-model="draftValue" placeholder="https://…"
-                  @keydown.enter="commit" @keydown.esc="cancelEdit" @blur="commit"
+                  @keydown.enter="commit" @keydown.esc.stop="cancelEdit" @blur="commit"
                   v-focus />
                 <span v-else class="cell-text cell-overflow" :class="{ 'cell-muted': !m.external_url }"
                   @click="startEdit(m.id, 'external_url', m.external_url)">
@@ -133,7 +133,7 @@
 
               <!-- Actions -->
               <td class="td-act">
-                <button class="btn-open" @click="$emit('open-marker', m)" title="Open full editor">
+                <button class="btn-open" :aria-label="`Open ${m.label || 'marker'} in the full editor`" @click="$emit('open-marker', m)" title="Open full editor">
                   <AppIcon name="edit" />
                 </button>
               </td>
@@ -172,8 +172,10 @@ import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { searchTerms, matchesTerms } from '../utils/markerSearch.js'
+import { normalizeUrl } from '../utils/url.js'
+import { useDialog } from '../composables/useDialog.js'
 
-defineEmits(['close', 'open-marker'])
+const emit = defineEmits(['close', 'open-marker'])
 const markersStore     = useMarkersStore()
 const collectionsStore = useCollectionsStore()
 const personsStore     = usePersonsStore()
@@ -200,6 +202,8 @@ const pageMarkers = computed(() => filteredMarkers.value.slice((page.value - 1) 
 watch(search, () => { page.value = 1 })
 watch(pageCount, count => { page.value = Math.min(page.value, count) })
 
+const URL_FIELDS = ['external_url', 'image_url']
+
 const isEditing = (id, field) =>
   editingCell.value?.id === id && editingCell.value?.field === field
 
@@ -218,7 +222,8 @@ function cancelEdit() {
 async function commit() {
   if (!editingCell.value) return
   const { id, field } = editingCell.value
-  const newValue = draftValue.value
+  // Same rule as the marker form: "example.com" becomes https://example.com.
+  const newValue = URL_FIELDS.includes(field) ? normalizeUrl(draftValue.value) ?? '' : draftValue.value
   cancelEdit()
   const m = markersStore.items.find(m => m.id === id)
   if (!m) return
@@ -320,6 +325,13 @@ onUnmounted(() => {
   document.removeEventListener('mousedown', onDocMouseDown, { capture: true })
 })
 
+// Escape closes an open tag picker first (cell editors handle their own Escape).
+const dialogEl = ref(null)
+const { requestClose, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, {
+  close: () => emit('close'),
+  escape: () => (tagPopup.value ? closeTagPopup() : requestClose()),
+})
+
 const vFocus = {
   mounted(el) {
     el.focus()
@@ -350,6 +362,7 @@ const vFocus = {
   flex-direction: column;
   overflow: hidden;
 }
+.modal:focus { outline: none; }
 
 .modal-header {
   display: flex;
