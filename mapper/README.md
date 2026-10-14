@@ -17,7 +17,7 @@ Built for my own use — but feel free to use it, fork it, or adapt it however y
 - Save places found on the map with their website and Wikipedia image
 - Search across names, notes, addresses and groups (accent-insensitive)
 - **Trash** — deleted markers can be undone or restored for 30 days
-- Import from Google Maps CSV exports or generic JSON; export/backup to JSON or download the full database
+- Import places from Google Maps (saved-list CSV, Takeout "Saved Places.json"), Google My Maps / Google Earth (KML, KMZ; folders can become collections or categories), GPX waypoints and GeoJSON, or from a Mapper JSON export; export/backup to JSON or download the full database
 - Installable on phones (PWA); "locate me"; sign out of all devices
 - Single-user, self-hosted, no external accounts required
 

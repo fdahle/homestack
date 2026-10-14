@@ -3,6 +3,7 @@ import { apiFetch } from '../api.js'
 import { nominatim, countryName } from '../utils/nominatim.js'
 import { markerFields, validLatLng } from '../../../shared/markers.js'
 import { useShareLinksStore } from '../stores/shareLinks.js'
+import { detectFormat, parsePlaces, readKmz, isGeoJson } from '../utils/geoImport.js'
 
 const COORD_EPSILON = 0.00001
 
@@ -83,6 +84,9 @@ function parseGoogleCsv(text) {
 
 const roundCoord = value => Math.round(value / COORD_EPSILON)
 const duplicateKey = m => roundCoord(m.lat) + ',' + roundCoord(m.lng) + ',' + (m.label || '')
+// What KML, GeoJSON and GPX rows carry beyond a CSV row; `group` is a folder/layer name.
+const PLACE_FIELDS = ['address', 'country', 'external_url', 'image_url', 'source', 'group']
+const placeFields = row => Object.fromEntries(PLACE_FIELDS.filter(key => row[key] != null).map(key => [key, row[key]]))
 
 const COLLECTION_FIELDS = ['description', 'is_trip', 'start_date', 'end_date', 'color', 'show_route_line', 'show_exact_route']
 
@@ -277,6 +281,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       try {
         const data = JSON.parse(ev.target.result)
         if (data?.type === 'backup') throw new Error('Use Restore for backup files')
+        if (isGeoJson(data)) throw new Error('this is GeoJSON; import it with "Places file…"')
         if (data?.version != null && ![1,2,3,4,5].includes(data.version)) throw new Error('Unsupported export version')
         const list = Array.isArray(data) ? data : data.markers
         if (!Array.isArray(list)) throw new Error('Expected an array of markers')
@@ -384,6 +389,8 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
   const csvImporting      = ref(false)
   const csvImportProgress = ref(0)
   const csvFailed         = ref([])
+  const csvNotice         = ref(null) // what a KML/GeoJSON/GPX file had that is not a place
+  const groupAs           = ref('collection') // folders/layers become: 'collection' | 'category' | ''
   let csvSelection = 0 // ignores file reads that finish after a reset or a newer selection
 
   function resetCsv() {
@@ -394,6 +401,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     csvError.value = null
     csvStatus.value = null
     csvNotFound.value = []
+    csvNotice.value = null
     geocodedMarkers.value = null
     csvImporting.value = false
     csvFailed.value = []
@@ -406,6 +414,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     csvError.value = null
     csvStatus.value = null
     csvNotFound.value = []
+    csvNotice.value = null
     csvRows.value = null
     geocodedMarkers.value = null
     const files = [...e.target.files]
@@ -414,9 +423,11 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
 
     const readFile = (f) => new Promise((resolve, reject) => {
       const r = new FileReader()
-      r.onload = (ev) => resolve({ name: f.name, text: ev.target.result })
+      const kmz = /\.kmz$/i.test(f.name)
+      r.onload = (ev) => resolve(kmz ? readKmz(ev.target.result).then(text => ({ name: f.name, text })).catch(err => ({ name: f.name, error: err })) : { name: f.name, text: ev.target.result })
       r.onerror = () => reject(new Error(`Could not read ${f.name}`))
-      r.readAsText(f, 'UTF-8')
+      if (kmz) r.readAsArrayBuffer(f)
+      else r.readAsText(f, 'UTF-8')
     })
 
     try {
@@ -424,11 +435,21 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
       if (selection !== csvSelection) return
       const allRows = []
       const errors = []
-      for (const { name, text } of results) {
-        try { allRows.push(...parseGoogleCsv(text)) }
-        catch (err) { errors.push(`${name}: ${err.message}`) }
+      let skipped = 0
+      for (const { name, text, error } of results) {
+        try {
+          if (error) throw error
+          if (detectFormat(name, text) === 'csv') allRows.push(...parseGoogleCsv(text))
+          else {
+            const parsed = parsePlaces(text, name)
+            // push(...rows) would overflow the stack for very large files
+            for (const row of parsed.rows) allRows.push(row)
+            skipped += parsed.skipped
+          }
+        } catch (err) { errors.push(`${name}: ${err.message}`) }
       }
       if (errors.length) csvError.value = errors.join(' | ')
+      if (skipped) csvNotice.value = `${skipped} skipped: lines, areas, tracks, routes or entries without a valid position (only places are imported).`
       if (!allRows.length) throw new Error('No valid rows found in any file')
       csvRows.value = allRows
     } catch (err) {
@@ -452,7 +473,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     for (const row of rows) {
       if (run.signal.aborted) return
       if (row.coords) {
-        results.push({ lat: row.coords.lat, lng: row.coords.lng, label: row.label, description: row.description, country: null })
+        results.push({ lat: row.coords.lat, lng: row.coords.lng, label: row.label, description: row.description, country: null, ...placeFields(row) })
         geocodeProgress.value++
         continue
       }
@@ -461,7 +482,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
         if (run.signal.aborted) return
         if (data.length) {
           const country = countryName(data[0].address)
-          results.push({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label: row.label, description: row.description, country })
+          results.push({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label: row.label, description: row.description, country, ...placeFields(row) })
         } else {
           notFound.push(row.title)
         }
@@ -496,6 +517,21 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     try {
       const rows = []
       const seen = new Set(markersStore.items.map(duplicateKey))
+      // Folder/layer names become categories or collections; existing ones with the same name are reused.
+      const groupStore = { category: categoriesStore, collection: collectionsStore }[groupAs.value] ?? null
+      const groupIds = new Map((groupStore?.items ?? []).map(item => [item.name, item.id]))
+      const groupErrors = new Map()
+      async function groupId(name) {
+        if (!groupIds.has(name) && !groupErrors.has(name)) {
+          try { groupIds.set(name, (await groupStore.create({ name }, requestOptions)).id) }
+          catch (err) {
+            if (err.name === 'AbortError') throw err
+            groupErrors.set(name, 'Could not create "' + name + '": ' + err.message)
+          }
+        }
+        if (groupErrors.has(name)) throw new Error(groupErrors.get(name))
+        return [groupIds.get(name)]
+      }
       for (const [i, m] of markers.entries()) {
         const key = duplicateKey(m)
         if (seen.has(key)) {
@@ -503,8 +539,18 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
           csvImportProgress.value++
           continue
         }
+        const label = m.label || 'Line ' + (i + 1)
+        let ids = []
+        try { if (groupStore && m.group) ids = await groupId(m.group) }
+        catch (err) {
+          if (err.name === 'AbortError') throw err
+          csvFailed.value.push({ label: label + ': ' + err.message })
+          csvImportProgress.value++
+          continue
+        }
         seen.add(key)
-        rows.push({ label: m.label || 'Line ' + (i + 1), payload: { ...markerFields(m), source: 'google_maps_csv', visited_at: null, category_ids: [], collection_ids: [] } })
+        const grouped = type => groupAs.value === type ? ids : []
+        rows.push({ label, payload: { ...markerFields(m), source: m.source || 'google_maps_csv', visited_at: null, category_ids: grouped('category'), collection_ids: grouped('collection') } })
       }
       await importBatches(rows, (row, result) => {
         if (result.error) csvFailed.value.push({ label: row.label + ': ' + result.error })
@@ -539,7 +585,7 @@ export function useImportExport(markersStore, categoriesStore, collectionsStore,
     // csv import
     csvInput, csvFiles, csvRows, csvError, csvStatus, csvNotFound,
     geocoding, geocodeProgress, geocodedMarkers,
-    csvImporting, csvImportProgress, csvFailed,
+    csvImporting, csvImportProgress, csvFailed, csvNotice, groupAs,
     resetCsv, cancelGeocode, onCsvSelected, doGeocode, doCsvImport,
   }
 }

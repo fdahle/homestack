@@ -263,16 +263,16 @@
           <!-- Import -->
           <div class="data-group">
             <div class="group-label">Import</div>
-            <p class="hint">Add markers from a previous export or from a Google Maps saved places CSV.</p>
+            <p class="hint"><strong>Mapper export</strong> takes a .json file downloaded above. <strong>Places file</strong> takes places from other apps: Google Maps (.csv, Takeout "Saved Places.json"), Google My Maps / Earth (.kml, .kmz), GPX waypoints (.gpx) and GeoJSON (.geojson, .json).</p>
 
             <input type="file" accept=".json" ref="fileInput" @change="onFileSelected" style="display:none" />
 
             <div class="import-btn-row">
               <button type="button" class="btn-secondary" @click="fileInput.click()">
-                JSON export
+                Mapper export
               </button>
               <button type="button" class="btn-secondary" @click="leaveFor('open-csv-import')">
-                Google Maps CSV
+                Places file…
               </button>
             </div>
 

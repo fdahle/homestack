@@ -1,17 +1,17 @@
 <template>
   <div ref="dialogEl" class="csv-panel" role="dialog" aria-labelledby="csv-import-title" tabindex="-1">
     <div class="panel-header">
-      <h2 id="csv-import-title">Import Google Maps CSV</h2>
+      <h2 id="csv-import-title">Import places</h2>
       <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
     </div>
 
     <!-- Phase: Select & Geocode -->
     <div v-if="phase === 'select'" class="panel-body">
-      <input type="file" ref="csvInput" accept=".csv" multiple style="display:none" @change="onCsvSelected" />
+      <input type="file" ref="csvInput" accept=".csv,.kml,.kmz,.gpx,.geojson,.json" multiple style="display:none" @change="onCsvSelected" />
 
       <template v-if="!csvRows">
-        <p class="hint">Select one or more exported Google Maps CSV files. Labels without coordinates will be geocoded via OpenStreetMap.</p>
-        <button type="button" class="btn-primary full" @click="csvInput.click()">Choose CSV files…</button>
+        <p class="hint">Select one or more files: Google Maps saved lists (.csv) or Takeout "Saved Places.json", Google My Maps or Google Earth (.kml, .kmz), GPX waypoints (.gpx) or GeoJSON (.geojson, .json). Places without coordinates are geocoded via OpenStreetMap.</p>
+        <button type="button" class="btn-primary full" @click="csvInput.click()">Choose files…</button>
         <p v-if="csvError" class="msg error">{{ csvError }}</p>
       </template>
 
@@ -22,6 +22,7 @@
           <button type="button" class="icon-btn" @click="resetCsv" title="Clear" aria-label="Clear selected files">✕</button>
         </div>
         <p v-if="csvError" class="msg error">{{ csvError }}</p>
+        <p v-if="csvNotice" class="msg">{{ csvNotice }}</p>
 
         <template v-if="!geocoding">
           <button type="button" class="btn-primary full" @click="doGeocode">
@@ -67,6 +68,14 @@
           <option v-for="c in uniqueCountries" :key="c" :value="c">{{ c || 'Unknown' }}</option>
         </select>
         <span class="filter-count">{{ filteredMarkers.length }} shown</span>
+      </div>
+
+      <div v-if="groupNames.length" class="filter-row">
+        <select v-model="groupAs" class="country-select" :aria-label="'Folders (' + groupNames.length + ')'">
+          <option value="collection">{{ groupNames.length }} {{ groupNames.length === 1 ? 'folder' : 'folders' }} → collections</option>
+          <option value="category">{{ groupNames.length }} {{ groupNames.length === 1 ? 'folder' : 'folders' }} → categories</option>
+          <option value="">Ignore folders</option>
+        </select>
       </div>
 
       <div class="marker-list" ref="listEl">
@@ -135,6 +144,8 @@
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { useMarkersStore } from '../stores/markers.js'
+import { useCategoriesStore } from '../stores/categories.js'
+import { useCollectionsStore } from '../stores/collections.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useMapControl } from '../composables/useMapControl.js'
 import { useDialog } from '../composables/useDialog.js'
@@ -145,14 +156,15 @@ const markersStore = useMarkersStore()
 const {
   csvInput, csvFiles, csvRows, csvError, csvStatus, csvNotFound,
   geocoding, geocodeProgress, geocodedMarkers,
-  csvImporting, csvImportProgress, csvFailed,
+  csvImporting, csvImportProgress, csvFailed, csvNotice, groupAs,
   resetCsv, cancelGeocode, onCsvSelected, doGeocode, doCsvImport,
-} = useImportExport(markersStore)
+} = useImportExport(markersStore, useCategoriesStore(), useCollectionsStore())
 
 // Closing drops processed places (geocoding them again takes a second each) and stops a running import.
 const dialogEl = ref(null)
 const { requestClose } = useDialog(dialogEl, {
   close: handleClose,
+  modal: false, // a side panel: the map stays usable for checking the results
   isDirty: () => geocoding.value || csvImporting.value || !!geocodedMarkers.value,
   message: () => csvImporting.value ? 'The import is still running. Closing stops it; markers imported so far stay saved. Close anyway?'
     : geocoding.value ? 'Stop processing the places and close?'
@@ -164,7 +176,6 @@ const { csvPreviewMarkers, flyTo } = useMapControl()
 // ── Rejection state ──────────────────────────────────────────────────────────
 const rejectedSet = ref(new Set())
 
-  modal: false, // a side panel: the map stays usable for checking the results
 function toggleReject(origIdx) {
   const s = new Set(rejectedSet.value)
   if (s.has(origIdx)) s.delete(origIdx)
@@ -198,6 +209,9 @@ const filteredMarkers = computed(() => {
     .map((m, i) => ({ ...m, _origIdx: i }))
     .filter(m => !countryFilter.value || m.country === countryFilter.value)
 })
+
+// KML folders, My Maps layers, GPX types: each can become a collection or category on import.
+const groupNames = computed(() => [...new Set((geocodedMarkers.value ?? []).map(m => m.group).filter(Boolean))])
 
 const acceptedCount = computed(() =>
   geocodedMarkers.value
