@@ -273,3 +273,22 @@ describe('siblings', () => {
     expect(markdown).toBe('```family\nperson eltern "Eltern von Jakob"\neltern -> jakob, veronika\nperson jakob "Jakob Maier"\nperson veronika "Veronika Maier"\n```\n');
   });
 });
+
+describe('one parent known, then both', () => {
+  const file = '```family\nperson sebastian "Sebastian Maier"\nperson monika "Monika Maier"\nsebastian -> jakob, veronika\nsebastian + monika married=?\nperson jakob "Jakob Maier"\nperson veronika "Veronika Maier"\n```\n';
+
+  it('moves a child of one parent to the couple instead of listing them twice', () => {
+    const { markdown } = applyEdits(file, [
+      { kind: 'add-child', parents: ['monika', 'sebastian'], child: 'jakob' },
+      { kind: 'add-child', parents: ['monika', 'sebastian'], child: 'veronika' },
+    ]);
+    expect(markdown).toBe('```family\nperson sebastian "Sebastian Maier"\nperson monika "Monika Maier"\nsebastian + monika married=? -> jakob, veronika\nperson jakob "Jakob Maier"\nperson veronika "Veronika Maier"\n```\n');
+    const graph = parseFamily(markdown);
+    expect(graph.unions.filter((u) => u.children.includes('jakob'))).toHaveLength(1);
+  });
+
+  it('adds nothing for one parent when the child already has them through a couple', () => {
+    const both = applyEdits(file, [{ kind: 'add-child', parents: ['sebastian', 'monika'], child: 'jakob' }]).markdown;
+    expect(applyEdits(both, [{ kind: 'add-child', parents: ['monika'], child: 'jakob' }]).markdown).toBe(both);
+  });
+});
