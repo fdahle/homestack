@@ -35,7 +35,7 @@ Built for my own use — but feel free to use it, fork it, or adapt it however y
 ### Requirements
 
 - Docker + Docker Compose
-- A reverse proxy handling HTTPS (nginx, Caddy, etc.)
+- A reverse proxy handling HTTPS (nginx, Caddy, etc.). HTTPS is required: in production the sign-in cookie is `Secure` and the app sends HSTS and `upgrade-insecure-requests`, so over plain HTTP you cannot sign in and the page's assets fail to load.
 
 ### Setup
 
@@ -46,9 +46,16 @@ cd mapMarker
 # Generate a strong secret
 echo "SESSION_SECRET=$(openssl rand -base64 32)" > .env
 
+# The container runs as uid 1000 and needs to write the database here
+mkdir -p data && sudo chown 1000:1000 data
+
 # Build and start
 docker compose up -d
 ```
+
+Then open the app through your proxy and choose the password; the first visitor sets it. To set it from the shell instead (before exposing the app), run the password command from [Forgotten password](#forgotten-password).
+
+If the log says `Cannot open the database`, the `data` directory is not writable by uid 1000 (Docker creates a missing one as root): run `sudo chown -R 1000:1000 data` and start again.
 
 The app listens on port **3063**, bound to `127.0.0.1` so it is only reachable through the reverse proxy on the same host. Point your reverse proxy at `localhost:3063`.
 
@@ -87,7 +94,8 @@ For a complete database backup including the account and share links, use Settin
 docker compose exec app node api/reset-password.js
 ```
 
-This removes the account (markers and all other data stay). Open the app right away and set a new password; until then, anyone who can reach the app could claim it.
+It asks for a new password (typed input is hidden), stores it and signs out every device. Markers and all other data stay. To script it: `printf '%s
+' 'new password' | docker compose exec -T app node api/reset-password.js`.
 
 ### Updates
 
@@ -103,10 +111,13 @@ docker compose up -d --build
 | Variable | Required | Description |
 |---|---|---|
 | `SESSION_SECRET` | Yes | Random string ≥ 32 characters, used to sign JWT tokens |
-| `PORT` | No | API port inside the container (default: `3000`) |
-| `NODE_ENV` | No | Set to `production` in production (enables Secure cookie flag) |
+| `PORT` | No | Port the app listens on without Docker (default: `3000`; the container always uses 3000) |
+| `NODE_ENV` | No | Set to `production` in production (Secure cookie, so HTTPS is required) |
 | `BIND_ADDRESS` | No | Host address docker-compose publishes port 3063 on (default: `127.0.0.1`) |
-| `TRUST_PROXY` | No | Number of reverse proxies in front of the app, or `false` when there is none (default: `1`) |
+| `TRUST_PROXY` | No | Number of reverse proxies in front of the app, `false` when there is none, or a list of proxy addresses such as `loopback, 10.0.0.0/8` (default: `1`) |
+| `MAPPER_DB_PATH` | No | SQLite file when running without Docker (default: `data/mapper.db`) |
+
+Sessions last 30 days and are renewed while you use the app; "Sign out of all devices" and password changes end every session.
 
 ---
 
@@ -120,4 +131,4 @@ Use Node.js 22.13+ or 24+. Install dependencies with `npm ci`, `npm ci --prefix 
 
 Stop the app before running `npm run reset`; this deletes the local database. Database upgrades run transactionally and are recorded in `schema_migrations`. Existing sessions are invalidated once on this upgrade and whenever the password is changed or reset.
 
-Shared maps include the selected markers and all their associated category/collection/person names. Person address references are excluded. Treat marker descriptions and images as public to anyone holding the link.
+Shared maps include the selected markers with their descriptions, images, addresses, links and visited dates, but not ratings, favorites or planned dates. Only the categories, collections and persons the link selects are shown (a link to all markers shows all categories and collections, but no persons); trip routes appear for shared trips only. Person address references are excluded. Treat everything shown as public to anyone holding the link.

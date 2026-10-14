@@ -1,22 +1,11 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
-import jwt from 'jsonwebtoken'
 import db from '../db.js'
 import { requireAuth } from '../middleware/auth.js'
+import { setAuthCookie, clearAuthCookie } from '../utils/session.js'
 
 const router = Router()
-
-const secureFlag = () => process.env.NODE_ENV === 'production' ? '; Secure' : ''
-
-function setAuthCookie(res, payload) {
-  const token = jwt.sign(payload, process.env.SESSION_SECRET, { expiresIn: '7d' })
-  res.setHeader('Set-Cookie', `mapper_token=${token}; HttpOnly; SameSite=Strict; Max-Age=604800${secureFlag()}; Path=/`)
-}
-
-function clearAuthCookie(res) {
-  res.setHeader('Set-Cookie', `mapper_token=; HttpOnly; SameSite=Strict; Max-Age=0${secureFlag()}; Path=/`)
-}
 
 router.get('/config', (_req, res) => {
   const user = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()

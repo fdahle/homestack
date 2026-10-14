@@ -1,9 +1,9 @@
 import { MARKER_BACKUP_FIELDS } from '../../shared/markers.js'
-import { validateDates } from '../../shared/dates.js'
-import { invalid, normalizeLegacyMarker, validId, validateMarker, validatePosition, validateSegment } from './validation.js'
+import { invalid, normalizeLegacyMarker, sqliteTimestamp, validId, validateCollection, validateColor, validateMarker, validatePosition, validateSegment } from './validation.js'
 
 export { MARKER_BACKUP_FIELDS }
-// Validates a backup before restore. Repairs legacy marker values and drops stale trip segments in place.
+// Validates a backup before restore. Repairs legacy values (marker fields, timestamps, duplicate
+// stop numbers) and drops stale trip segments in place.
 export function validateBackup(data) {
   if (data?.type !== 'backup' || !Array.isArray(data.markers) || (data.version != null && ![1, 2].includes(data.version))) throw invalid('Unsupported backup file')
   const groups = {}
@@ -13,22 +13,21 @@ export function validateBackup(data) {
     groups[key] = new Map()
     rows.forEach((row, index) => {
       const where = `${key} #${index + 1}`
-      if (!row || !validId(row.id) || groups[key].has(row.id)) throw invalid(`Invalid or duplicate ID in ${where}`)
+      if (!row || typeof row !== 'object' || !validId(row.id) || groups[key].has(row.id)) throw invalid(`Invalid or duplicate ID in ${where}`)
       groups[key].set(row.id, row)
-      if (key === 'markers') {
-        try { validateMarker(normalizeLegacyMarker(row)) } catch (err) { throw invalid(`${where} (${row.label || 'unnamed'}): ${err.message}`) }
-      } else {
-        if (typeof row.name !== 'string' || !row.name.trim()) throw invalid(`Name required in ${where}`)
-        if (row.color && !/^#[\da-f]{6}$/i.test(row.color)) throw invalid(`Invalid color in ${where}`)
-        if (key === 'collections') {
-          const error = validateDates(row.start_date, row.end_date)
-          if (error) throw invalid(`${where}: ${error}`)
-          for (const field of ['is_trip', 'show_route_line', 'show_exact_route']) if (row[field] != null && ![0,1,true,false].includes(row[field])) throw invalid(`Invalid ${field} in ${where}`)
+      try {
+        if (key === 'markers') validateMarker(normalizeLegacyMarker(row))
+        else if (key === 'collections') validateCollection(row)
+        else {
+          if (typeof row.name !== 'string' || !row.name.trim()) throw invalid('Name required')
+          validateColor(row.color)
+          for (const field of ['first_name', 'last_name']) if (key === 'persons' && row[field] != null && typeof row[field] !== 'string') throw invalid(`${field} must be text`)
         }
-      }
+        for (const field of ['created_at', 'updated_at']) row[field] = sqliteTimestamp(row[field])
+      } catch (err) { throw invalid(`${where}${key === 'markers' ? ` (${row.label || 'unnamed'})` : ''}: ${err.message}`) }
     })
   }
-  const positions = new Set()
+  const firstStop = new Map()
   for (const marker of data.markers) {
     for (const [key, target] of [['category_ids', 'categories'], ['person_ids', 'persons']]) {
       if (marker[key] != null && (!Array.isArray(marker[key]) || marker[key].some(id => !groups[target].has(id)))) throw invalid(`Unknown ${key} on marker ${marker.label || marker.id}`)
@@ -39,12 +38,13 @@ export function validateBackup(data) {
       if (!link || !groups.collections.has(link.id) || seen.has(link.id)) throw invalid(`Invalid collection link on marker ${marker.label || marker.id}`)
       seen.add(link.id)
       validatePosition(link.position)
-      if (groups.collections.get(link.id).is_trip && link.position != null) {
-        const key = `${link.id}-${link.position}`
-        if (positions.has(key)) throw invalid(`Duplicate trip stop #${link.position} in ${groups.collections.get(link.id).name}`)
-        positions.add(key)
-      }
+      const key = `${link.id}-${link.position}`
+      if (link.position != null && !(firstStop.get(key) < marker.id)) firstStop.set(key, marker.id)
     }
+  }
+  // Exports from before stop numbers were validated may repeat one; like migration 4, the lowest marker ID keeps it.
+  for (const marker of data.markers) {
+    for (const link of marker.collection_links ?? []) if (link.position != null && firstStop.get(`${link.id}-${link.position}`) !== marker.id) link.position = null
   }
   for (const person of groups.persons.values()) if (person.address_marker_id != null && !groups.markers.has(person.address_marker_id)) throw invalid('Person address marker is missing')
   if (data.trip_waypoints != null && !Array.isArray(data.trip_waypoints)) throw invalid('Invalid trip waypoints')

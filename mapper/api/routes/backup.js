@@ -1,5 +1,5 @@
 import { validateBackup, MARKER_BACKUP_FIELDS } from '../utils/backup.js'
-import { Router } from 'express'
+import express, { Router } from 'express'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
@@ -72,7 +72,8 @@ router.get('/database', (_req, res, next) => {
   res.download(file, `mapper-${new Date().toISOString().slice(0, 10)}.db`, () => rm(file, { force: true }).catch(() => {}))
 })
 
-router.post('/restore', (req, res) => {
+// Parsed only here, after authentication, so anonymous requests cannot make the server parse 100 MB.
+router.post('/restore', express.json({ limit: '100mb' }), (req, res) => {
   const data = req.body
   validateBackup(data)
 
@@ -97,40 +98,41 @@ router.post('/restore', (req, res) => {
     db.exec('DELETE FROM categories')
 
     const catMap = {}
-    const insCategory = db.prepare("INSERT INTO categories (name, color, created_at) VALUES (?, ?, ?)")
+    const insCategory = db.prepare("INSERT INTO categories (name, color, created_at) VALUES (?, ?, COALESCE(?, datetime('now')))")
     for (const c of categories) {
-      const { lastInsertRowid } = insCategory.run(c.name, c.color ?? '#3b82f6', c.created_at ?? null)
+      const { lastInsertRowid } = insCategory.run(c.name.trim(), c.color || '#3b82f6', c.created_at)
       catMap[c.id] = lastInsertRowid
     }
 
     const colMap = {}
     const insCollection = db.prepare(
-      'INSERT INTO collections (name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      "INSERT INTO collections (name, description, start_date, end_date, color, is_trip, show_route_line, show_exact_route, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))"
     )
     for (const c of collections) {
       const { lastInsertRowid } = insCollection.run(
-        c.name, c.description ?? null, c.start_date ?? null, c.end_date ?? null,
-        c.color ?? '#10b981', c.is_trip ? 1 : 0, c.show_route_line ? 1 : 0, c.show_exact_route ? 1 : 0, c.created_at ?? null
+        c.name.trim(), c.description || null, c.start_date || null, c.end_date || null,
+        c.color || '#10b981', c.is_trip ? 1 : 0, c.is_trip && c.show_route_line ? 1 : 0, c.is_trip && c.show_exact_route ? 1 : 0, c.created_at
       )
       colMap[c.id] = lastInsertRowid
     }
 
     const perMap = {}
-    const insPerson = db.prepare('INSERT INTO persons (name, first_name, last_name, color, created_at) VALUES (?, ?, ?, ?, ?)')
+    const insPerson = db.prepare("INSERT INTO persons (name, first_name, last_name, color, created_at) VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))")
     for (const p of persons) {
-      const { lastInsertRowid } = insPerson.run(p.name, p.first_name ?? p.name, p.last_name ?? null, p.color ?? '#8b5cf6', p.created_at ?? null)
+      const { lastInsertRowid } = insPerson.run(p.name.trim(), p.first_name?.trim() || p.name.trim(), p.last_name?.trim() || null, p.color || '#8b5cf6', p.created_at)
       perMap[p.id] = lastInsertRowid
     }
 
     const markerMap = {}
     const markerFields = MARKER_BACKUP_FIELDS.filter(field => field !== 'id')
-    const insMarker = db.prepare(`INSERT INTO markers (${markerFields.join(',')}) VALUES (${markerFields.map(() => '?').join(',')})`)
+    const timestamp = field => ['created_at', 'updated_at'].includes(field) ? "COALESCE(?, datetime('now'))" : '?'
+    const insMarker = db.prepare(`INSERT INTO markers (${markerFields.join(',')}) VALUES (${markerFields.map(timestamp).join(',')})`)
     const insMarkerCat = db.prepare('INSERT OR IGNORE INTO marker_categories (marker_id, category_id) VALUES (?, ?)')
     const insMarkerCol = db.prepare('INSERT OR IGNORE INTO marker_collections (marker_id, collection_id, position) VALUES (?, ?, ?)')
     const insMarkerPer = db.prepare('INSERT OR IGNORE INTO marker_persons (marker_id, person_id) VALUES (?, ?)')
 
     for (const m of markers) {
-      const row = { ...m, is_favorite: m.is_favorite ? 1 : 0, use_coords: m.use_coords ? 1 : 0, source: m.source ?? 'manual', created_at: m.created_at ?? new Date().toISOString() }
+      const row = { ...m, is_favorite: m.is_favorite ? 1 : 0, use_coords: m.use_coords ? 1 : 0, source: m.source || 'manual', color: m.color || null, updated_at: m.updated_at ?? m.created_at }
       const { lastInsertRowid } = insMarker.run(...markerFields.map(field => row[field] ?? null))
       markerMap[m.id] = lastInsertRowid
 

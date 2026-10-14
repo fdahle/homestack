@@ -39,7 +39,7 @@ router.put('/:id', (req, res) => {
 })
 
 router.put('/:id/positions', (req, res) => res.json(saveTrip(Number(req.params.id), req.body.positions ?? null)))
-router.put('/:id/route', (req, res) => res.json(saveTrip(Number(req.params.id), req.body.positions ?? null, req.body.segments)))
+router.put('/:id/route', (req, res) => res.json(saveTrip(Number(req.params.id), req.body.positions ?? null, req.body.segments ?? null, { replaceSegments: true })))
 
 router.get('/:id/segments', (req, res) => {
   const col = db.prepare('SELECT id, is_trip FROM collections WHERE id = ?').get(req.params.id)

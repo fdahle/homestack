@@ -2,7 +2,8 @@ import db from '../db.js'
 import { transaction } from './transaction.js'
 import { invalid, validId, validatePosition, validateSegment } from './validation.js'
 
-export function saveTrip(collectionId, positions, segments = []) {
+// With replaceSegments the submitted legs are the complete route: legs of an older stop order are removed.
+export function saveTrip(collectionId, positions, segments = [], { replaceSegments = false } = {}) {
   return transaction(db, () => {
     const collection = db.prepare('SELECT * FROM collections WHERE id=?').get(collectionId)
     if (!collection) throw Object.assign(new Error('Collection not found'), { status: 404 })
@@ -34,6 +35,7 @@ export function saveTrip(collectionId, positions, segments = []) {
       seen.add(key)
     }
     for (const [id, position] of members) db.prepare('UPDATE marker_collections SET position=? WHERE collection_id=? AND marker_id=?').run(position, collectionId, id)
+    if (replaceSegments) db.prepare("DELETE FROM trip_waypoints WHERE collection_id=? AND from_marker_id || '-' || to_marker_id NOT IN (SELECT value FROM json_each(?))").run(collectionId, JSON.stringify([...seen]))
     for (const seg of segments) db.prepare(`INSERT INTO trip_waypoints (collection_id,from_marker_id,to_marker_id,mode,via_points) VALUES (?,?,?,?,?) ON CONFLICT(collection_id,from_marker_id,to_marker_id) DO UPDATE SET mode=excluded.mode,via_points=excluded.via_points`).run(collectionId, seg.from_marker_id, seg.to_marker_id, seg.mode, JSON.stringify(seg.via_points))
     return { ok: true }
   })

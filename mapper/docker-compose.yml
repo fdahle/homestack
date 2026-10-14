@@ -2,10 +2,11 @@ services:
   app:
     build: .
     ports:
-      # Only reachable through the reverse proxy on this host. Set BIND_ADDRESS=0.0.0.0 to expose it
-      # (then also set TRUST_PROXY=false, otherwise clients can spoof X-Forwarded-For).
+      # Only reachable through the reverse proxy on this host. If the proxy runs elsewhere, set
+      # BIND_ADDRESS to an address only it can reach. Sign-in needs HTTPS, so always go through the proxy.
       - "${BIND_ADDRESS:-127.0.0.1}:3063:3000"
     volumes:
+      # Must be writable by uid 1000 (the container's node user): mkdir -p data && sudo chown 1000:1000 data
       - ./data:/app/data
     environment:
       - NODE_ENV=production

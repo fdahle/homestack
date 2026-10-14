@@ -24,8 +24,12 @@ COPY api/ ./api/
 COPY shared/ ./shared/
 COPY --from=builder /build/client/dist ./client/dist
 
+# A bind-mounted ./data must be writable by this user (uid 1000); see README.
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node
 
 EXPOSE 3000
+# Alpine images have no curl; Node's http module does the job.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["node", "-e", "require('http').get('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
 CMD ["node", "--no-warnings", "api/index.js"]

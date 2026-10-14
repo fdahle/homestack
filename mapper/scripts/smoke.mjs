@@ -11,7 +11,7 @@ const base = `http://localhost:${server.address().port}`
 try {
   const page = await fetch(base)
   assert.equal(page.status, 200)
-  assert.ok(page.headers.get('content-security-policy'))
+  assert.match(page.headers.get('content-security-policy'), /font-src 'self' data:;/)
   assert.equal(page.headers.get('referrer-policy'), 'strict-origin-when-cross-origin')
   assert.equal(page.headers.get('cache-control'), 'no-cache')
   const html = await page.text()
@@ -26,6 +26,9 @@ try {
   assert.equal((await fetch(base + '/sw.js')).status, 200)
   const oversized = JSON.stringify({ password: 'x'.repeat(3 * 1024 * 1024) })
   assert.equal((await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: oversized })).status, 413)
+  // Anonymous restore bodies are rejected before being parsed (malformed JSON would otherwise give 400).
+  assert.equal((await fetch(base + '/api/backup/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' + 'x'.repeat(3 * 1024 * 1024) })).status, 401)
+  assert.equal((await fetch(base + '/api/health')).status, 200)
   assert.equal((await fetch(base + '/api/unknown')).status, 404)
   assert.equal((await fetch(base + '/api/markers')).status, 401)
   const setup = await fetch(base + '/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'smoke-test-password' }) })
@@ -35,7 +38,9 @@ try {
   const markers = await fetch(base + '/api/markers', { headers: { Cookie: cookie } })
   assert.equal(markers.status, 200)
   assert.deepEqual(await markers.json(), [])
-  console.log('Production HTTP smoke check passed: HTML/assets, caching, referrer policy, body limit, CSP, secure auth cookie, protected API and JSON 404.')
+  const backup = JSON.stringify({ type: 'backup', version: 2, markers: [{ id: 1, lat: 52, lng: 5, label: 'Large', description: 'x'.repeat(3 * 1024 * 1024) }] })
+  assert.equal((await fetch(base + '/api/backup/restore', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: backup })).status, 200)
+  console.log('Production HTTP smoke check passed: HTML/assets, caching, referrer policy, body limits, CSP, secure auth cookie, protected API and JSON 404.')
 } finally {
   server.closeAllConnections()
   await new Promise(resolve => server.close(resolve))

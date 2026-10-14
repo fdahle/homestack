@@ -7,6 +7,14 @@ const MIGRATIONS = [
   { version: 1, up: initialSchema },
   { version: 2, up: repairLegacyData },
   { version: 3, up: db => db.exec('CREATE TABLE IF NOT EXISTS deleted_markers (id INTEGER PRIMARY KEY, label TEXT, deleted_at TEXT NOT NULL, snapshot TEXT NOT NULL)') },
+  { version: 4, up: repairStopsAndTimestamps },
+  { version: 5, up: db => db.exec(`
+    CREATE INDEX IF NOT EXISTS marker_collections_collection ON marker_collections (collection_id, position);
+    CREATE INDEX IF NOT EXISTS marker_categories_category ON marker_categories (category_id);
+    CREATE INDEX IF NOT EXISTS marker_persons_person ON marker_persons (person_id);
+    CREATE INDEX IF NOT EXISTS trip_waypoints_from ON trip_waypoints (from_marker_id);
+    CREATE INDEX IF NOT EXISTS trip_waypoints_to ON trip_waypoints (to_marker_id);
+    CREATE INDEX IF NOT EXISTS persons_address_marker ON persons (address_marker_id);`) },
 ]
 
 export function initializeDatabase(db) {
@@ -36,6 +44,16 @@ function repairLegacyData(db) {
   db.exec(`DELETE FROM trip_waypoints WHERE collection_id NOT IN (SELECT id FROM collections WHERE is_trip=1)
     OR NOT EXISTS (SELECT 1 FROM marker_collections WHERE marker_id=from_marker_id AND collection_id=trip_waypoints.collection_id)
     OR NOT EXISTS (SELECT 1 FROM marker_collections WHERE marker_id=to_marker_id AND collection_id=trip_waypoints.collection_id)`)
+}
+
+// Duplicate stop numbers from before validation: the lowest marker ID keeps the stop, the others
+// become unnumbered. Restores used to store ISO timestamps, which sort above SQLite's format.
+function repairStopsAndTimestamps(db) {
+  db.exec(`UPDATE marker_collections SET position=NULL WHERE position IS NOT NULL
+    AND marker_id > (SELECT min(marker_id) FROM marker_collections d WHERE d.collection_id=marker_collections.collection_id AND d.position=marker_collections.position)`)
+  for (const [table, columns] of [['markers', ['created_at', 'updated_at']], ['categories', ['created_at']], ['collections', ['created_at']], ['persons', ['created_at']]]) {
+    for (const column of columns) db.exec(`UPDATE ${table} SET ${column}=datetime(${column}) WHERE ${column} LIKE '%T%' AND datetime(${column}) IS NOT NULL`)
+  }
 }
 
 function initialSchema(db) {

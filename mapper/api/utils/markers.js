@@ -1,5 +1,5 @@
 import db from '../db.js'
-import { MARKER_FIELDS, MARKER_BACKUP_FIELDS } from '../../shared/markers.js'
+import { MARKER_FIELDS } from '../../shared/markers.js'
 import { invalid, requireObject, validId, validateMarker, validatePosition } from './validation.js'
 import { transaction } from './transaction.js'
 
@@ -13,16 +13,6 @@ export function getMarkers(ids = null) {
     for (const { marker_id, ...entity } of db.prepare(`SELECT j.marker_id, e.*${position} FROM ${table} e JOIN ${junction} j ON e.id=j.${fk}` + where('j.marker_id')).all(...params)) byId.get(marker_id)?.[table].push(entity)
   }
   return [...byId.values()]
-}
-
-const pick = (value, fields) => Object.fromEntries(fields.map(key => [key, value[key]]))
-export function publicMarker(marker) {
-  return {
-    ...pick(marker, MARKER_BACKUP_FIELDS),
-    categories: marker.categories.map(c => pick(c, ['id', 'name', 'color', 'created_at'])),
-    collections: marker.collections.map(c => pick(c, ['id', 'name', 'description', 'color', 'start_date', 'end_date', 'is_trip', 'show_route_line', 'show_exact_route', 'created_at', 'position'])),
-    persons: marker.persons.map(p => pick(p, ['id', 'name', 'first_name', 'last_name', 'color', 'created_at'])),
-  }
 }
 
 function relations(body, existingId) {
@@ -41,7 +31,8 @@ function relations(body, existingId) {
   for (const id of result.collection_ids) {
     const position = Object.hasOwn(supplied, id) ? supplied[id] : oldPositions[id] ?? null
     validatePosition(position)
-    if (position != null && db.prepare('SELECT is_trip FROM collections WHERE id=?').get(id).is_trip) {
+    // Only a changed stop number is checked, so duplicates stored before validation cannot block other edits.
+    if (position != null && position !== oldPositions[id] && db.prepare('SELECT is_trip FROM collections WHERE id=?').get(id).is_trip) {
       if (db.prepare('SELECT marker_id FROM marker_collections WHERE collection_id=? AND position=? AND marker_id != ?').get(id, position, existingId ?? -1)) throw invalid(`Stop #${position} is already used in this trip`)
     }
     result.collection_positions[id] = position

@@ -10,6 +10,17 @@ export function requireObject(value, label = 'Data') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid(`${label} must be an object`)
 }
 export function validId(id) { return Number.isSafeInteger(id) && id > 0 }
+export function validateColor(color) {
+  if (color && !/^#[\da-f]{6}$/i.test(color)) throw invalid('Invalid color')
+}
+// Stored like SQLite's datetime('now'); ISO strings (older restores) would sort above those values.
+export function sqliteTimestamp(value) {
+  if (value == null || value === '') return null
+  if (typeof value !== 'string') throw invalid('Timestamps must be text')
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return value
+  const time = Date.parse(value)
+  return Number.isFinite(time) ? new Date(time).toISOString().slice(0, 19).replace('T', ' ') : null
+}
 export function validatePosition(position) {
   if (position != null && !validId(position)) throw invalid('Stop positions must be positive integers or null')
 }
@@ -49,6 +60,7 @@ export function normalizeLegacyMarker(marker, { dropInvalid = false } = {}) {
   for (const field of ['label', 'description', 'image_url', 'address', 'country', 'color', 'external_url', 'source']) {
     if (marker[field] != null && typeof marker[field] !== 'string') marker[field] = String(marker[field])
   }
+  if (marker.color === '') marker.color = null
   if (marker.color && !/^#[\da-f]{6}$/i.test(marker.color)) {
     const short = /^#?([\da-f])([\da-f])([\da-f])$/i.exec(marker.color)
     const long = /^#?([\da-f]{6})$/i.exec(marker.color)
@@ -85,7 +97,7 @@ export function validateCollection(collection) {
   requireObject(collection, 'Collection')
   if (typeof collection.name !== 'string' || !collection.name.trim()) throw invalid('Name required')
   if (collection.description != null && typeof collection.description !== 'string') throw invalid('Description must be text')
-  if (collection.color && !/^#[\da-f]{6}$/i.test(collection.color)) throw invalid('Invalid color')
+  validateColor(collection.color)
   for (const field of ['is_trip', 'show_route_line', 'show_exact_route']) {
     if (collection[field] != null && ![0, 1, true, false].includes(collection[field])) throw invalid(`${field} must be a boolean`)
   }
@@ -98,8 +110,23 @@ export function validateShare(body) {
   if (body.name != null && typeof body.name !== 'string') throw invalid('Name must be text')
   if (body.password != null && (typeof body.password !== 'string' || Buffer.byteLength(body.password) > 72)) throw invalid('Password must be text and at most 72 bytes')
   if (body.password && [...body.password].length < SHARE_PASSWORD_MIN) throw invalid(`Password must be at least ${SHARE_PASSWORD_MIN} characters`)
-  if (body.expiresAt && (typeof body.expiresAt !== 'string' || !validDate(body.expiresAt.slice(0, 10)) || !Number.isFinite(Date.parse(body.expiresAt)))) throw invalid('Expiry must be a valid date')
+  // A time needs an explicit zone; without one it would be read in the server's time zone.
+  if (body.expiresAt && (typeof body.expiresAt !== 'string' || !validDate(body.expiresAt.slice(0, 10)) || !EXPIRY.test(body.expiresAt) || !Number.isFinite(Date.parse(body.expiresAt)))) throw invalid('Expiry must be a date, or a date and time with a time zone')
   if (body.filter !== undefined) requireObject(body.filter, 'Filter')
+}
+const EXPIRY = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/
+
+export const SHARE_FILTER_MAX = 5000
+// The stored shape of a share filter. Lists are capped so a link can always be resolved and listed.
+export function normalizeShareFilter(filter) {
+  requireObject(filter, 'Filter')
+  const result = { all: !!filter.all }
+  for (const key of ['categories', 'collections', 'persons', 'markers']) {
+    const ids = Array.isArray(filter[key]) ? [...new Set(filter[key].filter(validId))] : []
+    if (ids.length > SHARE_FILTER_MAX) throw invalid(`A share link can select at most ${SHARE_FILTER_MAX} ${key}`)
+    result[key] = ids
+  }
+  return result
 }
 
 // Date-only expiries (older links) stay valid until that day has ended in every time zone.

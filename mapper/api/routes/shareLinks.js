@@ -1,66 +1,48 @@
-import { validateShare } from '../utils/validation.js'
+import { validateShare, normalizeShareFilter } from '../utils/validation.js'
 import { Router } from 'express'
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 import db from '../db.js'
 import { requireAuth } from '../middleware/auth.js'
-import { resolveMarkerIds } from '../utils/shareUtils.js'
+import { parseShareFilter, resolveMarkerIds } from '../utils/shareUtils.js'
 
 const router = Router()
 router.use(requireAuth)
 
+// One unreadable link must not break the whole list.
+function linkResponse(link) {
+  const filter = parseShareFilter(link.filter_json)
+  let markerCount = null
+  try { markerCount = filter ? resolveMarkerIds(filter).length : 0 } catch (err) { console.error('Share link count failed:', err.message) }
+  return {
+    token: link.token,
+    name: link.name,
+    hasPassword: !!link.password_hash,
+    filter: filter ?? { all: false, categories: [], collections: [], persons: [], markers: [] },
+    markerCount,
+    createdAt: link.created_at,
+    expiresAt: link.expires_at,
+  }
+}
+
 router.get('/', (_req, res) => {
-  const links = db.prepare('SELECT * FROM share_links ORDER BY created_at DESC').all()
-  const result = links.map((link) => {
-    let filter
-    try { filter = JSON.parse(link.filter_json) } catch { filter = { all: false, categories: [], collections: [], persons: [], markers: [] } }
-    const markerCount = resolveMarkerIds(filter).length
-    return {
-      token: link.token,
-      name: link.name,
-      hasPassword: !!link.password_hash,
-      filter,
-      markerCount,
-      createdAt: link.created_at,
-      expiresAt: link.expires_at,
-    }
-  })
-  res.json(result)
+  res.json(db.prepare('SELECT * FROM share_links ORDER BY created_at DESC').all().map(linkResponse))
 })
 
 router.post('/', async (req, res, next) => {
   try {
     validateShare(req.body)
     const { name, password, filter, expiresAt } = req.body
-    if (!filter || typeof filter !== 'object') {
-      return res.status(400).json({ error: 'filter is required' })
-    }
+    if (!filter) return res.status(400).json({ error: 'filter is required' })
+    const filterJson = JSON.stringify(normalizeShareFilter(filter))
 
     const token = randomBytes(24).toString('base64url')
     const passwordHash = password ? await bcrypt.hash(password, 12) : null
-    const filterJson = JSON.stringify({
-      all: !!filter.all,
-      categories: Array.isArray(filter.categories) ? filter.categories.filter(Number.isInteger) : [],
-      collections: Array.isArray(filter.collections) ? filter.collections.filter(Number.isInteger) : [],
-      persons: Array.isArray(filter.persons) ? filter.persons.filter(Number.isInteger) : [],
-      markers: Array.isArray(filter.markers) ? filter.markers.filter(Number.isInteger) : [],
-    })
-
     db.prepare(
       'INSERT INTO share_links (token, name, password_hash, filter_json, expires_at) VALUES (?, ?, ?, ?, ?)'
     ).run(token, name || null, passwordHash, filterJson, expiresAt || null)
 
-    const link = db.prepare('SELECT * FROM share_links WHERE token = ?').get(token)
-    const parsedFilter = JSON.parse(link.filter_json)
-    res.status(201).json({
-      token: link.token,
-      name: link.name,
-      hasPassword: !!link.password_hash,
-      filter: parsedFilter,
-      markerCount: resolveMarkerIds(parsedFilter).length,
-      createdAt: link.created_at,
-      expiresAt: link.expires_at,
-    })
+    res.status(201).json(linkResponse(db.prepare('SELECT * FROM share_links WHERE token = ?').get(token)))
   } catch (err) {
     next(err)
   }
@@ -73,23 +55,13 @@ router.put('/:token', async (req, res, next) => {
     if (!link) return res.status(404).json({ error: 'Not found' })
 
     const { name, password, removePassword, filter, expiresAt } = req.body
+    const filterJson = filter ? JSON.stringify(normalizeShareFilter(filter)) : link.filter_json
 
     let passwordHash = link.password_hash
     if (removePassword) {
       passwordHash = null
     } else if (password) {
       passwordHash = await bcrypt.hash(password, 12)
-    }
-
-    let filterJson = link.filter_json
-    if (filter && typeof filter === 'object') {
-      filterJson = JSON.stringify({
-        all: !!filter.all,
-        categories: Array.isArray(filter.categories) ? filter.categories.filter(Number.isInteger) : [],
-        collections: Array.isArray(filter.collections) ? filter.collections.filter(Number.isInteger) : [],
-        persons: Array.isArray(filter.persons) ? filter.persons.filter(Number.isInteger) : [],
-        markers: Array.isArray(filter.markers) ? filter.markers.filter(Number.isInteger) : [],
-      })
     }
 
     db.prepare(
@@ -102,17 +74,7 @@ router.put('/:token', async (req, res, next) => {
       req.params.token
     )
 
-    const updated = db.prepare('SELECT * FROM share_links WHERE token = ?').get(req.params.token)
-    const parsedFilter = JSON.parse(updated.filter_json)
-    res.json({
-      token: updated.token,
-      name: updated.name,
-      hasPassword: !!updated.password_hash,
-      filter: parsedFilter,
-      markerCount: resolveMarkerIds(parsedFilter).length,
-      createdAt: updated.created_at,
-      expiresAt: updated.expires_at,
-    })
+    res.json(linkResponse(db.prepare('SELECT * FROM share_links WHERE token = ?').get(req.params.token)))
   } catch (err) {
     next(err)
   }

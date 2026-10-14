@@ -14,6 +14,7 @@ import cookieParser from 'cookie-parser'
 import rateLimit from 'express-rate-limit'
 
 import './db.js' // opens the database and runs migrations before any route loads
+import { parseTrustProxy } from './utils/trustProxy.js'
 
 if (process.env.RESET_PASSWORD) {
   console.warn('RESET_PASSWORD is no longer supported. Run "node api/reset-password.js" once instead (see README).')
@@ -33,8 +34,7 @@ const PORT = process.env.PORT || 3000
 
 // Number of reverse proxies in front of the app (default 1, e.g. nginx). Only correct when the
 // app port is not reachable directly — docker-compose binds it to 127.0.0.1 for that reason.
-const trustProxy = process.env.TRUST_PROXY ?? '1'
-app.set('trust proxy', /^d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy === 'true' ? true : trustProxy === 'false' ? false : trustProxy)
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY))
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -44,7 +44,7 @@ app.use(helmet({
       styleSrc:   ["'self'", "'unsafe-inline'"],
       imgSrc:     ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://nominatim.openstreetmap.org", "https://routing.openstreetmap.de", "https://api.openrouteservice.org", "https://overpass-api.de", "https://photon.komoot.io", "https://*.wikipedia.org", "https://commons.wikimedia.org"],
-      fontSrc:    ["'self'", "https:", "data:"],
+      fontSrc:    ["'self'", "data:"],
       objectSrc:  ["'none'"],
       frameAncestors: ["'self'"],
     },
@@ -52,16 +52,17 @@ app.use(helmet({
   // OSM tile and Nominatim usage policies require a referrer; helmet's default sends none.
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }))
-// Backups can be large; everything else, including unauthenticated routes, gets a small limit.
-const largeJson = express.json({ limit: '100mb' })
+// The restore route parses its large body itself, after authentication; everything else gets a small limit.
 const smallJson = express.json({ limit: '2mb' })
-app.use((req, res, next) => (req.path === '/api/backup/restore' ? largeJson : smallJson)(req, res, next))
+app.use((req, res, next) => req.path === '/api/backup/restore' ? next() : smallJson(req, res, next))
 app.use(cookieParser())
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Too many sign-in attempts. Please wait 15 minutes.' }) })
 app.use('/api/auth', (req, res, next) => req.method === 'POST' && req.path !== '/logout' ? authLimiter(req, res, next) : next())
 
-const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Write limit reached. Please wait before retrying.' }) })
+// Generous for the single owner: a 1000-row import, the background country lookup (~1 write/s)
+// and long trip-editing sessions must fit, while a runaway client is still stopped.
+const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 3000, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Write limit reached. Please wait before retrying.' }) })
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const applyWriteLimiter = (req, res, next) =>
   WRITE_METHODS.has(req.method) ? writeLimiter(req, res, next) : next()
