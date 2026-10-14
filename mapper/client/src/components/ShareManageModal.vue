@@ -50,12 +50,12 @@
         <!-- Create / Edit form -->
         <form v-else @submit.prevent="save">
           <div class="field">
-            <label>Name <span class="optional">(optional)</span></label>
-            <input v-model="form.name" type="text" placeholder="e.g. Europe trip 2024" />
+            <label for="share-name">Name <span class="optional">(optional)</span></label>
+            <input id="share-name" v-model="form.name" type="text" placeholder="e.g. Europe trip 2024" />
           </div>
 
-          <div class="field">
-            <label>What to share</label><p class="hint-text">Matching markers are shared with their descriptions and images. Viewers only see the categories, collections and persons selected here ("All markers" shows categories and collections, but no persons). Ratings, favorites and planned dates are never shared.</p>
+          <div class="field" role="group" aria-labelledby="share-what-label">
+            <label id="share-what-label">What to share</label><p class="hint-text">Matching markers are shared with their descriptions and images. Viewers only see the categories, collections and persons selected here ("All markers" shows categories and collections, but no persons). Ratings, favorites and planned dates are never shared.</p>
             <label class="checkbox-label bold-label">
               <input type="checkbox" v-model="form.filter.all" />
               All markers
@@ -63,8 +63,8 @@
           </div>
 
           <template v-if="!form.filter.all">
-            <div v-if="categoriesStore.items.length" class="filter-section">
-              <div class="filter-section-title">Categories</div>
+            <div v-if="categoriesStore.items.length" class="filter-section" role="group" aria-labelledby="share-categories-label">
+              <div id="share-categories-label" class="filter-section-title">Categories</div>
               <label v-for="cat in categoriesStore.items" :key="cat.id" class="checkbox-label">
                 <input type="checkbox" :value="cat.id" v-model="form.filter.categories" />
                 <span class="color-dot" :style="{ background: cat.color }" />
@@ -72,8 +72,8 @@
               </label>
             </div>
 
-            <div v-if="collectionsStore.items.length" class="filter-section">
-              <div class="filter-section-title">Collections</div>
+            <div v-if="collectionsStore.items.length" class="filter-section" role="group" aria-labelledby="share-collections-label">
+              <div id="share-collections-label" class="filter-section-title">Collections</div>
               <label v-for="col in collectionsStore.items" :key="col.id" class="checkbox-label">
                 <input type="checkbox" :value="col.id" v-model="form.filter.collections" />
                 <span class="color-dot" :style="{ background: col.color }" />
@@ -81,8 +81,8 @@
               </label>
             </div>
 
-            <div v-if="personsStore.items.length" class="filter-section">
-              <div class="filter-section-title">Persons</div>
+            <div v-if="personsStore.items.length" class="filter-section" role="group" aria-labelledby="share-persons-label">
+              <div id="share-persons-label" class="filter-section-title">Persons</div>
               <label v-for="person in personsStore.items" :key="person.id" class="checkbox-label">
                 <input type="checkbox" :value="person.id" v-model="form.filter.persons" />
                 <span class="color-dot" :style="{ background: person.color }" />
@@ -106,6 +106,7 @@
                 :type="showPw ? 'text' : 'password'"
                 :placeholder="`At least ${PASSWORD_MIN} characters`"
                 autocomplete="new-password"
+                aria-label="Password"
                 class="pw-input"
               />
               <button type="button" class="icon-btn" :aria-label="showPw ? 'Hide password' : 'Show password'" @click="showPw = !showPw">
@@ -118,8 +119,8 @@
           </div>
 
           <div class="field">
-            <label>Expiry date <span class="optional">(optional)</span></label>
-            <input v-model="form.expiresAt" type="date" :min="form.expiresAt && form.expiresAt < todayStr ? undefined : todayStr" />
+            <label for="share-expires">Expiry date <span class="optional">(optional)</span></label>
+            <input id="share-expires" v-model="form.expiresAt" type="date" :min="form.expiresAt && form.expiresAt < todayStr ? undefined : todayStr" />
           </div>
 
           <p v-if="error" class="error">{{ error }}</p>
@@ -132,9 +133,9 @@
           </div>
 
           <div v-if="createdToken" class="created-link-box">
-            <p class="created-label">Share this link:</p>
+            <p id="share-created-label" class="created-label">Share this link:</p>
             <div class="created-url-row">
-              <input readonly :value="shareUrl(createdToken)" class="url-input" />
+              <input readonly :value="shareUrl(createdToken)" class="url-input" aria-labelledby="share-created-label" />
               <button type="button" class="icon-btn" :title="copied === createdToken ? 'Copied!' : 'Copy'" aria-label="Copy link" @click="copyLink(createdToken)">
                 <AppIcon :name="copied === createdToken ? 'check' : 'copy'" />
               </button>

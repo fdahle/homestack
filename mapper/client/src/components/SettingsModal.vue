@@ -23,17 +23,17 @@
             <p class="hint">The map position and zoom level shown when the app first loads.</p>
             <div class="row">
               <div class="field">
-                <label>Latitude</label>
-                <input v-model.number="form.lat" type="number" step="any" min="-90" max="90" />
+                <label for="settings-lat">Latitude</label>
+                <input id="settings-lat" v-model.number="form.lat" type="number" step="any" min="-90" max="90" />
               </div>
               <div class="field">
-                <label>Longitude</label>
-                <input v-model.number="form.lng" type="number" step="any" min="-180" max="180" />
+                <label for="settings-lng">Longitude</label>
+                <input id="settings-lng" v-model.number="form.lng" type="number" step="any" min="-180" max="180" />
               </div>
             </div>
             <div class="field">
-              <label>Zoom level (1–19)</label>
-              <input v-model.number="form.zoom" type="number" min="1" max="19" step="1" />
+              <label for="settings-zoom">Zoom level (1–19)</label>
+              <input id="settings-zoom" v-model.number="form.zoom" type="number" min="1" max="19" step="1" />
             </div>
             <p class="hint">Or fill in the fields automatically:</p>
             <div class="btn-pair">
@@ -53,47 +53,47 @@
         <template v-if="tab === 'appearance'">
           <div class="setting-row">
             <div class="setting-info">
-              <span class="setting-name">Dark mode</span>
+              <span id="settings-dark-label" class="setting-name">Dark mode</span>
               <span class="setting-desc">Switch between light and dark theme</span>
             </div>
-            <button class="toggle" :class="{ on: isDark }" @click="toggleDark" type="button">
+            <button class="toggle" :class="{ on: isDark }" aria-labelledby="settings-dark-label" :aria-pressed="isDark" @click="toggleDark" type="button">
               <span class="knob" />
             </button>
           </div>
 
           <div class="setting-row" style="margin-top:16px">
             <div class="setting-info">
-              <span class="setting-name">Cluster markers</span>
+              <span id="settings-cluster-label" class="setting-name">Cluster markers</span>
               <span class="setting-desc">Group nearby markers when zoomed out</span>
             </div>
-            <button class="toggle" :class="{ on: cluster }" @click="toggleCluster" type="button">
+            <button class="toggle" :class="{ on: cluster }" aria-labelledby="settings-cluster-label" :aria-pressed="cluster" @click="toggleCluster" type="button">
               <span class="knob" />
             </button>
           </div>
 
           <div class="setting-row" style="margin-top:16px">
             <div class="setting-info">
-              <span class="setting-name">First name only</span>
+              <span id="settings-first-name-label" class="setting-name">First name only</span>
               <span class="setting-desc">Show only the first name of contacts as tags</span>
             </div>
-            <button class="toggle" :class="{ on: styleStore.firstNameOnly }" @click="styleStore.setFirstNameOnly(!styleStore.firstNameOnly)" type="button">
+            <button class="toggle" :class="{ on: styleStore.firstNameOnly }" aria-labelledby="settings-first-name-label" :aria-pressed="styleStore.firstNameOnly" @click="styleStore.setFirstNameOnly(!styleStore.firstNameOnly)" type="button">
               <span class="knob" />
             </button>
           </div>
 
           <div class="setting-row" style="margin-top:16px">
             <div class="setting-info">
-              <span class="setting-name">Ratings &amp; favorites</span>
+              <span id="settings-ratings-label" class="setting-name">Ratings &amp; favorites</span>
               <span class="setting-desc">Show star ratings and the favorite heart on markers</span>
             </div>
-            <button class="toggle" :class="{ on: styleStore.showRatings }" @click="styleStore.setShowRatings(!styleStore.showRatings)" type="button">
+            <button class="toggle" :class="{ on: styleStore.showRatings }" aria-labelledby="settings-ratings-label" :aria-pressed="styleStore.showRatings" @click="styleStore.setShowRatings(!styleStore.showRatings)" type="button">
               <span class="knob" />
             </button>
           </div>
 
           <div class="setting-section">
-            <div class="group-label" style="margin-top:20px">Map style</div>
-            <div class="tile-grid">
+            <div id="settings-map-style-label" class="group-label" style="margin-top:20px">Map style</div>
+            <div class="tile-grid" role="group" aria-labelledby="settings-map-style-label">
               <button
                 v-for="t in TILE_OPTIONS"
                 :key="t.key"
@@ -111,15 +111,15 @@
 
         <!-- ── Advanced ── -->
         <template v-if="tab === 'advanced'">
-          <div class="group-label">Routing API key (OpenRouteService)</div>
+          <div id="settings-ors-label" class="group-label">Routing API key (OpenRouteService)</div>
           <p class="hint">Optional. Enables hiking-trail routing. Get a free key at openrouteservice.org. Without a key, OSRM from routing.openstreetmap.de is used for walking, cycling and driving routes (hikes use the walking profile).</p>
           <div class="field">
-            <input v-model="orsApiKey" type="text" placeholder="Paste your ORS key here…" @change="saveOrsKey" />
+            <input v-model="orsApiKey" type="text" aria-labelledby="settings-ors-label" placeholder="Paste your ORS key here…" @change="saveOrsKey" />
           </div>
 
-          <div class="group-label" style="margin-top:16px">Nearby POI search radius</div>
+          <div id="settings-poi-radius-label" class="group-label" style="margin-top:16px">Nearby POI search radius</div>
           <p class="hint">How far from a clicked point to search for places.</p>
-          <div class="segment">
+          <div class="segment" role="group" aria-labelledby="settings-poi-radius-label">
             <button
               v-for="r in [25, 50, 100, 200]"
               :key="r"
@@ -131,9 +131,9 @@
           </div>
 
           <div class="poi-section">
-            <div class="group-label">Excluded POI types</div>
+            <div id="settings-excluded-label" class="group-label">Excluded POI types</div>
             <p class="hint">Amenity tags hidden from "nearby places" results.</p>
-            <div class="exclude-tags">
+            <div class="exclude-tags" role="group" aria-labelledby="settings-excluded-label">
               <span v-for="tag in excludedAmenities" :key="tag" class="exclude-tag">
                 {{ tag }}
                 <button type="button" class="tag-remove" @click="removeExcluded(tag)">✕</button>
@@ -143,6 +143,7 @@
             <div class="exclude-add-row">
               <input
                 v-model="newExclude"
+                aria-label="Add excluded POI type"
                 type="text"
                 placeholder="e.g. vending_machine"
                 @keydown.enter.prevent="addExcluded"
@@ -158,16 +159,16 @@
             <div class="group-label">Change password</div>
             <p class="hint">Update your login password. You'll need your current password to confirm.</p>
             <div class="field">
-              <label>Current password</label>
-              <input v-model="pwForm.current" type="password" autocomplete="current-password" />
+              <label for="settings-current-password">Current password</label>
+              <input id="settings-current-password" v-model="pwForm.current" type="password" autocomplete="current-password" />
             </div>
             <div class="field">
-              <label>New password <span class="hint-inline">(min 12 chars)</span></label>
-              <input v-model="pwForm.newPass" type="password" autocomplete="new-password" />
+              <label for="settings-new-password">New password <span class="hint-inline">(min 12 chars)</span></label>
+              <input id="settings-new-password" v-model="pwForm.newPass" type="password" autocomplete="new-password" />
             </div>
             <div class="field">
-              <label>Confirm new password</label>
-              <input v-model="pwForm.confirm" type="password" autocomplete="new-password" />
+              <label for="settings-confirm-password">Confirm new password</label>
+              <input id="settings-confirm-password" v-model="pwForm.confirm" type="password" autocomplete="new-password" />
             </div>
             <p v-if="pwError"  class="msg error">{{ pwError }}</p>
             <p v-if="pwStatus" class="msg ok">{{ pwStatus }}</p>

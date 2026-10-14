@@ -15,23 +15,23 @@
         <div class="form-body">
           <div class="row" v-if="type === 'person'">
             <div class="field">
-              <label>First name</label>
-              <input v-model="form.first_name" type="text" placeholder="First name" required />
+              <label for="manage-first-name">First name</label>
+              <input id="manage-first-name" v-model="form.first_name" type="text" placeholder="First name" required />
             </div>
             <div class="field">
-              <label>Last name</label>
-              <input v-model="form.last_name" type="text" placeholder="Last name" />
+              <label for="manage-last-name">Last name</label>
+              <input id="manage-last-name" v-model="form.last_name" type="text" placeholder="Last name" />
             </div>
           </div>
 
           <div class="field" v-else>
-            <label>Name</label>
-            <input v-model="form.name" type="text" :placeholder="label + ' name'" required />
+            <label for="manage-name">Name</label>
+            <input id="manage-name" v-model="form.name" type="text" :placeholder="label + ' name'" required />
           </div>
 
           <div class="field" v-if="type === 'collection'">
-            <label>Description</label>
-            <textarea v-model="form.description" rows="2" placeholder="Optional notes" />
+            <label for="manage-description">Description</label>
+            <textarea id="manage-description" v-model="form.description" rows="2" placeholder="Optional notes" />
           </div>
 
           <div class="field" v-if="type === 'collection'">
@@ -43,12 +43,12 @@
 
           <div class="row" v-if="type === 'collection' && form.is_trip">
             <div class="field">
-              <label>Start</label>
-              <input v-model="form.start_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
+              <label for="manage-start">Start</label>
+              <input id="manage-start" v-model="form.start_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
             </div>
             <div class="field">
-              <label>End</label>
-              <input v-model="form.end_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
+              <label for="manage-end">End</label>
+              <input id="manage-end" v-model="form.end_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
             </div>
           </div>
 
@@ -74,9 +74,10 @@
           </div>
 
           <div class="field" v-if="type === 'person'">
-            <label>Address marker</label>
+            <label for="manage-address-marker">Address marker</label>
             <div class="address-marker-row">
               <input
+                id="manage-address-marker"
                 v-model="markerSearch"
                 type="text"
                 placeholder="Search markers…"
@@ -104,9 +105,9 @@
           </div>
 
           <div class="field">
-            <label>Color</label>
-            <div class="color-row">
-              <input v-model="form.color" type="color" class="color-input" />
+            <label id="manage-color-label">Color</label>
+            <div class="color-row" role="group" aria-labelledby="manage-color-label">
+              <input v-model="form.color" type="color" class="color-input" aria-label="Custom color" />
               <div class="color-presets">
                 <button
                   v-for="c in presets"

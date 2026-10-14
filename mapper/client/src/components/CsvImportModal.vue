@@ -164,6 +164,7 @@ const { csvPreviewMarkers, flyTo } = useMapControl()
 // ── Rejection state ──────────────────────────────────────────────────────────
 const rejectedSet = ref(new Set())
 
+  modal: false, // a side panel: the map stays usable for checking the results
 function toggleReject(origIdx) {
   const s = new Set(rejectedSet.value)
   if (s.has(origIdx)) s.delete(origIdx)

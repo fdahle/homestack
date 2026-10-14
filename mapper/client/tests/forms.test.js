@@ -2,7 +2,7 @@ import test, { beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createPinia, setActivePinia } from 'pinia'
-import { createRenderer, defineComponent, h, nextTick, ref } from 'vue'
+import { createRenderer, defineComponent, h, nextTick, ref, shallowRef } from 'vue'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { useMarkersStore } from '../src/stores/markers.js'
 import { useCollectionsStore } from '../src/stores/collections.js'
@@ -91,6 +91,52 @@ test('backdrop closes only when the press started on it; Escape closes only the 
   assert.equal(stopped, true)
   app.unmount()
   assert.equal(listeners.keydown, undefined)
+})
+
+test('Tab wraps inside the topmost modal dialog; side panels do not trap', async () => {
+  const listeners = {}
+  globalThis.document = { activeElement: null, addEventListener: (type, fn) => { listeners[type] = fn }, removeEventListener: type => { delete listeners[type] } }
+  const node = (name, { disabled = false, hidden = false, tabIndex = 0 } = {}) => ({
+    name, tabIndex, matches: () => disabled, closest: () => null, getClientRects: () => (hidden ? [] : [{}]),
+    focus() { globalThis.document.activeElement = this },
+  })
+  const box = items => ({ ...node('box', { tabIndex: -1 }), querySelectorAll: () => items(), contains: el => items().includes(el) })
+  const [first, last] = [node('first'), node('last')]
+  const extra = ref(false) // a v-if section appearing while the dialog is open
+  const outer = box(() => [first, node('disabled', { disabled: true }), node('hidden', { hidden: true }), node('skip', { tabIndex: -1 }), last, ...(extra.value ? [node('extra')] : [])])
+  const empty = box(() => [])
+  const panel = box(() => [node('panel')])
+  const Dialog = defineComponent({
+    props: { el: Object, modal: Boolean },
+    setup(props) { useDialog(shallowRef(props.el), { close() {}, modal: props.modal }); return () => null },
+  })
+  const open = shallowRef(null)
+  const app = renderer.createApp({ render: () => h('div', [h(Dialog, { el: outer, modal: true }), open.value ? h(Dialog, open.value) : null]) })
+  app.mount({})
+  await nextTick()
+  const tab = (shiftKey = false) => {
+    let prevented = false
+    listeners.keydown({ key: 'Tab', shiftKey, preventDefault: () => { prevented = true } })
+    return prevented && globalThis.document.activeElement.name
+  }
+  assert.equal(globalThis.document.activeElement, outer) // initial focus on the container
+  assert.equal(tab(), 'first')
+  assert.equal(tab(true), 'last') // disabled, hidden and tabindex=-1 are skipped
+  assert.equal(tab(true), false) // not at an end: the browser moves focus
+  globalThis.document.activeElement = last
+  assert.equal(tab(), 'first')
+  extra.value = true
+  globalThis.document.activeElement = last
+  assert.equal(tab(), false) // the new field now comes after it
+  open.value = { key: 'empty', el: empty, modal: true }
+  await nextTick()
+  assert.equal(tab(), 'box') // nothing focusable: stays on the nested dialog, the outer one is ignored
+  assert.equal(globalThis.document.activeElement, empty)
+  open.value = { key: 'panel', el: panel, modal: false }
+  await nextTick()
+  globalThis.document.activeElement = first
+  assert.equal(tab(), false)
+  app.unmount()
 })
 
 test('cancelling geocoding stops the run and never shows its results', async () => {
