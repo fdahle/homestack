@@ -61,7 +61,7 @@
         :open="locationPanelOpen"
         :latlng="locationLatLng"
         :info="locationInfo"
-        :loading="locationLoading"
+        :loading="locationLoading && !poiData"
         :poi-data="poiData"
         :poi-loading="poiLoading"
         :poi-alternatives="poiAlternatives"

@@ -1,8 +1,12 @@
 // Shared Nominatim access. The usage policy allows at most one request per second per client,
 // so every caller goes through one queue, and repeated lookups are answered from a small cache.
+import { fetchJson } from './fetchJson.js'
+
 const BASE = 'https://nominatim.openstreetmap.org'
 const MIN_INTERVAL_MS = 1100
 const CACHE_SIZE = 300
+// Without a deadline one stalled request would block the queue, and with it every later lookup.
+const TIMEOUT_MS = 10000
 
 const cache = new Map()
 let queue = Promise.resolve()
@@ -28,9 +32,7 @@ export async function nominatim(endpoint, params, { signal } = {}) {
     signal?.throwIfAborted()
     await wait(Math.max(0, lastRequest + MIN_INTERVAL_MS - Date.now()), signal)
     lastRequest = Date.now()
-    const res = await fetch(url, { signal })
-    if (!res.ok) throw new Error(`Nominatim ${res.status}`)
-    return res.json()
+    return fetchJson(url, { signal, timeoutMs: TIMEOUT_MS, label: 'Nominatim' })
   }
   const result = queue.then(run, run)
   queue = result.catch(() => {})

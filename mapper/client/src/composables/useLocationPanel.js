@@ -1,6 +1,7 @@
 import { ref, onScopeDispose, getCurrentScope } from 'vue'
 import { loadSettings } from '../utils/settings.js'
-import { reverseGeocode } from '../utils/nominatim.js'
+import { nominatim, reverseGeocode } from '../utils/nominatim.js'
+import { fetchJson } from '../utils/fetchJson.js'
 import L from 'leaflet'
 
 const PIN_ICON = L.divIcon({
@@ -56,21 +57,55 @@ function elementToPoiShape(el) {
   }
 }
 
-const OVERPASS_MAIN = 'https://overpass-api.de/api/interpreter'
-const OVERPASS_MIRROR = 'https://overpass.private.coffee/api/interpreter'
+const poiKey = poi => `${poi.osmType}/${poi.id}`
 
-// The main instance often answers 504/429 when overloaded but succeeds on a
-// quick retry, so it gets a second try before falling back to the mirror.
-// Every attempt has a hard client-side timeout: mirrors can accept the
-// connection and then never respond, which used to hang the panel forever.
-const OVERPASS_ATTEMPTS = [
-  { url: OVERPASS_MAIN, timeoutMs: 15000 },
-  { url: OVERPASS_MAIN, timeoutMs: 15000, delayMs: 1000, status: 'Map data server is busy — retrying…' },
-  { url: OVERPASS_MIRROR, timeoutMs: 10000, status: 'Still busy — trying a backup server…' },
-]
+const PHOTON_URL = 'https://photon.komoot.io/reverse'
+const PHOTON_TIMEOUT_MS = 8000
+const PHOTON_OSM_TYPES = { N: 'node', W: 'way', R: 'relation' }
+
+// Photon (komoot) usually answers within a second or two and has no slot limits, but it only knows
+// named places, measures distance to their centre and carries no details. So it gives the first
+// answer, Nominatim fills in the details, and Overpass later adds containing areas and full tags.
+async function fetchPhotonPois(lat, lon, signal) {
+  const r = getPoiRadius()
+  const params = new URLSearchParams({ lat, lon, limit: 20, radius: r / 1000 })
+  for (const k of POI_KEYS) params.append('osm_tag', k)
+  const data = await fetchJson(`${PHOTON_URL}?${params}`, { signal, timeoutMs: PHOTON_TIMEOUT_MS, label: 'Photon' })
+  const elements = (data.features ?? []).map(({ properties: p, geometry }) => ({
+    type: PHOTON_OSM_TYPES[p.osm_type],
+    id: p.osm_id,
+    lat: geometry.coordinates[1],
+    lon: geometry.coordinates[0],
+    tags: { ...p.extra, name: p.name, [p.osm_key]: p.osm_value },
+  }))
+  // Photon has already applied the radius; an infinite one here just sorts everything by distance.
+  return elementsToSortedCandidates(elements, lat, lon, Infinity, getExcludedAmenities()).map(({ el }) => elementToPoiShape(el))
+}
+
+// One Nominatim lookup returns most remaining tags (website, opening hours, phone, Wikipedia) for all places.
+async function withExtraTags(pois, signal) {
+  const ids = pois.map(p => p.osmType[0].toUpperCase() + p.id).join(',')
+  const places = await nominatim('lookup', { osm_ids: ids, extratags: 1 }, { signal })
+  const extra = new Map(places.map(pl => [`${pl.osm_type}/${pl.osm_id}`, pl.extratags]))
+  return pois.map(p => extra.has(poiKey(p)) ? { ...p, tags: { ...extra.get(poiKey(p)), ...p.tags } } : p)
+}
+
+const OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+
+// overpass-api.de gives each IP only a few slots, and every finished query keeps its slot blocked for a
+// cooldown; once they are used up, further queries wait in line or fail with 429/504. So each click
+// sends a single query, re-clicks on the same spot are answered from a cache, and a failure is retried
+// only once. A fallback mirror was dropped: overpass.private.coffee accepts connections but never answers.
+// The client deadline only catches stalled connections — the server answers 429/504 itself when busy,
+// and a busy server can legitimately take 20s+ to hand out a slot.
+const OVERPASS_TIMEOUT_MS = 30000
+const OVERPASS_RETRY_DELAY_MS = 2000
+const POI_CACHE_SIZE = 50
+const poiCache = new Map()
 
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
+    signal.throwIfAborted()
     const timer = setTimeout(resolve, ms)
     signal.addEventListener('abort', () => {
       clearTimeout(timer)
@@ -79,63 +114,34 @@ function sleep(ms, signal) {
   })
 }
 
-async function fetchJsonWithTimeout(url, query, signal, timeoutMs) {
-  const ctrl = new AbortController()
-  const onAbort = () => ctrl.abort()
-  signal.addEventListener('abort', onAbort, { once: true })
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const res = await fetch(url, { method: 'POST', body: query, signal: ctrl.signal })
-    if (!res.ok) throw new Error(`Overpass ${res.status}`)
-    return await res.json()
-  } catch (err) {
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-    if (err.name === 'AbortError') throw new Error(`Overpass timed out after ${timeoutMs / 1000}s`)
-    throw err
-  } finally {
-    clearTimeout(timer)
-    signal.removeEventListener('abort', onAbort)
-  }
-}
-
 async function runOverpassQuery(query, signal, onStatus) {
-  let lastError = null
-  for (const { url, timeoutMs, delayMs, status } of OVERPASS_ATTEMPTS) {
-    if (lastError) {
-      onStatus?.(status)
-      if (delayMs) await sleep(delayMs, signal)
-    }
-    try {
-      return await fetchJsonWithTimeout(url, query, signal, timeoutMs)
-    } catch (err) {
-      if (err.name === 'AbortError') throw err
-      lastError = err
-    }
+  const request = () => fetchJson(OVERPASS_URL, { method: 'POST', body: query, signal, timeoutMs: OVERPASS_TIMEOUT_MS, label: 'Overpass' })
+  try {
+    return await request()
+  } catch (err) {
+    // A stalled connection is not worth another 30s; a quick "busy" answer often succeeds on retry.
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') throw err
+    onStatus?.('Map data server is busy — retrying…')
+    await sleep(OVERPASS_RETRY_DELAY_MS, signal)
+    return await request()
   }
-  throw lastError ?? new Error('Overpass request failed')
 }
 
-function buildAroundQuery(lat, lon, r) {
-  return `[out:json][timeout:8];
+// Places within the radius, plus areas containing the point (a park, a campus) whose outline is
+// further away than the radius. maxsize is far below the 512 MiB default: the server admits a query
+// only while its declared memory fits, so a small one gets through much sooner under load.
+function buildPoiQuery(lat, lon, r) {
+  return `[out:json][timeout:10][maxsize:33554432];
 (
-  node["amenity"](around:${r},${lat},${lon});
-  node["shop"](around:${r},${lat},${lon});
-  node["tourism"](around:${r},${lat},${lon});
-  node["leisure"](around:${r},${lat},${lon});
-  node["historic"](around:${r},${lat},${lon});
-  way["amenity"](around:${r},${lat},${lon});
-  way["shop"](around:${r},${lat},${lon});
-  way["tourism"](around:${r},${lat},${lon});
-  way["leisure"](around:${r},${lat},${lon});
-  way["historic"](around:${r},${lat},${lon});
+  nw["amenity"](around:${r},${lat},${lon});
+  nw["shop"](around:${r},${lat},${lon});
+  nw["tourism"](around:${r},${lat},${lon});
+  nw["leisure"](around:${r},${lat},${lon});
+  nw["historic"](around:${r},${lat},${lon});
 );
-out tags center 30;`
-}
-
-function buildIsInQuery(lat, lon) {
-  return `[out:json][timeout:12];
+out tags center 30;
+is_in(${lat},${lon})->.a;
 (
-  is_in(${lat},${lon})->.a;
   way(pivot.a)["tourism"];
   way(pivot.a)["leisure"];
   way(pivot.a)["amenity"];
@@ -174,45 +180,21 @@ function elementsToSortedCandidates(elements, lat, lon, r, excluded) {
     })
 }
 
-// Returns an async generator that yields results progressively: the around
-// and is_in queries run in parallel, whichever finishes first is shown, then
-// the other is merged in.
-async function* fetchOverpassPoiProgressive(lat, lon, signal, onStatus) {
+// Resolves to the places found, best match first.
+async function fetchOverpassPois(lat, lon, signal, onStatus) {
   const r = getPoiRadius()
-  const excluded = getExcludedAmenities()
-
-  const results = []
-  const track = promise => promise.then(
-    data => results.push({ elements: data.elements ?? [] }),
-    error => results.push({ error, elements: [] }),
-  )
-  const pending = [
-    track(runOverpassQuery(buildAroundQuery(lat, lon, r), signal, onStatus)),
-    track(runOverpassQuery(buildIsInQuery(lat, lon), signal, onStatus)),
-  ]
-
-  const toResult = () => {
-    const candidates = elementsToSortedCandidates(results.flatMap(x => x.elements), lat, lon, r, excluded)
-    if (!candidates.length) return null
-    const all = candidates.map(({ el }) => elementToPoiShape(el))
-    return { best: all[0], all }
+  // ~1 m grid, so clicking the same spot again needs no request
+  const key = `${lat.toFixed(5)},${lon.toFixed(5)},${r}`
+  let elements = poiCache.get(key)
+  if (elements) {
+    poiCache.delete(key)
+  } else {
+    elements = (await runOverpassQuery(buildPoiQuery(lat, lon, r), signal, onStatus)).elements ?? []
   }
+  poiCache.set(key, elements)
+  if (poiCache.size > POI_CACHE_SIZE) poiCache.delete(poiCache.keys().next().value)
 
-  await Promise.race(pending)
-  if (signal.aborted) return
-  const first = toResult()
-  if (first) yield first
-
-  await Promise.all(pending)
-  if (signal.aborted) return
-  const merged = toResult()
-  if (merged) {
-    if (merged.all.length !== first?.all.length) yield merged
-    return
-  }
-  // Nothing found: only report "no places" if both queries actually succeeded
-  const failed = results.find(x => x.error)
-  if (failed) throw failed.error
+  return elementsToSortedCandidates(elements, lat, lon, r, getExcludedAmenities()).map(({ el }) => elementToPoiShape(el))
 }
 
 export function useLocationPanel(getMap) {
@@ -291,27 +273,54 @@ export function useLocationPanel(getMap) {
       })
       .finally(() => { if (!signal.aborted) locationLoading.value = false })
 
-    // Overpass: debounced 500ms so rapid clicks don't stack up requests
+    // Nearby places come from Photon (fast) and Overpass (complete, slow); both lists are merged.
+    const sources = { photon: [], overpass: [] }
+    let pending = 2
+    let overpassFailed = false
+    const render = () => {
+      if (signal.aborted) return
+      const known = new Set(sources.overpass.map(poiKey))
+      const list = [...sources.overpass, ...sources.photon.filter(p => !known.has(poiKey(p)))]
+      // Later, richer results update the list but never swap away the place already shown.
+      const shown = poiData.value && list.find(p => poiKey(p) === poiKey(poiData.value))
+      poiAlternatives.value = list
+      poiData.value = shown ?? list[0] ?? null
+      if (list.length) poiLoading.value = false
+    }
+    // Overpass is the complete source, so only its failure counts as "couldn't load".
+    const done = () => {
+      if (signal.aborted || --pending) return
+      poiLoading.value = false
+      if (overpassFailed && !poiData.value) {
+        poiError.value = 'Couldn\u2019t load nearby places \u2014 the map data service is busy or unreachable. Try again shortly.'
+      }
+    }
+
+    fetchPhotonPois(latlng.lat, latlng.lng, signal)
+      .then(async pois => {
+        sources.photon = pois
+        render()
+        if (!pois.length) return
+        sources.photon = await withExtraTags(pois, signal)
+        render()
+      })
+      .catch(() => { /* Overpass still answers */ })
+      .finally(done)
+
+    // Overpass: debounced 500ms. Aborting a sent query doesn't give its server slot back, so rapid
+    // clicks must not each send one.
     clearTimeout(overpassTimer)
     overpassTimer = setTimeout(async () => {
       if (signal.aborted) return
       try {
         const onStatus = status => { if (!signal.aborted) poiStatus.value = status }
-        for await (const result of fetchOverpassPoiProgressive(latlng.lat, latlng.lng, signal, onStatus)) {
-          if (signal.aborted) return
-          poiData.value = result.best
-          poiAlternatives.value = result.all
-          poiLoading.value = false
-        }
-        // No results from either query
-        if (poiLoading.value && !signal.aborted) poiLoading.value = false
+        sources.overpass = await fetchOverpassPois(latlng.lat, latlng.lng, signal, onStatus)
+        render()
       } catch (err) {
         if (err.name === 'AbortError') return
-        poiData.value = null
-        poiAlternatives.value = []
-        poiError.value = 'Couldn\u2019t load nearby places \u2014 the map data service is busy or unreachable. Try again shortly.'
-        poiLoading.value = false
+        overpassFailed = true
       }
+      done()
     }, 500)
   }
 

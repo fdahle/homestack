@@ -159,7 +159,8 @@ const props = defineProps({
 const emit = defineEmits(['close', 'save-as-marker', 'select-poi'])
 
 const showAlternatives = ref(false)
-watch(() => props.poiAlternatives, () => { showAlternatives.value = false })
+// Keyed on the location: the list also grows while a lookup is still running
+watch(() => props.latlng, () => { showAlternatives.value = false })
 
 // POI progress bar
 const progressVisible = ref(false)
