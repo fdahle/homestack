@@ -315,7 +315,7 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
 import { loadSettings, saveSettings } from '../utils/settings.js'
-import { TILES } from '../utils/mapStyle.js'
+import { TILES, validTileKey } from '../utils/mapStyle.js'
 import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import TrashList from './TrashList.vue'
@@ -327,7 +327,7 @@ import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useStyleStore } from '../stores/style.js'
 
-const TILE_OPTIONS = Object.entries(TILES).filter(([key]) => key !== 'carto-light').map(([key, tile]) => ({ key, ...tile }))
+const TILE_OPTIONS = Object.entries(TILES).map(([key, tile]) => ({ key, ...tile }))
 
 const props = defineProps({
   current: { type: Object, default: null },
@@ -369,7 +369,7 @@ onMounted(() => {
   try {
     const s = loadSettings()
     form.value              = { lat: s.lat ?? 20, lng: s.lng ?? 0, zoom: s.zoom ?? 2 }
-    tileKey.value           = s.tile === 'carto-light' ? 'carto-voyager' : (s.tile ?? 'osm')
+    tileKey.value           = validTileKey(s.tile)
     cluster.value           = s.cluster !== false
     excludedAmenities.value = s.excludedAmenities ?? ['waste_basket', 'bench']
     poiRadius.value         = s.poiRadius ?? 25
@@ -710,7 +710,7 @@ h2 { font-size: 16px; font-weight: 700; }
 /* ── Tile selector with thumbnails ── */
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
   gap: 8px;
   margin-bottom: 8px;
 }

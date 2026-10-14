@@ -147,7 +147,7 @@
 
 <script setup>
 import { ref, watch, onUnmounted, nextTick } from 'vue'
-import { tileOptions, TILES } from '../utils/mapStyle.js'
+import { tileOptions, TILES, validTileKey } from '../utils/mapStyle.js'
 import { loadSettings } from '../utils/settings.js'
 import { useStyleStore } from '../stores/style.js'
 import { useRoute } from 'vue-router'
@@ -262,7 +262,7 @@ async function loadMap(data, id) {
   map = L.map(mapEl.value, { zoomControl: false, maxZoom: 21 }).setView([s?.lat ?? 20, s?.lng ?? 0], s?.zoom ?? 2)
   if (window.innerWidth > 1024) L.control.zoom({ position: 'bottomright' }).addTo(map)
 
-  const tileKey = s?.tile ?? 'osm'
+  const tileKey = validTileKey(s?.tile)
   currentTile.value = tileKey
   switchTile(tileKey)
 

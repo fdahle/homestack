@@ -230,7 +230,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { loadSettings } from '../utils/settings.js'
-import { COLOR_MODES, tileOptions, tooltipText } from '../utils/mapStyle.js'
+import { COLOR_MODES, tileOptions, tooltipText, validTileKey } from '../utils/mapStyle.js'
 import AppIcon from '../components/AppIcon.vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -523,7 +523,7 @@ async function initializeMap() {
   )
 
   if (window.innerWidth > 640) L.control.zoom({ position: 'bottomright' }).addTo(map)
-  applyTileLayer(s?.tile ?? 'osm')
+  applyTileLayer(validTileKey(s?.tile))
   initClusterGroup(s?.cluster !== false)
 
   map.on('click', (e) => {
