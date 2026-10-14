@@ -132,3 +132,23 @@ describe('a couple who married each other twice', () => {
     expect(twice.broods('a').map((b) => [b.union.id, b.children.map((c) => c.id)])).toEqual([['a+b~2', ['c', 'd']]]);
   });
 });
+
+describe('only my family', () => {
+  it('keeps blood relatives and their partners, not the partners’ families', () => {
+    const family = new Family(
+      parseFamily(`\`\`\`family
+oma + opa -> sebastian, frank
+olga + gerhard -> monika, rainer
+monika + sebastian -> jakob, veronika
+gabi + wolff -> lena, sissi
+jakob + lena -> paul
+frank + ilona -> cousin
+\`\`\``),
+    );
+    const kin = new Family(family.kinGraph('jakob'));
+    const ids = kin.people().map((p) => p.id).sort();
+    expect(ids).toEqual(['lena', 'monika', 'veronika', 'sebastian', 'cousin', 'rainer', 'olga', 'jakob', 'frank', 'gerhard', 'paul', 'oma', 'opa', 'ilona']);
+    expect(kin.parents('lena')).toEqual([]);
+    expect(kin.children('jakob').map((p) => p.id)).toEqual(['paul']);
+  });
+});

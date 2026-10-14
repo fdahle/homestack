@@ -320,3 +320,11 @@ describe('ids that follow the name', () => {
     expect(() => applyEdits(file, [{ kind: 'rename-id', id: 'jakob', to: 'a b' }])).toThrow(EditError);
   });
 });
+
+describe('ids made when the short one was taken', () => {
+  it('follow the name too', () => {
+    const file = '```family\nperson eltern-von-sebastian "Eltern von Sebastian"\nperson eltern2 "Eltern von Frank"\neltern-von-sebastian -> sebastian\n```\n';
+    expect(applyEdits(file, [{ kind: 'person', id: 'eltern-von-sebastian', set: { name: 'Helene Maier' } }]).renamed).toEqual({ 'eltern-von-sebastian': 'helene' });
+    expect(applyEdits(file, [{ kind: 'person', id: 'eltern2', set: { name: 'Horst Maier' } }]).renamed).toEqual({ eltern2: 'horst' });
+  });
+});
