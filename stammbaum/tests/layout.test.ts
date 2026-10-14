@@ -99,3 +99,33 @@ jakob + lena -> paul
     expect(row('monika')).toBe(row('sebastian'));
   });
 });
+
+describe('a family married into another, with a branch beside it', () => {
+  // Torsten's son must not end up between Lena and Sissi, whose parents
+  // married into the tree through Jakob and Lena.
+  const family = parseFamily(`\`\`\`family
+mutter + vater -> olga, friederike
+olga + gerhard -> monika, rainer
+helene + horst -> sebastian, frank, torsten
+monika + sebastian -> jakob, veronika
+rainer + karin -> moritz, lukas
+torsten -> otto
+gabi + wolff -> lena, sissi
+jakob + lena -> paul
+sissi + nico together=?
+\`\`\``);
+  const layout = layoutFamily(family);
+
+  it('draws no line across another', () => {
+    const x = (id: string) => layout.nodes.get(id)!.x;
+    const row = (id: string) => layout.nodes.get(id)!.generation;
+    // Every line from a couple down to one of their children, between neighbouring rows.
+    const lines = layout.unions.flatMap((u) =>
+      u.children.filter((c) => row(c) === row(u.partners[0]!) + 1).map((c) => ({ union: u.id, top: u.x, bottom: x(c), row: row(c) })),
+    );
+    const crossings = lines.flatMap((a, i) =>
+      lines.slice(i + 1).filter((b) => b.union !== a.union && b.row === a.row && (a.top - b.top) * (a.bottom - b.bottom) < 0),
+    );
+    expect(crossings).toEqual([]);
+  });
+});
