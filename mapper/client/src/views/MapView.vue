@@ -8,11 +8,12 @@
       <!-- Messages over the map, stacked below the controls so they never cover each other -->
       <div class="map-status-stack">
         <div v-if="filterChip" class="filter-chip" role="status">
-          <button type="button" class="filter-chip-label" title="Show in panel" @click="openSidebar">
+          <button type="button" class="filter-chip-label" :title="filterChip.title" @click="openSidebar">
             <span class="filter-chip-dot" :style="{ background: filterChip.color }" />
             Filtered: <strong>{{ filterChip.name }}</strong>
+            <span v-if="filterChip.more" class="filter-chip-more">+{{ filterChip.more }}</span>
           </button>
-          <button type="button" class="filter-chip-clear" aria-label="Clear filter" title="Clear filter" @click="markersStore.clearGroupFilter()">✕</button>
+          <button type="button" class="filter-chip-clear" aria-label="Clear filters" title="Clear filters" @click="markersStore.clearGroupFilter()">✕</button>
         </div>
         <!-- Move mode: drag the pin or click the map, then save -->
         <div v-if="moveTarget" class="move-banner" role="dialog" aria-label="Move marker">
@@ -695,14 +696,17 @@ onUnmounted(() => desktopQuery?.removeEventListener?.('change', onDesktopChange)
 // With the sidebar closed nothing else says that markers are hidden by a filter.
 const NONE_NAMES = { category: 'Uncategorized', collection: 'No collection', person: 'No person' }
 const SMART_NAMES = { favorites: 'Favorites', planned: 'Planned' }
+const GROUP_STORES = { category: categoriesStore, collection: collectionsStore, person: personsStore }
 const filterChip = computed(() => {
   const filter = markersStore.activeGroupFilter
   if (!filter || sidebarOpen.value) return null
-  const store = { category: categoriesStore, collection: collectionsStore, person: personsStore }[filter.type]
-  const item = store?.items.find((i) => i.id === filter.id)
+  const item = GROUP_STORES[filter.type]?.items.find((i) => i.id === filter.id)
   const name = filter.type === 'smart' ? SMART_NAMES[filter.id] : filter.id === '__none__' ? NONE_NAMES[filter.type] : item?.name
   const visited = { visited: ' · visited', unvisited: ' · not visited' }[markersStore.visitedFilter] ?? ''
-  return { name: (name || 'Group') + visited, color: item?.color || '#9ca3af' }
+  // Refinements show as a count to keep the chip short; their names are in the tooltip.
+  const refined = markersStore.refineFilters.map((r) => GROUP_STORES[r.type]?.items.find((i) => i.id === r.id)?.name).filter(Boolean)
+  const title = refined.length ? `Show in panel (also: ${refined.join(', ')})` : 'Show in panel'
+  return { name: (name || 'Group') + visited, more: markersStore.refineFilters.length, title, color: item?.color || '#9ca3af' }
 })
 
 watch(() => styleStore.colorMode, () => {
@@ -750,6 +754,7 @@ watch(() => markersStore.routeRevision, () => { undoStack.value = [] })
 .filter-chip button { background: none; color: inherit; font-size: 12px; }
 .filter-chip-label { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 4px 5px 12px; }
 .filter-chip-label strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chip-more { flex-shrink: 0; font-weight: 600; color: var(--accent); }
 .filter-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .filter-chip-clear { padding: 5px 10px 5px 6px; }
 .filter-chip-clear:hover { color: var(--text); }

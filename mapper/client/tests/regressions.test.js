@@ -502,3 +502,148 @@ test('MapView: undo history is per group type, filter chip and search outside th
   assert.equal(state.editingMarker.id, 8)
   app.unmount()
 })
+
+const groupMarker = (id, cats, cols, pers = [], visited = null) => ({ id, lat: 1, lng: 1, visited_at: visited, categories: cats.map(id => ({ id })), collections: cols.map(id => ({ id })), persons: pers.map(id => ({ id })) })
+
+test('refinements: OR within a type (primary included), AND across types, visited on top', () => {
+  const store = useMarkersStore()
+  const m = groupMarker
+  store.items = [m(1, [10], [20]), m(2, [11], [20], [30]), m(3, [10], [21]), m(4, [12], [20], [31], '2024-01-01'), m(5, [], [20])]
+  const ids = () => store.filtered.map(x => x.id)
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  assert.deepEqual(ids(), [1, 2, 4, 5])
+  store.addRefineFilter({ type: 'category', id: 10 })
+  assert.deepEqual(ids(), [1])
+  store.addRefineFilter({ type: 'category', id: 11 })
+  assert.deepEqual(ids(), [1, 2])
+  store.addRefineFilter({ type: 'collection', id: 21 }) // same type as the primary: widens it
+  assert.deepEqual(ids(), [1, 2, 3])
+  store.addRefineFilter({ type: 'person', id: 30 })
+  assert.deepEqual(ids(), [2])
+  store.removeRefineFilter({ type: 'person', id: 30 })
+  store.setVisitedFilter('visited')
+  assert.deepEqual(ids(), [])
+  store.setVisitedFilter('all')
+  // Smart lists, "no group" entries, the primary itself and duplicates are not refinements.
+  for (const r of [{ type: 'smart', id: 'favorites' }, { type: 'person', id: '__none__' }, { type: 'collection', id: 20 }, { type: 'category', id: 10 }]) store.addRefineFilter(r)
+  assert.equal(store.refineFilters.length, 3)
+  // "Uncategorized" as the primary ORs with a category refinement.
+  store.setGroupFilter({ type: 'category', id: '__none__' })
+  store.addRefineFilter({ type: 'category', id: 12 })
+  assert.deepEqual(ids(), [4, 5])
+})
+
+test('refinements are cleared when the primary group changes or is cleared, kept when re-set, dropped with their group', () => {
+  const store = useMarkersStore()
+  store.items = [groupMarker(1, [10], [20])]
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  store.addRefineFilter({ type: 'category', id: 10 })
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  assert.equal(store.refineFilters.length, 1)
+  store.setGroupFilter({ type: 'category', id: 20 }) // same id, other type
+  assert.equal(store.refineFilters.length, 0)
+  store.addRefineFilter({ type: 'collection', id: 20 })
+  store.clearGroupFilter()
+  assert.equal(store.refineFilters.length, 0)
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  store.addRefineFilter({ type: 'category', id: 10 })
+  store.patchEmbeddedCategory(10, { name: 'Renamed' })
+  assert.equal(store.refineFilters.length, 1)
+  store.patchEmbeddedCategory(10, null) // deleted
+  assert.equal(store.refineFilters.length, 0)
+})
+
+test('refinement counts: markers each group would leave, also when adding to a type already filtered on', () => {
+  const store = useMarkersStore()
+  const m = groupMarker
+  store.items = [m(1, [10], [20]), m(2, [10, 11], [20]), m(3, [11], [21]), m(4, [12], [20])]
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  const { category, collection } = store.refineCounts
+  assert.equal(category.base, 0)
+  assert.deepEqual([...category.extra], [[10, 2], [11, 1], [12, 1]])
+  assert.equal(collection.extra.get(21), 1)
+  store.addRefineFilter({ type: 'category', id: 10 })
+  const after = store.refineCounts
+  assert.equal(after.category.base, 2) // markers already shown count for every other category
+  assert.deepEqual([...after.category.extra], [[12, 1]]) // category 11 adds nothing new within collection 20
+  assert.equal(after.collection.base, 2)
+  assert.equal(after.collection.extra.get(21), undefined) // marker 3 is no restaurant
+})
+
+test('filter panel: picker lists groups with what they would leave, list reflects all filters, back clears them', async () => {
+  globalThis.document = { addEventListener() {}, removeEventListener() {} }
+  const store = useMarkersStore()
+  const m = groupMarker
+  store.items = [m(1, [10], [20], [30]), m(2, [11], [20], [31]), m(3, [10], [21])]
+  useCategoriesStore().items = [{ id: 10, name: 'Restaurant', color: '#ff0000' }, { id: 11, name: 'Café', color: '#00ff00' }, { id: 12, name: 'Unused', color: '#000000' }]
+  useCollectionsStore().items = [{ id: 20, name: 'Japan', color: '#0000ff' }, { id: 21, name: 'Italy', color: '#0000ff' }]
+  usePersonsStore().items = [{ id: 30, name: 'Anna Ab', first_name: 'Anna', color: '#123456' }, { id: 31, name: 'Ben Bo', color: '#654321' }]
+  const { app, state } = mount(await component('FilterPanel'), {})
+  state.drillInto({ type: 'collection', id: 20 })
+  await nextTick()
+  state.toggleRefine()
+  assert.equal(state.refineOpen, true)
+  assert.notEqual(state.currentRefineTab.type, 'collection') // opens on a type that narrows down
+  const categories = state.refineTabs.find(t => t.type === 'category')
+  assert.deepEqual(categories.options.map(o => [o.name, o.count]), [['Restaurant', 1], ['Café', 1]]) // "Unused" would leave nothing
+  assert.deepEqual(state.refineTabs.find(t => t.type === 'collection').options.map(o => [o.name, o.count]), [['Italy', 3]])
+  store.addRefineFilter({ type: 'person', id: 30 })
+  store.addRefineFilter({ type: 'person', id: 31 })
+  assert.deepEqual(state.refineChips.map(c => [c.name, c.or]), [['Anna Ab', false], ['Ben Bo', true]])
+  store.addRefineFilter({ type: 'category', id: 11 })
+  assert.deepEqual(state.detailMarkers.map(x => x.id), [2])
+  state.detailQuery = 'nothing'
+  assert.equal(state.detailMarkers.length, 0)
+  state.goBack()
+  await nextTick()
+  assert.equal(store.refineFilters.length, 0)
+  assert.equal(state.refineOpen, false)
+  app.unmount()
+  delete globalThis.document
+})
+
+test('MapView: filter chip counts refinements and its ✕ clears them with the group', async () => {
+  mapEnvironment()
+  globalThis.history = { state: null, pushState() {}, back() {} }
+  globalThis.fetch = async url => response(url === '/api/categories' ? [{ id: 3, name: 'Food', color: '#ff0000' }] : url === '/api/persons' ? [{ id: 4, name: 'Anna', color: '#00ff00' }] : [])
+  const MapView = await component('MapView', 'views')
+  const { app, state } = mount(MapView)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  const store = useMarkersStore()
+  store.setGroupFilter({ type: 'category', id: 3 })
+  store.addRefineFilter({ type: 'person', id: 4 })
+  state.sidebarOpen = false
+  assert.equal(state.filterChip.name, 'Food')
+  assert.equal(state.filterChip.more, 1)
+  assert.match(state.filterChip.title, /Anna/)
+  store.clearGroupFilter() // what the chip's ✕ calls
+  assert.equal(store.refineFilters.length, 0)
+  assert.equal(state.filterChip, null)
+  app.unmount()
+})
+
+test('new marker form preselects the primary and refinement groups, none of them as recent picks', async () => {
+  globalThis.fetch = async () => response({})
+  const markers = useMarkersStore()
+  markers.items = [{ id: 2, lat: 1, lng: 1, categories: [], persons: [], collections: [{ id: 7, position: 3 }] }]
+  useCollectionsStore().items = [{ id: 7, name: 'Trip', is_trip: 1, color: '#10b981' }]
+  useCategoriesStore().items = [{ id: 5, name: 'Food', color: '#ef4444' }, { id: 6, name: 'Art', color: '#3b82f6' }]
+  usePersonsStore().items = [{ id: 9, name: 'Anna', color: '#000000' }]
+  markers.setGroupFilter({ type: 'category', id: 5 })
+  markers.addRefineFilter({ type: 'collection', id: 7 })
+  markers.addRefineFilter({ type: 'person', id: 9 })
+  const { app, state } = mount(await component('MarkerModal'), { latlng: { lat: 52, lng: 5 }, prefill: { address: 'Here', country: 'NL' }, saveMarker: async () => {} })
+  await nextTick()
+  assert.deepEqual(state.form.category_ids, [5])
+  assert.deepEqual(state.form.collection_ids, [7])
+  assert.deepEqual(state.form.person_ids, [9])
+  assert.equal(state.form.collection_positions[7], 4) // next free trip stop
+  assert.equal(state.isDirty(), false)
+  state.form.category_ids = [5, 6]
+  await state.save()
+  const { recentPicks } = await import('../src/utils/recentPicks.js')
+  const recent = recentPicks()
+  assert.ok(recent.category_ids.includes(6))
+  for (const [key, id] of [['category_ids', 5], ['collection_ids', 7], ['person_ids', 9]]) assert.equal(recent[key].includes(id), false)
+  app.unmount()
+})

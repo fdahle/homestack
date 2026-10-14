@@ -612,11 +612,13 @@ onMounted(async () => {
     if (prefill.address) form.value.address = prefill.address
     if (prefill.country) form.value.country = prefill.country
     if (prefill.wikipedia) suggestWikipediaImage(prefill.wikipedia)
-    const gf = markersStore.activeGroupFilter
-    const key = { category: 'category_ids', collection: 'collection_ids', person: 'person_ids' }[gf?.type]
-    if (key && gf.id !== '__none__') {
-      form.value[key] = [gf.id]
-      preselected[key] = [gf.id]
+    // The groups being viewed (primary filter and refinements), so the new place shows up there.
+    const FORM_KEYS = { category: 'category_ids', collection: 'collection_ids', person: 'person_ids' }
+    for (const gf of [markersStore.activeGroupFilter, ...markersStore.refineFilters]) {
+      const key = FORM_KEYS[gf?.type]
+      if (!key || gf.id === '__none__' || form.value[key].includes(gf.id)) continue
+      form.value[key] = [...form.value[key], gf.id]
+      preselected[key] = [...preselected[key], gf.id]
       const col = key === 'collection_ids' && collectionsStore.items.find((c) => c.id === gf.id)
       if (col) onCollectionToggle(col, true)
     }
@@ -663,8 +665,6 @@ const googleMapsHref = computed(() => {
   return `https://www.google.com/maps?q=${latStr.value},${lngStr.value}`
 })
 
-function setPosition(collectionId, value) {
-  const num = value === '' ? null : parseInt(value, 10)
 // Shares one place without creating a share link: the phone's share sheet where available,
 // otherwise name, address and map link go to the clipboard.
 const shareCopied = ref(false)
@@ -689,6 +689,8 @@ async function sharePlace() {
   }
 }
 
+function setPosition(collectionId, value) {
+  const num = value === '' ? null : parseInt(value, 10)
   form.value.collection_positions = {
     ...form.value.collection_positions,
     [collectionId]: (value === '' || isNaN(num)) ? null : num,
@@ -899,8 +901,6 @@ h2 {
 }
 .fav-btn:hover { background: var(--surface-2); opacity: 1; }
 .fav-btn.active { color: #e11d48; opacity: 1; }
-
-.view-badges {
 .share-btn {
   display: flex;
   align-items: center;
@@ -911,6 +911,8 @@ h2 {
 }
 .share-btn:hover { background: var(--surface-2); color: var(--text); }
 .share-btn.done { color: var(--accent); }
+
+.view-badges {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

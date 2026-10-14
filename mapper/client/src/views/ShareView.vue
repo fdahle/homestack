@@ -261,8 +261,7 @@ async function loadMap(data, id) {
   for (const s of data.segments ?? []) (sharedSegments[s.collection_id] ??= {})[`${s.from_marker_id}-${s.to_marker_id}`] = s
   // Links carry only the groups their filter selects (and fewer marker fields), so lists may be absent.
   markersStore.items = (data.markers ?? []).map((m) => ({ ...m, categories: m.categories ?? [], collections: m.collections ?? [], persons: m.persons ?? [] }))
-  markersStore.activeGroupFilter = null
-  markersStore.visitedFilter = 'all'
+  markersStore.clearGroupFilter() // also the visited filter and refinements of a previous link
   categoriesStore.items = [...data.categories ?? []].sort(byName)
   collectionsStore.items = [...data.collections ?? []].sort(byName)
   personsStore.items = [...data.persons ?? []].sort(byName)

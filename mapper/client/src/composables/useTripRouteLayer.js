@@ -36,7 +36,9 @@ export function useTripRouteLayer(getMap, { getSegments, onEdit = null }) {
   const tripRouteMarkers = computed(() => {
     const col = activeTrip.value
     if (!col) return null
-    return markersStore.filtered
+    // All stops, also those hidden by refinements: legs and their saved via-points belong to
+    // consecutive stops, so a route through only the shown ones would invent legs.
+    return markersStore.items
       .map((m) => ({ m, pos: m.collections?.find((c) => c.id === col.id)?.position ?? null }))
       .filter(({ pos }) => pos !== null)
       .sort((a, b) => a.pos - b.pos)

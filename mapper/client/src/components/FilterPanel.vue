@@ -237,6 +237,50 @@
               <button class="seg-btn" :class="{ active: markersStore.visitedFilter === 'unvisited' }" @click="markersStore.setVisitedFilter('unvisited')">○</button>
             </div>
           </div>
+          <!-- Refinements: further groups the listed markers must (also) belong to -->
+          <div v-if="detailGroup && (refineChips.length || refineTabs.length)" class="refine-row">
+            <span v-for="r in refineChips" :key="r.type + ':' + r.id" class="refine-chip" :style="{ background: r.color + '22', color: r.color }">
+              <span v-if="r.or" class="refine-or">or</span>
+              <span class="refine-chip-name">{{ r.name }}</span>
+              <button type="button" class="refine-chip-remove" :aria-label="`Remove ${r.name}`" title="Remove" @click="markersStore.removeRefineFilter(r)">✕</button>
+            </span>
+            <button v-if="refineTabs.length" type="button" class="refine-add-btn" :class="{ active: refineOpen }" :aria-expanded="refineOpen" @click="toggleRefine">+ Narrow down</button>
+          </div>
+          <div v-if="refineOpen && detailGroup" class="refine-picker">
+            <div class="refine-tabs">
+              <button
+                v-for="t in refineTabs"
+                :key="t.type"
+                type="button"
+                class="tab-btn"
+                :class="{ active: currentRefineTab?.type === t.type }"
+                @click="refineTab = t.type; refineQuery = ''"
+              >{{ t.label }}</button>
+              <button type="button" class="refine-done" @click="refineOpen = false">Done</button>
+            </div>
+            <div v-if="(currentRefineTab?.options.length ?? 0) > 8" class="refine-search">
+              <div class="search-wrap">
+                <input v-model="refineQuery" type="search" :placeholder="`Filter ${currentRefineTab.label.toLowerCase()}…`" class="search-input" autocomplete="off" />
+                <button v-if="refineQuery" class="search-clear" type="button" @click="refineQuery = ''" title="Clear">✕</button>
+              </div>
+            </div>
+            <p v-if="currentRefineTab?.widens" class="refine-hint">Adds places in any of the chosen {{ currentRefineTab.label.toLowerCase() }}</p>
+            <div class="refine-list">
+              <button
+                v-for="o in refineOptions"
+                :key="o.id"
+                type="button"
+                class="refine-option"
+                @click="markersStore.addRefineFilter({ type: currentRefineTab.type, id: o.id })"
+              >
+                <span class="group-dot" :style="{ background: o.color }" />
+                <span class="group-name">{{ o.name }}</span>
+                <span class="group-count">{{ o.count }}</span>
+              </button>
+              <p v-if="!currentRefineTab" class="empty-hint">Nothing more to narrow down</p>
+              <p v-else-if="!refineOptions.length" class="empty-hint">No matches</p>
+            </div>
+          </div>
           <div class="header-search">
             <div class="search-wrap">
               <input
@@ -413,6 +457,73 @@ function editDetailGroup() {
   else if (detailGroup.value.type === 'collection') emit('edit-collection', detailGroup.value.item)
   else emit('edit-person', detailGroup.value.item)
 }
+
+// ── Refinements ─────────────────────────────────────────────────────────────
+// Narrow the open group down by further groups (the store ANDs types and ORs groups of a type).
+const REFINE_TYPES = [
+  { type: 'collection', label: 'Collections' },
+  { type: 'person', label: 'Persons' },
+  { type: 'category', label: 'Categories' },
+]
+const refineOpen = ref(false)
+const refineTab = ref(null)
+const refineQuery = ref('')
+
+function groupStore(type) { return type === 'category' ? categoriesStore : type === 'collection' ? collectionsStore : personsStore }
+function groupName(type, item) { return type === 'person' && styleStore.firstNameOnly ? (item.first_name || item.name) : item.name }
+
+// Grouped by type, each after the first of its type (or of the primary's type) marked "or".
+const refineChips = computed(() => {
+  const seen = new Set([markersStore.activeGroupFilter?.type])
+  const order = REFINE_TYPES.map((t) => t.type)
+  return markersStore.refineFilters
+    .map((r) => ({ r, item: groupStore(r.type).items.find((i) => i.id === r.id) }))
+    .filter(({ item }) => item)
+    .sort((a, b) => order.indexOf(a.r.type) - order.indexOf(b.r.type))
+    .map(({ r, item }) => {
+      const or = seen.has(r.type)
+      seen.add(r.type)
+      return { type: r.type, id: r.id, name: groupName(r.type, item), color: item.color, or }
+    })
+})
+
+// Only groups that leave something to show: for a type already filtered on, those adding
+// markers; otherwise those keeping some (in both cases the groups with extra markers).
+const refineTabs = computed(() => {
+  const counts = markersStore.refineCounts
+  const active = [markersStore.activeGroupFilter, ...markersStore.refineFilters].filter(Boolean)
+  return REFINE_TYPES.map(({ type, label }) => {
+    const { base, extra } = counts[type]
+    const options = groupStore(type).items
+      .filter((item) => extra.get(item.id) > 0 && !active.some((g) => g.type === type && g.id === item.id))
+      .map((item) => ({ id: item.id, name: groupName(type, item), color: item.color, count: base + extra.get(item.id) }))
+    return { type, label, options, widens: active.some((g) => g.type === type) }
+  }).filter((t) => t.options.length)
+})
+
+const currentRefineTab = computed(() => refineTabs.value.find((t) => t.type === refineTab.value) ?? refineTabs.value[0] ?? null)
+
+const refineOptions = computed(() => {
+  const q = refineQuery.value.trim().toLowerCase()
+  const options = currentRefineTab.value?.options ?? []
+  return q ? options.filter((o) => o.name.toLowerCase().includes(q)) : options
+})
+
+// Opens on a type that narrows down rather than one that adds to the primary group.
+function toggleRefine() {
+  refineOpen.value = !refineOpen.value
+  if (!refineOpen.value) return
+  refineQuery.value = ''
+  if (refineTabs.value.some((t) => t.type === refineTab.value)) return
+  const primaryType = markersStore.activeGroupFilter?.type
+  refineTab.value = (refineTabs.value.find((t) => t.type !== primaryType) ?? refineTabs.value[0])?.type ?? null
+}
+
+watch(() => { const f = markersStore.activeGroupFilter; return f ? `${f.type}:${f.id}` : '' }, () => {
+  refineOpen.value = false
+  refineTab.value = null
+  refineQuery.value = ''
+})
 
 // ── Overview ────────────────────────────────────────────────────────────────
 const overviewQuery = ref('')
@@ -876,6 +987,103 @@ function formatDateRange(item) {
   flex-shrink: 0;
 }
 
+/* ── Refinements ─────────────────────────────────────────────────────────── */
+.refine-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 8px 10px;
+}
+.refine-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 1px 1px 8px;
+  border-radius: 10px;
+}
+.refine-or { font-weight: 500; opacity: 0.75; }
+.refine-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.refine-chip-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.refine-chip-remove:hover { background: color-mix(in srgb, currentColor 18%, transparent); }
+.refine-add-btn {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+.refine-add-btn:hover, .refine-add-btn.active { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+
+.refine-picker {
+  display: flex;
+  flex-direction: column;
+  margin: 0 8px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.refine-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.refine-tabs .tab-btn { font-size: 12px; padding: 6px 0; }
+.refine-done {
+  flex-shrink: 0;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+}
+.refine-search { display: flex; padding: 6px 6px 0; }
+.refine-hint { font-size: 11px; color: var(--text-2); padding: 6px 10px 0; margin: 0; }
+.refine-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.refine-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+.refine-option:hover { background: var(--surface-2); }
+
 /* ── Sidebar body ────────────────────────────────────────────────────────── */
 .sidebar-body {
   flex: 1;
@@ -1185,5 +1393,11 @@ function formatDateRange(item) {
   .sidebar-body { min-height: 0; }
 
   .collapse-btn { display: flex; }
+
+  /* Finger-sized targets; the picker leaves room for the marker list below it */
+  .refine-chip-remove { padding: 6px 8px; }
+  .refine-add-btn { padding: 5px 10px; }
+  .refine-list { max-height: 30vh; }
+  .refine-option { min-height: 42px; }
 }
 </style>

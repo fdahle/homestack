@@ -2,10 +2,44 @@ import { usePersonsStore } from './persons.js'
 import { apiFetch, apiList } from '../api.js'
 import { defineStore } from 'pinia'
 
+const GROUP_LISTS = { category: 'categories', collection: 'collections', person: 'persons' }
+
+function inGroup(m, { type, id }) {
+  if (type === 'smart') {
+    if (id === 'favorites') return !!m.is_favorite
+    if (id === 'planned') return !!m.planned_at && !m.visited_at
+    return true
+  }
+  const list = m[GROUP_LISTS[type]]
+  return id === '__none__' ? !list?.length : !!list?.some((g) => g.id === id)
+}
+
+// One rule per group type, passed by belonging to any of its groups (the primary filter is one
+// of them when it has that type). A marker must pass the rules of all types.
+function filterRules(primary, refinements) {
+  const rules = new Map()
+  if (primary) rules.set(primary.type, [primary])
+  for (const r of refinements) rules.set(r.type, [...rules.get(r.type) ?? [], r])
+  return rules
+}
+
+const passesRule = (m, groups) => groups.some((g) => inGroup(m, g))
+
+function passesVisited(m, visitedFilter) {
+  if (visitedFilter === 'visited') return !!m.visited_at
+  if (visitedFilter === 'unvisited') return !m.visited_at
+  return true
+}
+
 export const useMarkersStore = defineStore('markers', {
   state: () => ({
     items: [],
-    activeGroupFilter: null, // null | { type: 'category'|'collection', id }
+    // The group open in the sidebar: null | { type: 'category'|'collection'|'person'|'smart', id }
+    // (id '__none__' for "Uncategorized" etc.).
+    activeGroupFilter: null,
+    // Groups narrowing the primary one: [{ type: 'category'|'collection'|'person', id }].
+    // Session-only like the primary filter, and cleared whenever that changes.
+    refineFilters: [],
     revision: 0,
     // Bumped by writes that change a trip's legs (order, travel modes, via-points) without
     // necessarily changing a stop's coordinates, so the drawn route knows to re-route.
@@ -16,30 +50,27 @@ export const useMarkersStore = defineStore('markers', {
 
   getters: {
     filtered: (state) => {
-      return state.items.filter((m) => {
-        if (state.activeGroupFilter) {
-          const { type, id } = state.activeGroupFilter
-          if (type === 'category') {
-            if (id === '__none__') { if (m.categories?.length) return false }
-            else if (!m.categories?.some((c) => c.id === id)) return false
-          }
-          if (type === 'collection') {
-            if (id === '__none__') { if (m.collections?.length) return false }
-            else if (!m.collections?.some((c) => c.id === id)) return false
-          }
-          if (type === 'person') {
-            if (id === '__none__') { if (m.persons?.length) return false }
-            else if (!m.persons?.some((p) => p.id === id)) return false
-          }
-          if (type === 'smart') {
-            if (id === 'favorites' && !m.is_favorite) return false
-            if (id === 'planned' && (!m.planned_at || m.visited_at)) return false
-          }
+      const rules = [...filterRules(state.activeGroupFilter, state.refineFilters).values()]
+      return state.items.filter((m) => rules.every((groups) => passesRule(m, groups)) && passesVisited(m, state.visitedFilter))
+    },
+
+    // How many markers each group would leave if added as a refinement:
+    // base + (extra.get(id) || 0) per type. Adding to a type that already has a rule widens it,
+    // so the markers already shown (base) count for every group of that type.
+    refineCounts: (state) => {
+      const rules = filterRules(state.activeGroupFilter, state.refineFilters)
+      const counts = {}
+      for (const [type, list] of Object.entries(GROUP_LISTS)) {
+        const others = [...rules].filter(([t]) => t !== type).map(([, groups]) => groups)
+        const own = rules.get(type)
+        const entry = counts[type] = { base: 0, extra: new Map() }
+        for (const m of state.items) {
+          if (!passesVisited(m, state.visitedFilter) || !others.every((groups) => passesRule(m, groups))) continue
+          if (own && passesRule(m, own)) { entry.base++; continue }
+          for (const g of m[list] ?? []) entry.extra.set(g.id, (entry.extra.get(g.id) || 0) + 1)
         }
-        if (state.visitedFilter === 'visited' && !m.visited_at) return false
-        if (state.visitedFilter === 'unvisited' && m.visited_at) return false
-        return true
-      })
+      }
+      return counts
     },
   },
 
@@ -156,8 +187,10 @@ export const useMarkersStore = defineStore('markers', {
     },
 
     // Called by categories/collections stores after update or delete.
-    // Pass patch=null to remove the embedded entry (on delete).
+    // Pass patch=null to remove the embedded entry (on delete); a deleted group would leave its
+    // refinement matching nothing.
     patchEmbeddedCategory(categoryId, patch) {
+      if (!patch) this.removeRefineFilter({ type: 'category', id: categoryId })
       for (let i = 0; i < this.items.length; i++) {
         const m = this.items[i]
         if (!m.categories?.some(c => c.id === categoryId)) continue
@@ -171,6 +204,7 @@ export const useMarkersStore = defineStore('markers', {
     },
 
     patchEmbeddedCollection(collectionId, patch) {
+      if (!patch) this.removeRefineFilter({ type: 'collection', id: collectionId })
       for (let i = 0; i < this.items.length; i++) {
         const m = this.items[i]
         if (!m.collections?.some(c => c.id === collectionId)) continue
@@ -184,6 +218,7 @@ export const useMarkersStore = defineStore('markers', {
     },
 
     patchEmbeddedPerson(personId, patch) {
+      if (!patch) this.removeRefineFilter({ type: 'person', id: personId })
       for (let i = 0; i < this.items.length; i++) {
         const m = this.items[i]
         if (!m.persons?.some(p => p.id === personId)) continue
@@ -196,13 +231,29 @@ export const useMarkersStore = defineStore('markers', {
       }
     },
 
-    // The visited filter belongs to one group view; leaving that view must not keep it hidden-active.
+    // The visited filter and the refinements belong to one group view; leaving that view must
+    // not keep them hidden-active.
     setGroupFilter(filter) {
       const current = this.activeGroupFilter
-      if (current?.type !== filter?.type || current?.id !== filter?.id) this.visitedFilter = 'all'
+      if (current?.type !== filter?.type || current?.id !== filter?.id) {
+        this.visitedFilter = 'all'
+        this.refineFilters = []
+      }
       this.activeGroupFilter = filter
     },
-    clearGroupFilter() { this.activeGroupFilter = null; this.visitedFilter = 'all' },
+    clearGroupFilter() { this.activeGroupFilter = null; this.visitedFilter = 'all'; this.refineFilters = [] },
     setVisitedFilter(value) { this.visitedFilter = value },
+
+    // Real groups only: smart lists and "no group" entries can only be the primary filter.
+    addRefineFilter({ type, id }) {
+      if (!GROUP_LISTS[type] || id == null || id === '__none__') return
+      const p = this.activeGroupFilter
+      if ((p?.type === type && p.id === id) || this.refineFilters.some((r) => r.type === type && r.id === id)) return
+      this.refineFilters = [...this.refineFilters, { type, id }]
+    },
+    removeRefineFilter({ type, id }) {
+      this.refineFilters = this.refineFilters.filter((r) => r.type !== type || r.id !== id)
+    },
+    clearRefineFilters() { this.refineFilters = [] },
   },
 })
