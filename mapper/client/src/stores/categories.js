@@ -1,6 +1,7 @@
 import { apiFetch, apiList } from '../api.js'
 import { defineStore } from 'pinia'
 import { useMarkersStore } from './markers.js'
+import { byName } from '../utils/byName.js'
 
 export const useCategoriesStore = defineStore('categories', {
   state: () => ({
@@ -9,7 +10,7 @@ export const useCategoriesStore = defineStore('categories', {
 
   actions: {
     async fetch() {
-      this.items = await apiList('/api/categories')
+      this.items = (await apiList('/api/categories')).sort(byName)
     },
 
     async create(data, options = {}) {
@@ -21,6 +22,7 @@ export const useCategoriesStore = defineStore('categories', {
       })
       const created = await res.json()
       this.items.push(created)
+      this.items.sort(byName)
       return created
     },
 
@@ -33,6 +35,7 @@ export const useCategoriesStore = defineStore('categories', {
       const updated = await res.json()
       const idx = this.items.findIndex((c) => c.id === id)
       if (idx !== -1) this.items[idx] = updated
+      this.items.sort(byName)
       useMarkersStore().patchEmbeddedCategory(id, { name: updated.name, color: updated.color })
       return updated
     },

@@ -164,6 +164,7 @@ import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
+import { byName } from '../utils/byName.js'
 
 const TILE_LABELS = Object.fromEntries(Object.entries(TILES).map(([key, tile]) => [key, tile.label]))
 const styleStore = useStyleStore()
@@ -249,9 +250,9 @@ async function loadMap(data, id) {
   markersStore.items = data.markers
   markersStore.activeGroupFilter = null
   markersStore.visitedFilter = 'all'
-  categoriesStore.items = data.categories
-  collectionsStore.items = data.collections
-  personsStore.items = data.persons
+  categoriesStore.items = data.categories.sort(byName)
+  collectionsStore.items = data.collections.sort(byName)
+  personsStore.items = data.persons.sort(byName)
 
   state.value = 'loaded'
   await nextTick()

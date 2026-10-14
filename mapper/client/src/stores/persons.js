@@ -1,6 +1,7 @@
 import { apiFetch, apiList } from '../api.js'
 import { defineStore } from 'pinia'
 import { useMarkersStore } from './markers.js'
+import { byName } from '../utils/byName.js'
 
 export const usePersonsStore = defineStore('persons', {
   state: () => ({
@@ -9,7 +10,7 @@ export const usePersonsStore = defineStore('persons', {
 
   actions: {
     async fetch() {
-      this.items = await apiList('/api/persons')
+      this.items = (await apiList('/api/persons')).sort(byName)
     },
 
     async create(data, options = {}) {
@@ -21,6 +22,7 @@ export const usePersonsStore = defineStore('persons', {
       })
       const created = await res.json()
       this.items.push(created)
+      this.items.sort(byName)
       return created
     },
 
@@ -33,6 +35,7 @@ export const usePersonsStore = defineStore('persons', {
       const updated = await res.json()
       const idx = this.items.findIndex((p) => p.id === id)
       if (idx !== -1) this.items[idx] = updated
+      this.items.sort(byName)
       useMarkersStore().patchEmbeddedPerson(id, updated)
       return updated
     },
