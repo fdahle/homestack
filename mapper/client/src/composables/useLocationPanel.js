@@ -42,9 +42,23 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+// Distance to the nearest point of a { minlat, minlon, maxlat, maxlon } box; 0 inside it.
+function metersToBounds(lat, lon, b) {
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
+  return haversineMeters(lat, lon, clamp(lat, b.minlat, b.maxlat), clamp(lon, b.minlon, b.maxlon))
+}
+
+// Nominatim-style address from a place's own addr:* tags, for the marker form.
+function addressFromTags(t) {
+  const road = t['addr:street'] || t['addr:place']
+  if (!road && !t['addr:city']) return null
+  return { house_number: t['addr:housenumber'], road, postcode: t['addr:postcode'], city: t['addr:city'], country_code: t['addr:country']?.toLowerCase() }
+}
+
 function elementToPoiShape(el) {
   const t = el.tags || {}
   const categoryKey = POI_KEYS.find(k => t[k])
+  const b = el.bounds
   return {
     id: el.id,
     osmType: el.type,
@@ -52,16 +66,80 @@ function elementToPoiShape(el) {
     categoryKey,
     categoryValue: categoryKey ? t[categoryKey] : null,
     tags: t,
-    lat: el.lat ?? el.center?.lat,
-    lon: el.lon ?? el.center?.lon,
+    lat: el.lat ?? el.center?.lat ?? (b && (b.minlat + b.maxlat) / 2),
+    lon: el.lon ?? el.center?.lon ?? (b && (b.minlon + b.maxlon) / 2),
+    bounds: b ?? null,
+    containing: !!el.containing,
+    address: el.address ?? addressFromTags(t),
   }
 }
 
 const poiKey = poi => `${poi.osmType}/${poi.id}`
 
+// Valid places first: areas containing the click (smallest, i.e. most specific, first), then nearby ones by distance.
+function sortCandidates(elements, lat, lon, excluded) {
+  const seen = new Set()
+  const area = b => b ? (b.maxlat - b.minlat) * (b.maxlon - b.minlon) : Infinity
+  return elements
+    .map(el => {
+      const key = `${el.type}/${el.id}`
+      if (seen.has(key) || !el.tags) return null
+      seen.add(key)
+      const poi = elementToPoiShape(el)
+      if (poi.lat == null || poi.lon == null || !poi.categoryKey || excluded.has(el.tags.amenity)) return null
+      return { poi, dist: haversineMeters(lat, lon, poi.lat, poi.lon), area: area(poi.bounds) }
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.poi.containing !== b.poi.containing) return a.poi.containing ? -1 : 1
+      if (a.poi.containing) return a.area === b.area ? 0 : a.area < b.area ? -1 : 1
+      return a.dist - b.dist
+    })
+    .map(c => c.poi)
+}
+
+// The same place is often mapped twice (a node and its building), and may come from both sources.
+// One entry is kept, the one with more tags unless the user picked the other; it takes the better rank.
+const DUPLICATE_M = 30
+function isDuplicate(a, b) {
+  if (!a.name || a.name !== b.name || a.categoryKey !== b.categoryKey || a.categoryValue !== b.categoryValue) return false
+  if (a.bounds && metersToBounds(b.lat, b.lon, a.bounds) <= DUPLICATE_M) return true
+  if (b.bounds && metersToBounds(a.lat, a.lon, b.bounds) <= DUPLICATE_M) return true
+  return haversineMeters(a.lat, a.lon, b.lat, b.lon) <= DUPLICATE_M
+}
+function dedupePois(list, keepKey) {
+  const out = []
+  const tagCount = p => Object.keys(p.tags).length
+  for (const p of list) {
+    const i = out.findIndex(q => isDuplicate(q, p))
+    if (i < 0) { out.push(p); continue }
+    const q = out[i]
+    const keepNew = poiKey(p) === keepKey || (poiKey(q) !== keepKey && tagCount(p) > tagCount(q))
+    const [kept, dropped] = keepNew ? [p, q] : [q, p]
+    out[i] = { ...kept, containing: p.containing || q.containing, address: kept.address ?? dropped.address }
+  }
+  return out
+}
+
 const PHOTON_URL = 'https://photon.komoot.io/reverse'
 const PHOTON_TIMEOUT_MS = 8000
 const PHOTON_OSM_TYPES = { N: 'node', W: 'way', R: 'relation' }
+
+function photonElement({ properties: p, geometry }) {
+  const type = PHOTON_OSM_TYPES[p?.osm_type]
+  const [lon, lat] = geometry?.coordinates ?? []
+  if (!type || p.osm_id == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null
+  const e = p.extent // [minlon, maxlat, maxlon, minlat]
+  return {
+    type,
+    id: p.osm_id,
+    lat,
+    lon,
+    bounds: e?.length === 4 ? { minlat: e[3], maxlat: e[1], minlon: e[0], maxlon: e[2] } : undefined,
+    tags: { ...p.extra, name: p.name, [p.osm_key]: p.osm_value },
+    address: p.street ? { house_number: p.housenumber, road: p.street, postcode: p.postcode, city: p.city, country: p.country, country_code: p.countrycode?.toLowerCase() } : null,
+  }
+}
 
 // Photon (komoot) usually answers within a second or two and has no slot limits, but it only knows
 // named places, measures distance to their centre and carries no details. So it gives the first
@@ -71,23 +149,31 @@ async function fetchPhotonPois(lat, lon, signal) {
   const params = new URLSearchParams({ lat, lon, limit: 20, radius: r / 1000 })
   for (const k of POI_KEYS) params.append('osm_tag', k)
   const data = await fetchJson(`${PHOTON_URL}?${params}`, { signal, timeoutMs: PHOTON_TIMEOUT_MS, label: 'Photon' })
-  const elements = (data.features ?? []).map(({ properties: p, geometry }) => ({
-    type: PHOTON_OSM_TYPES[p.osm_type],
-    id: p.osm_id,
-    lat: geometry.coordinates[1],
-    lon: geometry.coordinates[0],
-    tags: { ...p.extra, name: p.name, [p.osm_key]: p.osm_value },
-  }))
-  // Photon has already applied the radius; an infinite one here just sorts everything by distance.
-  return elementsToSortedCandidates(elements, lat, lon, Infinity, getExcludedAmenities()).map(({ el }) => elementToPoiShape(el))
+  // One malformed feature must not cost the others.
+  const elements = (data.features ?? []).map(f => { try { return photonElement(f) } catch { return null } }).filter(Boolean)
+  return sortCandidates(elements, lat, lon, getExcludedAmenities())
 }
 
-// One Nominatim lookup returns most remaining tags (website, opening hours, phone, Wikipedia) for all places.
+// One Nominatim lookup returns most remaining tags (website, opening hours, phone, Wikipedia) and the
+// address for all places.
 async function withExtraTags(pois, signal) {
   const ids = pois.map(p => p.osmType[0].toUpperCase() + p.id).join(',')
-  const places = await nominatim('lookup', { osm_ids: ids, extratags: 1 }, { signal })
-  const extra = new Map(places.map(pl => [`${pl.osm_type}/${pl.osm_id}`, pl.extratags]))
-  return pois.map(p => extra.has(poiKey(p)) ? { ...p, tags: { ...extra.get(poiKey(p)), ...p.tags } } : p)
+  const places = await nominatim('lookup', { osm_ids: ids, extratags: 1, addressdetails: 1 }, { signal })
+  const extra = new Map((places ?? []).map(pl => [`${pl.osm_type}/${pl.osm_id}`, pl]))
+  return pois.map(p => {
+    const pl = extra.get(poiKey(p))
+    return pl ? { ...p, tags: { ...pl.extratags, ...p.tags }, address: pl.address ?? p.address } : p
+  })
+}
+
+// Overpass has the complete tags, Photon/Nominatim the better-computed address.
+function mergePoi(overpassPoi, photonPoi) {
+  return {
+    ...overpassPoi,
+    tags: { ...photonPoi.tags, ...overpassPoi.tags },
+    address: photonPoi.address ?? overpassPoi.address,
+    ...(photonPoi.details && { details: photonPoi.details }),
+  }
 }
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
@@ -102,34 +188,44 @@ const OVERPASS_TIMEOUT_MS = 30000
 const OVERPASS_RETRY_DELAY_MS = 2000
 const POI_CACHE_SIZE = 50
 const poiCache = new Map()
+// Only one query at a time: a sent query's slot is spent anyway, so it is never aborted but finishes
+// into the cache, and the next click waits for it.
+let overpassInFlight = null
 
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted()
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer)
       reject(new DOMException('Aborted', 'AbortError'))
-    }, { once: true })
+    }
+    const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
   })
 }
 
+// `signal` only stops a retry: the query itself is not cancelled once sent.
 async function runOverpassQuery(query, signal, onStatus) {
-  const request = () => fetchJson(OVERPASS_URL, { method: 'POST', body: query, signal, timeoutMs: OVERPASS_TIMEOUT_MS, label: 'Overpass' })
+  const request = () => fetchJson(OVERPASS_URL, { method: 'POST', body: query, timeoutMs: OVERPASS_TIMEOUT_MS, label: 'Overpass' })
+  let data
   try {
-    return await request()
+    data = await request()
   } catch (err) {
     // A stalled connection is not worth another 30s; a quick "busy" answer often succeeds on retry.
-    if (err.name === 'AbortError' || err.name === 'TimeoutError') throw err
+    if (err.name === 'TimeoutError') throw err
     onStatus?.('Map data server is busy — retrying…')
     await sleep(OVERPASS_RETRY_DELAY_MS, signal)
-    return await request()
+    data = await request()
   }
+  // A query that ran out of time or memory still answers 200, with partial or no elements.
+  if (/runtime error/i.test(data?.remark ?? '')) throw new Error(`Overpass: ${data.remark}`)
+  return data
 }
 
-// Places within the radius, plus areas containing the point (a park, a campus) whose outline is
-// further away than the radius. maxsize is far below the 512 MiB default: the server admits a query
-// only while its declared memory fits, so a small one gets through much sooner under load.
+// Places within the radius, then a "sep" element, then the areas containing the point (a park, a
+// building, a campus) whose outline may be further away than the radius. maxsize is far below the
+// 512 MiB default: the server admits a query only while its declared memory fits, so a small one gets
+// through much sooner under load.
 function buildPoiQuery(lat, lon, r) {
   return `[out:json][timeout:10][maxsize:33554432];
 (
@@ -140,61 +236,89 @@ function buildPoiQuery(lat, lon, r) {
   nw["historic"](around:${r},${lat},${lon});
 );
 out tags center 30;
+make sep;
+out;
 is_in(${lat},${lon})->.a;
 (
   way(pivot.a)["tourism"];
   way(pivot.a)["leisure"];
   way(pivot.a)["amenity"];
   way(pivot.a)["shop"];
+  way(pivot.a)["historic"];
   relation(pivot.a)["tourism"];
   relation(pivot.a)["leisure"];
   relation(pivot.a)["amenity"];
   relation(pivot.a)["historic"];
 );
-out tags center;`
+out tags bb;`
 }
 
-function elementsToSortedCandidates(elements, lat, lon, r, excluded) {
-  const seen = new Set()
-  return elements
-    .filter(el => {
-      const key = `${el.type}/${el.id}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
+// Everything after the separator contains the point. A building the point is in usually also matches
+// "around", so the two copies are merged (centre from one, bounds from the other).
+function markContaining(elements) {
+  const sep = elements.findIndex(el => el.type === 'sep')
+  if (sep < 0) return elements
+  const inside = new Map(elements.slice(sep + 1).map(el => [`${el.type}/${el.id}`, el]))
+  const nearby = elements.slice(0, sep).map(el => {
+    const container = inside.get(`${el.type}/${el.id}`)
+    return container ? { ...el, ...container, containing: true } : el
+  })
+  return [...nearby, ...[...inside.values()].map(el => ({ ...el, containing: true }))]
+}
+
+const overpassKey = (lat, lon, r) => `${lat.toFixed(5)},${lon.toFixed(5)},${r}`
+
+// Resolves to the raw elements for a spot (~1 m grid), from the cache, the query already running for it,
+// or a new query once the running one is done.
+async function loadOverpassElements(lat, lon, r, signal, onStatus) {
+  const key = overpassKey(lat, lon, r)
+  for (;;) {
+    signal.throwIfAborted()
+    const hit = poiCache.get(key)
+    if (hit) {
+      poiCache.delete(key)
+      poiCache.set(key, hit)
+      return hit
+    }
+    if (!overpassInFlight) break
+    const running = overpassInFlight
+    if (running.key === key) {
+      try { return await running.promise }
+      catch (err) { if (err.name !== 'AbortError') throw err } // its retry was cancelled: send our own
+    } else {
+      onStatus?.('Waiting for the previous lookup to finish…')
+      await running.promise.catch(() => {})
+      onStatus?.(null)
+    }
+  }
+  const entry = { key }
+  entry.promise = runOverpassQuery(buildPoiQuery(lat, lon, r), signal, onStatus)
+    .then(data => {
+      const elements = data.elements ?? []
+      poiCache.set(key, elements)
+      if (poiCache.size > POI_CACHE_SIZE) poiCache.delete(poiCache.keys().next().value)
+      return elements
     })
-    .map(el => {
-      const elLat = el.lat ?? el.center?.lat
-      const elLon = el.lon ?? el.center?.lon
-      if (elLat == null || !el.tags) return null
-      if (!POI_KEYS.some(k => el.tags[k])) return null
-      if (excluded.has(el.tags.amenity)) return null
-      const dist = haversineMeters(lat, lon, elLat, elLon)
-      const isContaining = dist > r
-      return { el, dist, isContaining }
-    })
-    .filter(Boolean)
-    .sort((a, b) => {
-      if (a.isContaining !== b.isContaining) return a.isContaining ? -1 : 1
-      return a.dist - b.dist
-    })
+    .finally(() => { if (overpassInFlight === entry) overpassInFlight = null })
+  overpassInFlight = entry
+  return entry.promise
 }
 
 // Resolves to the places found, best match first.
 async function fetchOverpassPois(lat, lon, signal, onStatus) {
-  const r = getPoiRadius()
-  // ~1 m grid, so clicking the same spot again needs no request
-  const key = `${lat.toFixed(5)},${lon.toFixed(5)},${r}`
-  let elements = poiCache.get(key)
-  if (elements) {
-    poiCache.delete(key)
-  } else {
-    elements = (await runOverpassQuery(buildPoiQuery(lat, lon, r), signal, onStatus)).elements ?? []
-  }
-  poiCache.set(key, elements)
-  if (poiCache.size > POI_CACHE_SIZE) poiCache.delete(poiCache.keys().next().value)
+  const elements = await loadOverpassElements(lat, lon, getPoiRadius(), signal, onStatus)
+  return sortCandidates(markContaining(elements), lat, lon, getExcludedAmenities())
+}
 
-  return elementsToSortedCandidates(elements, lat, lon, r, getExcludedAmenities()).map(({ el }) => elementToPoiShape(el))
+// Reverse geocoding falls back to far-away objects (e.g. a coastline for a click at sea). Measured to the
+// object's bounding box, so clicks on a long road or a large building keep their address.
+const ADDRESS_MAX_M = 250
+function isNearResult(lat, lon, data) {
+  const [minlat, maxlat, minlon, maxlon] = (data.boundingbox ?? []).map(Number)
+  if ([minlat, maxlat, minlon, maxlon].every(Number.isFinite)) {
+    return metersToBounds(lat, lon, { minlat, maxlat, minlon, maxlon }) <= ADDRESS_MAX_M
+  }
+  return haversineMeters(lat, lon, parseFloat(data.lat), parseFloat(data.lon)) <= ADDRESS_MAX_M
 }
 
 export function useLocationPanel(getMap) {
@@ -213,6 +337,8 @@ export function useLocationPanel(getMap) {
   let clickPin = null
   let activeAbort = null
   let overpassTimer = null
+  // Only a place the user chose themselves is kept when better results arrive.
+  let pickedKey = null
 
   function clearTempLayers() {
     if (locationLayer) { locationLayer.remove(); locationLayer = null }
@@ -236,6 +362,7 @@ export function useLocationPanel(getMap) {
 
     clearTempLayers()
     const map = getMap()
+    pickedKey = null
     locationLatLng.value = latlng
     locationInfo.value = null
     locationError.value = null
@@ -258,12 +385,12 @@ export function useLocationPanel(getMap) {
     // Nominatim: resolves first (~200ms) — update address immediately
     reverseGeocode(latlng.lat, latlng.lng, { addressdetails: 1, extratags: 1, polygon_geojson: 1 }, { signal })
       .then(data => {
-        const dist = haversineMeters(latlng.lat, latlng.lng, parseFloat(data.lat), parseFloat(data.lon))
-        if (dist > 250) {
+        if (signal.aborted) return
+        if (!data || !isNearResult(latlng.lat, latlng.lng, data)) {
           locationInfo.value = null
         } else {
           locationInfo.value = data
-          drawLocationPolygon(data?.geojson)
+          drawLocationPolygon(data.geojson)
         }
       })
       .catch(err => {
@@ -279,12 +406,13 @@ export function useLocationPanel(getMap) {
     let overpassFailed = false
     const render = () => {
       if (signal.aborted) return
-      const known = new Set(sources.overpass.map(poiKey))
-      const list = [...sources.overpass, ...sources.photon.filter(p => !known.has(poiKey(p)))]
-      // Later, richer results update the list but never swap away the place already shown.
-      const shown = poiData.value && list.find(p => poiKey(p) === poiKey(poiData.value))
+      const photon = new Map(sources.photon.map(p => [poiKey(p), p]))
+      const overpass = sources.overpass.map(p => photon.has(poiKey(p)) ? mergePoi(p, photon.get(poiKey(p))) : p)
+      const known = new Set(overpass.map(poiKey))
+      const list = dedupePois([...overpass, ...sources.photon.filter(p => !known.has(poiKey(p)))], pickedKey)
       poiAlternatives.value = list
-      poiData.value = shown ?? list[0] ?? null
+      // Overpass's order (containing area first) replaces Photon's guess, unless the user picked a place.
+      poiData.value = (pickedKey && list.find(p => poiKey(p) === pickedKey)) || list[0] || null
       if (list.length) poiLoading.value = false
     }
     // Overpass is the complete source, so only its failure counts as "couldn't load".
@@ -292,23 +420,26 @@ export function useLocationPanel(getMap) {
       if (signal.aborted || --pending) return
       poiLoading.value = false
       if (overpassFailed && !poiData.value) {
-        poiError.value = 'Couldn\u2019t load nearby places \u2014 the map data service is busy or unreachable. Try again shortly.'
+        poiError.value = 'Couldn’t load nearby places — the map data service is busy or unreachable. Try again shortly.'
       }
     }
 
     fetchPhotonPois(latlng.lat, latlng.lng, signal)
       .then(async pois => {
-        sources.photon = pois
+        if (!pois.length) return render()
+        const lookup = withExtraTags(pois, signal)
+        // Saving before the details arrive waits for them (see LocationPanel), so the website and
+        // Wikipedia article are not lost.
+        const settled = lookup.catch(() => null)
+        sources.photon = pois.map(p => ({ ...p, details: settled.then(list => list?.find(q => poiKey(q) === poiKey(p)) ?? null) }))
         render()
-        if (!pois.length) return
-        sources.photon = await withExtraTags(pois, signal)
+        sources.photon = await lookup
         render()
       })
       .catch(() => { /* Overpass still answers */ })
       .finally(done)
 
-    // Overpass: debounced 500ms. Aborting a sent query doesn't give its server slot back, so rapid
-    // clicks must not each send one.
+    // Overpass: debounced 500ms, so rapid clicks don't each spend a server slot.
     clearTimeout(overpassTimer)
     overpassTimer = setTimeout(async () => {
       if (signal.aborted) return
@@ -327,16 +458,21 @@ export function useLocationPanel(getMap) {
   function closeLocationPanel() {
     if (activeAbort) { activeAbort.abort(); activeAbort = null }
     clearTimeout(overpassTimer)
+    pickedKey = null
     locationPanelOpen.value = false
     poiAlternatives.value = []
     locationError.value = null
     poiError.value = null
+    poiStatus.value = null
+    poiLoading.value = false
+    locationLoading.value = false
     clearTempLayers()
   }
 
   if (getCurrentScope()) onScopeDispose(closeLocationPanel)
 
   function selectAlternativePoi(poi) {
+    pickedKey = poi ? poiKey(poi) : null
     poiData.value = poi
   }
 

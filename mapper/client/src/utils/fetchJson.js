@@ -8,7 +8,8 @@ export async function fetchJson(url, { signal, timeoutMs, label = 'Request', ...
   const onAbort = () => ctrl.abort()
   signal?.addEventListener('abort', onAbort, { once: true })
   let timedOut = false
-  const timer = setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs)
+  // setTimeout(fn, undefined) fires at once, so there is no deadline unless one is given.
+  const timer = timeoutMs > 0 ? setTimeout(() => { timedOut = true; ctrl.abort() }, timeoutMs) : null
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal })
     if (!res.ok) throw Object.assign(new Error(`${label} ${res.status}`), { status: res.status })

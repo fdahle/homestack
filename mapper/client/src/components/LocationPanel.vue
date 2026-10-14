@@ -97,10 +97,10 @@
             <div v-if="showAlternatives" class="alt-list">
               <button
                 v-for="alt in poiAlternatives"
-                :key="alt.id"
+                :key="`${alt.osmType}/${alt.id}`"
                 type="button"
                 class="alt-item"
-                :class="{ 'alt-item--active': alt.id === poiData?.id && alt.osmType === poiData?.osmType }"
+                :class="{ 'alt-item--active': poiData && alt.osmType === poiData.osmType && alt.id === poiData.id }"
                 @click="emit('select-poi', alt); showAlternatives = false"
               >
                 <span class="alt-name">{{ poiLabel(alt) }}</span>
@@ -114,10 +114,10 @@
       <div class="panel-footer">
         <button
           class="btn-save"
-          :disabled="loading"
+          :disabled="loading || saving"
           @click="saveAsMarker"
         >
-          + Save as Marker
+          {{ saving ? 'Loading details…' : '+ Save as Marker' }}
         </button>
         <div class="footer-links">
           <a
@@ -159,8 +159,14 @@ const props = defineProps({
 const emit = defineEmits(['close', 'save-as-marker', 'select-poi'])
 
 const showAlternatives = ref(false)
+const saving = ref(false)
+let saveToken = 0
 // Keyed on the location: the list also grows while a lookup is still running
-watch(() => props.latlng, () => { showAlternatives.value = false })
+watch(() => props.latlng, () => {
+  showAlternatives.value = false
+  saveToken++
+  saving.value = false
+})
 
 // POI progress bar
 const progressVisible = ref(false)
@@ -172,8 +178,8 @@ let progressHideTimer = null
 const poiElapsed = ref(0)
 let elapsedTimer = null
 
-// Also keyed on latlng so a new click while still loading restarts the timer
-watch(() => [props.poiLoading, props.latlng], ([loading]) => {
+// Also keyed on latlng so a new click while still loading restarts the timer; stops once the panel closes.
+watch(() => [props.poiLoading && props.open, props.latlng], ([loading]) => {
   clearTimeout(progressHideTimer)
   clearInterval(elapsedTimer)
   poiElapsed.value = 0
@@ -186,7 +192,7 @@ watch(() => [props.poiLoading, props.latlng], ([loading]) => {
     progressRunning.value = false
     progressWidth.value = '0%'
     setTimeout(() => {
-      if (props.poiLoading) {
+      if (props.poiLoading && props.open) {
         progressRunning.value = true
         progressWidth.value = '85%'
       }
@@ -286,20 +292,20 @@ const safePhone = computed(() => {
   return stripped || null
 })
 
-const website = computed(() => {
-  const t = props.poiData?.tags
-  return t?.website || t?.['contact:website'] || null
-})
-
-const safeWebsite = computed(() => {
-  if (!website.value) return null
+// OSM values may list several sites ("a;b") or omit the scheme ("www.example.com"); only http(s) is linked.
+function safeWebsiteOf(tags) {
+  const raw = (tags?.website || tags?.['contact:website'])?.split(';')[0].trim()
+  if (!raw) return null
+  const href = /^[a-z][a-z\d+.-]*:(?!\d)/i.test(raw) ? raw : `https://${raw}`
   try {
-    const url = new URL(website.value)
-    return (url.protocol === 'http:' || url.protocol === 'https:') ? website.value : null
+    const url = new URL(href)
+    return (url.protocol === 'http:' || url.protocol === 'https:') ? href : null
   } catch {
     return null
   }
-})
+}
+
+const safeWebsite = computed(() => safeWebsiteOf(props.poiData?.tags))
 
 const websiteDisplay = computed(() => {
   if (!safeWebsite.value) return null
@@ -351,20 +357,53 @@ const googleMapsLink = computed(() => {
     : `https://www.google.com/maps?q=${props.latlng.lat},${props.latlng.lng}`
 })
 
-// A selected place is saved at its own position, with its website and Wikipedia article;
-// without one, the address already looked up for the clicked point is reused.
+// The details (website, Wikipedia, address) of a place found by Photon arrive about a second later.
+// Saving closes the panel, which would cancel that lookup, so a quick save waits for it (bounded).
+const DETAILS_WAIT_MS = 3000
+
 function saveAsMarker() {
   const poi = props.poiData
+  if (poi?.details) return saveAfterDetails(poi)
+  emitSave(poi)
+}
+
+async function saveAfterDetails(poi) {
+  const latlng = props.latlng
+  const key = p => `${p.osmType}/${p.id}`
+  const token = ++saveToken
+  let timer
+  saving.value = true
+  const details = await Promise.race([poi.details, new Promise(resolve => { timer = setTimeout(resolve, DETAILS_WAIT_MS, null) })])
+  clearTimeout(timer)
+  if (token !== saveToken) return
+  saving.value = false
+  // Closed or another spot clicked meanwhile: that save no longer applies.
+  if (!props.open || props.latlng !== latlng) return
+  const current = props.poiData
+  if (current && key(current) === key(poi) && !current.details) emitSave(current)
+  else if (details) emitSave({ ...poi, tags: { ...details.tags, ...poi.tags }, address: details.address ?? poi.address })
+  else emitSave(poi)
+}
+
+// A selected place is saved at its own position, with its website, Wikipedia article and, when it has
+// one, its own address; without a place, the address already looked up for the clicked point is reused.
+// Address and country together spare the marker form another (queued) Nominatim request.
+function emitSave(poi) {
   const latlng = poi?.lat != null && poi?.lon != null ? { lat: poi.lat, lng: poi.lon } : props.latlng
   const prefill = {
-    external_url: safeWebsite.value,
+    external_url: safeWebsiteOf(poi?.tags),
     wikipedia: poi?.tags?.wikipedia || (!poi && props.info?.extratags?.wikipedia) || null,
   }
-  if (!poi && props.info?.address) {
-    prefill.address = formatAddress(props.info.address) || null
-    prefill.country = countryName(props.info.address)
+  const info = props.info?.address
+  if (poi?.address?.road) {
+    prefill.address = formatAddress(poi.address) || null
+    // A place's own tags rarely name the country; the clicked point is in the same one.
+    prefill.country = countryName(poi.address) || countryName(info)
+  } else if (!poi && info) {
+    prefill.address = formatAddress(info) || null
+    prefill.country = countryName(info)
   }
-  emit('save-as-marker', { latlng, suggestedLabel: suggestedLabel.value, prefill })
+  emit('save-as-marker', { latlng, suggestedLabel: poi?.name || suggestedLabel.value, prefill })
 }
 
 const suggestedLabel = computed(() => {
