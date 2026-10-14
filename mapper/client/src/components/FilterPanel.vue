@@ -265,8 +265,8 @@
                 <span v-if="detailGroup?.item?.is_trip && tripPosition(m) != null" class="stop-badge">#{{ tripPosition(m) }}</span>
                 {{ m.label || coords(m) }}
                 <span v-if="m.visited_at" class="visited-dot" title="Visited">✓</span>
-                <span v-if="m.is_favorite" class="fav-dot" title="Favorite">♥</span>
-                <span v-if="m.rating" class="rating-dot" :title="`Rated ${m.rating} of 5`">★{{ m.rating }}</span>
+                <span v-if="styleStore.showRatings && m.is_favorite" class="fav-dot" title="Favorite">♥</span>
+                <span v-if="styleStore.showRatings && m.rating" class="rating-dot" :title="`Rated ${m.rating} of 5`">★{{ m.rating }}</span>
                 <span v-if="m.planned_at && !m.visited_at" class="planned-dot" title="Planned">{{ m.planned_at }}</span>
               </span>
               <span
@@ -430,7 +430,7 @@ const SMART_LISTS = [
   { id: 'planned', name: 'Wishlist (planned)', icon: '◷', color: '#0ea5e9' },
 ]
 const smartCounts = computed(() => ({
-  favorites: markersStore.items.filter(m => m.is_favorite).length,
+  favorites: styleStore.showRatings ? markersStore.items.filter(m => m.is_favorite).length : 0,
   planned: markersStore.items.filter(m => m.planned_at && !m.visited_at).length,
 }))
 
@@ -500,7 +500,7 @@ const detailSortOptions = computed(() => {
     { value: 'visited', label: 'Visited' },
     { value: 'rating',  label: 'Rating' },
     { value: 'planned', label: 'Planned date' },
-  ]
+  ].filter(o => o.value !== 'rating' || styleStore.showRatings)
   if (detailGroup.value?.item?.is_trip) opts.push({ value: 'stop', label: 'Stop #' })
   return opts
 })
@@ -593,6 +593,13 @@ const detailMarkers = computed(() => {
     })
   }
   return copy
+})
+
+// Switching ratings off must not leave the list sorted or filtered by something no longer shown.
+watch(() => styleStore.showRatings, (show) => {
+  if (show) return
+  if (sortBy.value === 'rating') sortBy.value = 'added'
+  if (detailFilter.value?.type === 'smart' && detailFilter.value.id === 'favorites') goBack()
 })
 
 watch(detailGroup, (group) => {

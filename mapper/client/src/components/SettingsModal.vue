@@ -81,6 +81,16 @@
             </button>
           </div>
 
+          <div class="setting-row" style="margin-top:16px">
+            <div class="setting-info">
+              <span class="setting-name">Ratings &amp; favorites</span>
+              <span class="setting-desc">Show star ratings and the favorite heart on markers</span>
+            </div>
+            <button class="toggle" :class="{ on: styleStore.showRatings }" @click="styleStore.setShowRatings(!styleStore.showRatings)" type="button">
+              <span class="knob" />
+            </button>
+          </div>
+
           <div class="setting-section">
             <div class="group-label" style="margin-top:20px">Map style</div>
             <div class="tile-grid">

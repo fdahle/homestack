@@ -5,7 +5,7 @@
         <h2>{{ viewing ? (form.label || 'Marker') : isEdit ? 'Edit Marker' : 'Add Marker' }}</h2>
         <div class="header-actions">
           <button
-            v-if="viewing && !props.readOnly"
+            v-if="viewing && !props.readOnly && styleStore.showRatings"
             type="button"
             class="fav-btn"
             :class="{ active: form.is_favorite }"
@@ -33,9 +33,9 @@
             Visited<template v-if="form.visited_at !== 'yes'"> · {{ form.visited_at }}</template>
           </div>
         </div>
-        <div v-if="form.rating || (form.planned_at && !form.visited_at) || (props.readOnly && form.is_favorite)" class="view-badges">
-          <span v-if="props.readOnly && form.is_favorite" class="fav-badge">♥ Favorite</span>
-          <span v-if="form.rating" class="rating-stars" :title="`Rated ${form.rating} of 5`" :aria-label="`Rated ${form.rating} of 5`">{{ '★'.repeat(form.rating) }}<span class="stars-off">{{ '★'.repeat(5 - form.rating) }}</span></span>
+        <div v-if="(styleStore.showRatings && (form.rating || (props.readOnly && form.is_favorite))) || (form.planned_at && !form.visited_at)" class="view-badges">
+          <span v-if="styleStore.showRatings && props.readOnly && form.is_favorite" class="fav-badge">♥ Favorite</span>
+          <span v-if="styleStore.showRatings && form.rating" class="rating-stars" :title="`Rated ${form.rating} of 5`" :aria-label="`Rated ${form.rating} of 5`">{{ '★'.repeat(form.rating) }}<span class="stars-off">{{ '★'.repeat(5 - form.rating) }}</span></span>
           <span v-if="form.planned_at && !form.visited_at" class="planned-badge">Planned · {{ form.planned_at }}</span>
         </div>
         <p v-if="form.description" class="view-desc">{{ form.description }}</p>
@@ -153,7 +153,7 @@
           <input id="marker-planned" v-model="form.planned_at" type="date" />
         </div>
 
-        <div class="field rating-fav-row">
+        <div v-if="styleStore.showRatings" class="field rating-fav-row">
           <div>
             <span class="field-label">Rating</span>
             <div class="rating-input" role="group" aria-label="Rating">
