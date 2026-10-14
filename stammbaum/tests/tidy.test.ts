@@ -1,0 +1,97 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { parseFamily } from '../src/parser/parse';
+import { tidyText } from '../src/parser/tidy';
+import { unionStatus, type FamilyGraph } from '../src/parser/types';
+import { applyEdits } from '../src/parser/write';
+
+const sample = readFileSync(new URL('../sample/family.md', import.meta.url), 'utf8');
+
+// Written the way it grows in the app: in the order things were added.
+const grown = readFileSync(new URL('./fixtures/grown.md', import.meta.url), 'utf8');
+
+/** What the file says, independent of how it is written down. */
+function meaning(graph: FamilyGraph) {
+  return {
+    people: [...graph.people.values()].map(({ line: _line, ...person }) => person).sort((a, b) => a.id.localeCompare(b.id)),
+    unions: graph.unions
+      .map((u) => ({ partners: [...u.partners].sort(), children: [...u.children].sort(), status: unionStatus(u), divorced: u.divorced, adopted: u.adopted }))
+      .sort((a, b) => a.partners.join().localeCompare(b.partners.join())),
+    me: graph.me,
+  };
+}
+
+describe('tidying family.md', () => {
+  const tidy = tidyText(grown);
+
+  it('says exactly what it said before', () => {
+    expect(meaning(parseFamily(tidy))).toEqual(meaning(parseFamily(grown)));
+    expect(meaning(parseFamily(tidyText(sample)))).toEqual(meaning(parseFamily(sample)));
+  });
+
+  it('changes nothing the second time', () => {
+    expect(tidyText(tidy)).toBe(tidy);
+    expect(tidyText(tidyText(sample))).toBe(tidyText(sample));
+  });
+
+  it('orders by generation, household by household, with the person lines aligned', () => {
+    const block = tidy.slice(tidy.indexOf('```family') + 10, tidy.lastIndexOf('```') - 1);
+    expect(block).toBe(`%% ---- Generation 1
+%% Olgas Eltern kennt noch niemand
+person mutter "Mutter von Olga" sex=f
+person vater  "Vater von Olga"  sex=m
+mutter + vater -> olga
+
+%% ---- Generation 2
+person olga    "Olga Weber"    sex=f
+person gerhard "Gerhard Weber" sex=m died=?
+olga + gerhard -> monika, rainer
+
+person helene  "Helene Maier"  sex=f
+person horst   "Horst Maier"   sex=m died=?
+helene + horst married=? divorced=? -> sebastian, frank, torsten
+
+%% ---- Generation 3
+person monika          "Monika Maier"    sex=f maiden=Weber
+person sebastian       "Sebastian Maier" sex=m
+monika + sebastian -> jakob, veronika
+
+person rainer          "Rainer Weber"    sex=m
+person frank           "Frank Maier"     sex=m
+person torsten         "Torsten Maier"   sex=m
+
+person gabi            "Gabi Wolff"      sex=f
+person sebastian-wolff "Sebastian Wolff" sex=m
+gabi + sebastian-wolff divorced=? -> lena, franziska
+
+%% ---- Generation 4
+person jakob     "Jakob Maier"     sex=m born=1990-03-14 birthplace=Vienna lives=Porto country=PT
+person lena      "Lena Wolff"      sex=f born=1993-08-21
+jakob + lena married=2021-09-18 -> paul
+
+person veronika  "Veronika Maier"  sex=f born=1995-02-17
+person franziska "Franziska Wolff" sex=f nick=Sissi
+
+%% ---- Generation 5
+person paul "Paul Maier" sex=m born=2023-06-02  %% der Kleine`);
+  });
+
+  it('leaves the prose around the block alone', () => {
+    expect(tidy.startsWith('# Familie Maier\n\n```family\n')).toBe(true);
+    expect(tidy.endsWith('```\n\nNotizen unter dem Stammbaum bleiben, wo sie sind.\n')).toBe(true);
+  });
+
+  it('keeps the sample’s own comments', () => {
+    const tidied = tidyText(sample);
+    expect(tidied).toContain('%% Marie was adopted: adopted= makes her their child and marks her as such.\nthomas + karin married=1992 adopted=marie');
+    expect(tidied).toContain('me jonas');
+  });
+
+  it('is one edit in the app, which also gives app-made ids their present form', () => {
+    const { markdown, renamed } = applyEdits(grown, [{ kind: 'tidy' }]);
+    expect(renamed).toMatchObject({ jakob: 'jakob-maier', helene: 'helene-maier', mutter: 'mutter-von-olga' });
+    expect(renamed['sebastian-wolff']).toBeUndefined();
+    expect(markdown).toContain('jakob-maier + lena-wolff married=2021-09-18 -> paul-maier');
+    expect(tidyText(markdown)).toBe(markdown);
+  });
+});

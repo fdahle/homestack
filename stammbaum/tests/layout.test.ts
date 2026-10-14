@@ -54,3 +54,78 @@ describe('layoutFamily', () => {
     for (const [id, node] of layout.nodes) expect(again.nodes.get(id)!.x).toBe(node.x);
   });
 });
+
+describe('a couple who married twice', () => {
+  it('get one bubble each, side by side', () => {
+    const twice = layoutFamily(parseFamily('```family\na + b married=1980 divorced=1985 -> c\na + b married=1990 -> d\n```'));
+    expect(twice.nodes.size).toBe(4);
+    const [a, b] = ['a', 'b'].map((id) => twice.nodes.get(id)!);
+    expect(Math.abs(a!.x - b!.x)).toBeGreaterThanOrEqual(METRICS.nodeWidth);
+  });
+});
+
+describe('rows for families that marry into each other', () => {
+  // Sebastian married into a younger generation than his brothers'; Lena's
+  // parents and Olga's have no parents of their own in the file.
+  const family = layoutFamily(
+    parseFamily(`\`\`\`family
+eltern -> sebastian, frank, torsten
+mutter + vater -> olga, friederike
+olga + gerhard -> monika
+monika + sebastian -> jakob, veronika
+gabi + wolff -> lena, sissi
+jakob + lena -> paul
+\`\`\``),
+  );
+  const row = (id: string) => family.nodes.get(id)!.generation;
+
+  it('keeps brothers and sisters on one row', () => {
+    expect(row('frank')).toBe(row('sebastian'));
+    expect(row('torsten')).toBe(row('sebastian'));
+    expect(row('sissi')).toBe(row('lena'));
+    expect(row('veronika')).toBe(row('jakob'));
+  });
+
+  it('puts parents with no parents of their own right above their children', () => {
+    expect(row('gabi')).toBe(row('lena') - 1);
+    expect(row('wolff')).toBe(row('lena') - 1);
+    expect(row('eltern')).toBe(row('sebastian') - 1);
+    expect(row('mutter')).toBe(row('olga') - 1);
+  });
+
+  it('still keeps every child below its parents and partners side by side', () => {
+    expect(row('paul')).toBe(row('jakob') + 1);
+    expect(row('jakob')).toBe(row('lena'));
+    expect(row('monika')).toBe(row('sebastian'));
+  });
+});
+
+describe('a family married into another, with a branch beside it', () => {
+  // Torsten's son must not end up between Lena and Sissi, whose parents
+  // married into the tree through Jakob and Lena.
+  const family = parseFamily(`\`\`\`family
+mutter + vater -> olga, friederike
+olga + gerhard -> monika, rainer
+helene + horst -> sebastian, frank, torsten
+monika + sebastian -> jakob, veronika
+rainer + karin -> moritz, lukas
+torsten -> otto
+gabi + wolff -> lena, sissi
+jakob + lena -> paul
+sissi + nico together=?
+\`\`\``);
+  const layout = layoutFamily(family);
+
+  it('draws no line across another', () => {
+    const x = (id: string) => layout.nodes.get(id)!.x;
+    const row = (id: string) => layout.nodes.get(id)!.generation;
+    // Every line from a couple down to one of their children, between neighbouring rows.
+    const lines = layout.unions.flatMap((u) =>
+      u.children.filter((c) => row(c) === row(u.partners[0]!) + 1).map((c) => ({ union: u.id, top: u.x, bottom: x(c), row: row(c) })),
+    );
+    const crossings = lines.flatMap((a, i) =>
+      lines.slice(i + 1).filter((b) => b.union !== a.union && b.row === a.row && (a.top - b.top) * (a.bottom - b.bottom) < 0),
+    );
+    expect(crossings).toEqual([]);
+  });
+});
