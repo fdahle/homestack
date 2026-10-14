@@ -7,6 +7,9 @@ export const useMarkersStore = defineStore('markers', {
     items: [],
     activeGroupFilter: null, // null | { type: 'category'|'collection', id }
     revision: 0,
+    // Bumped by writes that change a trip's legs (order, travel modes, via-points) without
+    // necessarily changing a stop's coordinates, so the drawn route knows to re-route.
+    routeRevision: 0,
     lastDeleted: null, // { id, label } of the most recent deletion, for "Undo"
     visitedFilter: 'all', // 'all' | 'visited' | 'unvisited'
   }),
@@ -89,8 +92,9 @@ export const useMarkersStore = defineStore('markers', {
       const restored = await res.json()
       this.items = [restored, ...this.items.filter((m) => m.id !== restored.id)]
       if (this.lastDeleted?.id === id) this.lastDeleted = null
-      // Person addresses pointing at the marker are restored on the server.
-      await usePersonsStore().fetch()
+      // Person addresses pointing at the marker are restored on the server. The restore itself
+      // succeeded, so a failed refresh must not be reported as a failed restore.
+      try { await usePersonsStore().fetch() } catch { /* refreshed again on the next load */ }
       return restored
     },
 
@@ -129,7 +133,10 @@ export const useMarkersStore = defineStore('markers', {
         )
         this.items[idx] = { ...this.items[idx], collections: cols }
       }
+      this.routeRevision++
     },
+
+    bumpRouteRevision() { this.routeRevision++ },
 
     async importBatch(markers, options = {}) {
       const res = await apiFetch('/api/markers/import', { ...options, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markers }) })

@@ -4,11 +4,32 @@
     <!-- Map area (everything that sits over the map) -->
     <div class="map-area">
       <div class="map-container" ref="mapEl" />
-      <div v-if="mapLoading || mapLoadError" class="map-status" role="status">
-        {{ mapLoadError || 'Loading map…' }}
-        <button v-if="mapLoadError" @click="initializeMap">Retry</button>
+
+      <!-- Messages over the map, stacked below the controls so they never cover each other -->
+      <div class="map-status-stack">
+        <div v-if="filterChip" class="filter-chip" role="status">
+          <button type="button" class="filter-chip-label" title="Show in panel" @click="openSidebar">
+            <span class="filter-chip-dot" :style="{ background: filterChip.color }" />
+            Filtered: <strong>{{ filterChip.name }}</strong>
+          </button>
+          <button type="button" class="filter-chip-clear" aria-label="Clear filter" title="Clear filter" @click="markersStore.clearGroupFilter()">✕</button>
+        </div>
+        <!-- Move mode: drag the pin or click the map, then save -->
+        <div v-if="moveTarget" class="move-banner" role="dialog" aria-label="Move marker">
+          <span>Drag the pin or click the map to move <strong>{{ moveTarget.label || 'this marker' }}</strong></span>
+          <span v-if="moveError" class="move-error">{{ moveError }}</span>
+          <div class="move-actions">
+            <button type="button" class="btn-secondary" :disabled="moveSaving" @click="cancelMove">Cancel</button>
+            <button type="button" class="btn-primary" :disabled="moveSaving" @click="saveMove">{{ moveSaving ? '…' : 'Save position' }}</button>
+          </div>
+        </div>
+        <div v-if="mapLoading || mapLoadError" class="map-status" role="status">
+          {{ mapLoadError || 'Loading map…' }}
+          <button v-if="mapLoadError" @click="initializeMap">Retry</button>
+        </div>
+        <div v-if="routeError" class="map-status" role="alert">{{ routeError }} <button @click="routeError = ''">Dismiss</button></div>
+        <div v-if="locateError" class="map-status" role="alert">{{ locateError }} <button @click="locateError = ''">Dismiss</button></div>
       </div>
-      <div v-if="routeError" class="map-status" role="alert">{{ routeError }} <button @click="routeError = ''">Dismiss</button></div>
 
       <!-- Centered address search bar -->
       <div class="top-bar">
@@ -92,7 +113,6 @@
       <button class="share-btn locate-btn" :class="{ busy: locating }" :disabled="locating" @click="locateMe" title="Show my location" aria-label="Show my location">
         <AppIcon name="location" />
       </button>
-      <div v-if="locateError" class="map-status" role="alert">{{ locateError }} <button @click="locateError = ''">Dismiss</button></div>
 
       <!-- Color mode dropdown -->
       <div class="color-mode-control" ref="colorModeRef">
@@ -122,16 +142,6 @@
 <!-- Active trip: distance, duration and GPX export -->
       <TripSummaryChip v-if="tripSummary" :summary="tripSummary" />
 
-<!-- Move mode: drag the pin or click the map, then save -->
-      <div v-if="moveTarget" class="move-banner" role="dialog" aria-label="Move marker">
-        <span>Drag the pin or click the map to move <strong>{{ moveTarget.label || 'this marker' }}</strong></span>
-        <span v-if="moveError" class="move-error">{{ moveError }}</span>
-        <div class="move-actions">
-          <button type="button" class="btn-secondary" :disabled="moveSaving" @click="cancelMove">Cancel</button>
-          <button type="button" class="btn-primary" :disabled="moveSaving" @click="saveMove">{{ moveSaving ? '…' : 'Save position' }}</button>
-        </div>
-      </div>
-
 <!-- Undo the last marker deletion -->
       <div v-if="markersStore.lastDeleted" class="delete-toast" role="status">
         <span>Deleted “{{ markersStore.lastDeleted.label || 'marker' }}”</span>
@@ -158,6 +168,7 @@
     <Transition name="panel">
       <FilterPanel
         v-show="sidebarOpen"
+        class="safe-sidebar"
         @new-category="openManageModal('category', null)"
         @edit-category="openManageModal('category', $event)"
         @new-collection="openManageModal('collection', null)"
@@ -252,6 +263,7 @@ import { useLocationPanel } from '../composables/useLocationPanel.js'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
 import { useModals } from '../composables/useModals.js'
 import { useStyleStore } from '../stores/style.js'
+import { useAuthStore } from '../stores/auth.js'
 import { loadSegments, saveSegment } from '../composables/useTripRouting.js'
 import { useMapControl } from '../composables/useMapControl.js'
 import { useTripRouteLayer } from '../composables/useTripRouteLayer.js'
@@ -262,6 +274,7 @@ const markersStore = useMarkersStore()
 const categoriesStore = useCategoriesStore()
 const collectionsStore = useCollectionsStore()
 const personsStore = usePersonsStore()
+const authStore = useAuthStore()
 
 const mapEl = ref(null)
 let map = null
@@ -318,7 +331,8 @@ async function applyRouteEdit(colId, fromId, toId, mode, points, previous) {
   try {
     await saveSegment(colId, fromId, toId, mode, points)
     if (disposed) return
-    if (markersStore.activeGroupFilter?.id === colId) pushUndo(colId, fromId, toId, previous)
+    const filter = markersStore.activeGroupFilter
+    if (filter?.type === 'collection' && filter.id === colId) pushUndo(colId, fromId, toId, previous)
   } catch (err) { routeError.value = err.message }
   finally { routeEditBusy.value = false }
   if (!disposed) await renderTripRoute()
@@ -426,10 +440,36 @@ async function saveMove() {
     const updated = await markersStore.update(moveTarget.value.id, { lat: +lat.toFixed(6), lng: +lng.toFixed(6) })
     endMove()
     openMarkerModal(updated)
+    resetLegsAround(updated.id).catch((err) => { if (!disposed) routeError.value = 'The route around the moved stop could not be reset: ' + err.message })
   } catch (err) {
     moveError.value = err.message
     moveSaving.value = false
   }
+}
+
+// Via-points shape the legs into and out of a trip stop. After the stop moves they would drag the
+// route back towards its old place, so those two legs start over as direct routes (mode kept).
+async function resetLegsAround(markerId) {
+  const marker = markersStore.items.find((m) => m.id === markerId)
+  const trips = (marker?.collections ?? []).filter((c) => c.position != null && collectionsStore.items.find((col) => col.id === c.id)?.is_trip)
+  let changed = false
+  for (const { id: colId } of trips) {
+    const stops = markersStore.items
+      .map((m) => ({ id: m.id, pos: m.collections?.find((c) => c.id === colId)?.position ?? null }))
+      .filter((s) => s.pos != null)
+      .sort((a, b) => a.pos - b.pos)
+    const i = stops.findIndex((s) => s.id === markerId)
+    const legs = [[stops[i - 1]?.id, markerId], [markerId, stops[i + 1]?.id]].filter(([from, to]) => from != null && to != null)
+    if (!legs.length) continue
+    const segments = await loadSegments(colId)
+    for (const [from, to] of legs) {
+      const seg = segments[`${from}-${to}`]
+      if (!seg?.via_points?.length) continue
+      await saveSegment(colId, from, to, seg.mode || 'walk', [])
+      changed = true
+    }
+  }
+  if (changed) markersStore.bumpRouteRevision()
 }
 
 async function openSidebar() {
@@ -447,13 +487,20 @@ async function closeSidebar() {
 // Composables
 const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, clearSearch, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
   getMap,
-  () => markersStore.filtered,
+  () => markersStore.items,
 )
 
-// Search results only move the map; clicking the spot or marker opens details.
+// Search results only move the map; clicking the spot or marker opens details. Markers are
+// searched across all groups, and one hidden by the current filter has no pin to click there,
+// so that one opens directly (the filter stays as the user set it).
 function handleSearchSelect(r) {
   closeLocationPanel()
   selectResult(r)
+  const id = r._markerObj?.id
+  if (r._marker && !markersStore.filtered.some((m) => m.id === id)) {
+    addMode.value = false
+    openMarkerModal(markersStore.items.find((m) => m.id === id) ?? r._markerObj)
+  }
 }
 const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, locationError, poiData, poiLoading, poiError, poiStatus, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
 const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLayer(getMap, (marker) => {
@@ -475,9 +522,9 @@ watch(sidebarOpen, (open) => {
   document.body.style.overscrollBehaviorY = open ? 'none' : ''
 })
 
-// Push a history entry when any modal opens so the back gesture can close it.
+// Push a history entry when any modal or the location panel opens so the back gesture can close it.
 watch(
-  () => modalOpen.value || manageOpen.value || settingsOpen.value || statsOpen.value || markerTableOpen.value || csvImportOpen.value || shareOpen.value,
+  () => modalOpen.value || manageOpen.value || settingsOpen.value || statsOpen.value || markerTableOpen.value || csvImportOpen.value || shareOpen.value || locationPanelOpen.value,
   (anyOpen, wasOpen) => {
     if (anyOpen && !wasOpen) history.pushState({ ...history.state, mapperModal: true }, '')
     if (!anyOpen && wasOpen && history.state?.mapperModal) history.back()
@@ -492,6 +539,7 @@ function handlePopState() {
   if (markerTableOpen.value) { markerTableOpen.value = false; return }
   if (csvImportOpen.value) { csvImportOpen.value = false; return }
   if (shareOpen.value) { shareOpen.value = false; return }
+  if (locationPanelOpen.value) closeLocationPanel()
 }
 
 onUnmounted(() => { window.removeEventListener('popstate', handlePopState) })
@@ -501,8 +549,8 @@ function applyTileLayer(key) {
   const t = tileOptions(key)
   if (tileLayer) tileLayer.remove()
   tileLayer = L.tileLayer(t.url, t).addTo(map)
-  map.options.maxZoom = t.maxZoom
-  if (map.getZoom() > t.maxZoom) map.setZoom(t.maxZoom)
+  // setMaxZoom (unlike assigning options.maxZoom) clamps the view and updates the zoom buttons.
+  map.setMaxZoom(t.maxZoom)
 }
 
 async function initializeMap() {
@@ -546,7 +594,9 @@ async function initializeMap() {
 
   window.addEventListener('keydown', onKeyDown)
   renderMarkers(displayMarkers.value)
-  await renderTripRoute()
+  authStore.offline = false
+  // Not awaited: slow routing services must not keep "Loading map…" up; route errors show on their own.
+  renderTripRoute()
   } catch (err) {
     mapLoadError.value = err.message
     if (map) { map.remove(); map = null }
@@ -629,9 +679,30 @@ watch(displayMarkers, (markers) => {
   if (map) renderMarkers(markers)
 })
 
-// On mobile, open the sidebar when a filter is applied from outside (e.g. chip click in modal)
+// Open the sidebar when a filter is applied from outside (e.g. chip click in the marker modal),
+// so the active group is always shown somewhere. Closing it afterwards leaves the map chip.
 watch(() => markersStore.activeGroupFilter, (filter) => {
-  if (filter && window.innerWidth <= 640) sidebarOpen.value = true
+  if (filter && !sidebarOpen.value) openSidebar()
+})
+
+// The sidebar has no collapse control on desktop; one closed on a narrow window comes back
+// when the window widens.
+const desktopQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(min-width: 641px)') : null
+const onDesktopChange = (e) => { if (e.matches && !sidebarOpen.value) openSidebar() }
+desktopQuery?.addEventListener?.('change', onDesktopChange)
+onUnmounted(() => desktopQuery?.removeEventListener?.('change', onDesktopChange))
+
+// With the sidebar closed nothing else says that markers are hidden by a filter.
+const NONE_NAMES = { category: 'Uncategorized', collection: 'No collection', person: 'No person' }
+const SMART_NAMES = { favorites: 'Favorites', planned: 'Planned' }
+const filterChip = computed(() => {
+  const filter = markersStore.activeGroupFilter
+  if (!filter || sidebarOpen.value) return null
+  const store = { category: categoriesStore, collection: collectionsStore, person: personsStore }[filter.type]
+  const item = store?.items.find((i) => i.id === filter.id)
+  const name = filter.type === 'smart' ? SMART_NAMES[filter.id] : filter.id === '__none__' ? NONE_NAMES[filter.type] : item?.name
+  const visited = { visited: ' · visited', unvisited: ' · not visited' }[markersStore.visitedFilter] ?? ''
+  return { name: (name || 'Group') + visited, color: item?.color || '#9ca3af' }
 })
 
 watch(() => styleStore.colorMode, () => {
@@ -640,11 +711,61 @@ watch(() => styleStore.colorMode, () => {
 
 watch(() => markersStore.revision, () => { undoStack.value = []; closeModal(); manageOpen.value = false; renderTripRoute() })
 
-watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
+// Undo entries belong to the trip on screen: keyed by type and id, since category 3 and
+// collection 3 are different groups.
+watch(() => { const f = markersStore.activeGroupFilter; return f ? `${f.type}:${f.id}` : '' }, () => { undoStack.value = [] })
+// Reordering stops or changing leg modes rewrites the legs the undo entries refer to.
+watch(() => markersStore.routeRevision, () => { undoStack.value = [] })
 </script>
 
 <style scoped>
-.map-status { position: absolute; top: 68px; left: 50%; transform: translateX(-50%); z-index: 1100; max-width: 90%; padding: 12px; background: var(--surface); border-radius: 8px; box-shadow: var(--shadow); }
+/* Below the search bar, clear of the right-hand buttons; under the dropdowns (z-index 1000+). */
+.map-status-stack {
+  position: absolute;
+  top: calc(56px + var(--sat, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(520px, calc(100% - 120px - var(--sal, 0px) - var(--sar, 0px)));
+  pointer-events: none;
+}
+.map-status-stack > * { pointer-events: auto; max-width: 100%; }
+.map-status { padding: 10px 12px; background: var(--surface); color: var(--text); border-radius: 8px; box-shadow: var(--shadow); font-size: 13px; }
+.map-status button { padding: 2px 8px; margin-left: 6px; background: var(--surface-2); color: var(--text); }
+.filter-chip {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.filter-chip button { background: none; color: inherit; font-size: 12px; }
+.filter-chip-label { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 4px 5px 12px; }
+.filter-chip-label strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.filter-chip-clear { padding: 5px 10px 5px 6px; }
+.filter-chip-clear:hover { color: var(--text); }
+@media (max-width: 640px) {
+  /* Mobile stacks the colour-mode, share and locate buttons on the right below the search bar. */
+  .map-status-stack { top: calc(178px + var(--sat, 0px)); max-width: calc(100% - 20px - var(--sal, 0px) - var(--sar, 0px)); }
+}
+
+/* Landscape notches: keep the sidebar content and Leaflet's own controls clear of them. */
+.safe-sidebar { padding-right: var(--sar, 0px); }
+@media (max-width: 640px) {
+  .safe-sidebar { padding-left: var(--sal, 0px); }
+}
+.map-area :deep(.leaflet-left) { left: var(--sal, 0px); }
+.map-area :deep(.leaflet-right) { right: var(--sar, 0px); }
+.map-area :deep(.leaflet-bottom) { bottom: var(--sab, 0px); }
 .map-shell {
   display: flex;
   width: 100vw;
@@ -791,8 +912,8 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 @media (max-width: 640px) {
   /* Full-width search bar — no buttons at top on mobile */
   .top-bar {
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-left: calc(10px + var(--sal, 0px));
+    padding-right: calc(10px + var(--sar, 0px));
     top: calc(10px + var(--sat, 0px));
   }
   .search-wrapper {
@@ -805,7 +926,7 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
     display: flex;
     position: absolute;
     bottom: calc(22px + var(--sab, 0px));
-    right: 10px;
+    right: calc(10px + var(--sar, 0px));
     top: auto;
     z-index: 1000;
     width: 44px;
@@ -831,7 +952,7 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 .share-btn {
   position: absolute;
   top: 52px;
-  right: 10px;
+  right: calc(10px + var(--sar, 0px));
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -854,7 +975,7 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 .color-mode-control {
   position: absolute;
   top: 10px;
-  right: 10px;
+  right: calc(10px + var(--sar, 0px));
   z-index: 1000;
 }
 
@@ -914,7 +1035,7 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 .undo-btn {
   position: absolute;
   bottom: calc(76px + var(--sab, 0px));
-  left: 10px;
+  left: calc(10px + var(--sal, 0px));
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -958,16 +1079,10 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 }
 
 .move-banner {
-  position: absolute;
-  top: calc(64px + var(--sat, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1100;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  max-width: calc(100% - 32px);
   padding: 10px 14px;
   background: var(--surface);
   color: var(--text);
@@ -986,7 +1101,7 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
 .add-marker-btn {
   position: absolute;
   bottom: calc(22px + var(--sab, 0px));
-  left: 10px;
+  left: calc(10px + var(--sal, 0px));
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -1035,7 +1150,7 @@ watch(() => markersStore.activeGroupFilter?.id, () => { undoStack.value = [] })
   /* Stack color-mode and share below the full-width search bar on mobile */
   .color-mode-control {
     top: calc(56px + var(--sat, 0px));
-    right: 10px;
+    right: calc(10px + var(--sar, 0px));
   }
 
   .share-btn {

@@ -3,10 +3,13 @@ import L from 'leaflet'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { safeHex } from '../utils/mapStyle.js'
-import { fetchSegmentRoute } from './useTripRouting.js'
-import { haversineMeters, formatDistance, formatDuration, summarizeLegs } from '../utils/trip.js'
+import { settingsRevision } from '../utils/settings.js'
+import { fetchSegmentRoute, getOrsApiKey } from './useTripRouting.js'
+import { haversineMeters, formatDistance, formatDuration, summarizeLegs, viaInsertIndex } from '../utils/trip.js'
 
 const MODE_LABELS = { walk: 'walking', hike: 'hiking', bike: 'cycling', drive: 'driving' }
+// Legs are routed a few at a time: fast for long trips without hammering the public servers.
+const ROUTE_CONCURRENCY = 3
 
 // Draws the route of the trip collection currently selected in the sidebar.
 // getSegments(collectionId, signal) resolves to { 'fromId-toId': { mode, via_points } }.
@@ -21,6 +24,7 @@ export function useTripRouteLayer(getMap, { getSegments, onEdit = null }) {
   let handles = []
   let renderToken = 0
   let abort = null
+  let ownError = ''
 
   const activeTrip = computed(() => {
     const filter = markersStore.activeGroupFilter
@@ -33,19 +37,22 @@ export function useTripRouteLayer(getMap, { getSegments, onEdit = null }) {
     const col = activeTrip.value
     if (!col) return null
     return markersStore.filtered
-      .map((m) => ({ m, pos: m.collections.find((c) => c.id === col.id)?.position ?? null }))
+      .map((m) => ({ m, pos: m.collections?.find((c) => c.id === col.id)?.position ?? null }))
       .filter(({ pos }) => pos !== null)
       .sort((a, b) => a.pos - b.pos)
       .map(({ m }) => m)
   })
 
-  // Re-route only when the stops, their coordinates or the route settings change,
-  // not whenever any marker object is replaced.
+  // Re-route only when the stops, their coordinates, the route settings, the saved legs
+  // (routeRevision: modes and via-points) or the routing service change, not whenever any
+  // marker object is replaced.
   const tripRouteKey = computed(() => {
     const col = activeTrip.value
     const markers = tripRouteMarkers.value
     if (!col || !markers) return ''
-    return JSON.stringify([col.id, col.color, col.show_route_line, col.show_exact_route, markers.map((m) => [m.id, m.lat, m.lng])])
+    settingsRevision.value
+    const service = col.show_exact_route ? getOrsApiKey() : ''
+    return JSON.stringify([col.id, col.color, col.show_route_line, col.show_exact_route, markersStore.routeRevision, service, markers.map((m) => [m.id, m.lat, m.lng])])
   })
 
   function clear() {
@@ -59,21 +66,17 @@ export function useTripRouteLayer(getMap, { getSegments, onEdit = null }) {
     return L.divIcon({ className: '', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
   }
 
-  function addEditHandles(map, col, color, from, to, mode, viaPoints, routedPoly) {
+  function addEditHandles(map, col, color, leg, routedPoly) {
+    const { from, to, mode, viaPoints } = leg
     const edit = (newVia) => onEdit(col.id, from.id, to.id, mode, newVia, viaPoints)
     const point = (latlng) => ({ lat: +latlng.lat.toFixed(6), lng: +latlng.lng.toFixed(6) })
     const allWps = [{ lat: from.lat, lng: from.lng }, ...viaPoints, { lat: to.lat, lng: to.lng }]
 
-    // Click on the routed line to insert a via-point between the nearest pair of waypoints
+    // Click on the routed line to insert a via-point where the click lies along the drawn path
     routedPoly.on('click', (e) => {
       L.DomEvent.stopPropagation(e)
-      let bestIdx = 0, bestDist = Infinity
-      for (let k = 0; k < allWps.length - 1; k++) {
-        const d = (e.latlng.lat - (allWps[k].lat + allWps[k + 1].lat) / 2) ** 2 + (e.latlng.lng - (allWps[k].lng + allWps[k + 1].lng) / 2) ** 2
-        if (d < bestDist) { bestDist = d; bestIdx = k }
-      }
       const newVia = [...viaPoints]
-      newVia.splice(bestIdx, 0, point(e.latlng))
+      newVia.splice(viaInsertIndex(leg.path, viaPoints, e.latlng), 0, point(e.latlng))
       edit(newVia)
     })
 
@@ -106,59 +109,85 @@ export function useTripRouteLayer(getMap, { getSegments, onEdit = null }) {
     }
   }
 
+  // Errors this layer reported itself are replaced on the next render; errors set by the caller
+  // (e.g. a failed via-point save) stay until dismissed.
+  function setError(message) {
+    if (routeError.value === ownError) routeError.value = message
+    ownError = message
+  }
+
   async function render() {
     abort?.abort()
     abort = new AbortController()
     const signal = abort.signal
     const token = ++renderToken
+    const stale = () => token !== renderToken || !getMap()
     clear()
     tripSummary.value = null
+    setError('')
     const col = activeTrip.value
     const markers = tripRouteMarkers.value
-    if (!getMap() || !col || !markers || markers.length < 2) return
+    const map = getMap()
+    if (!map || !col || !markers || markers.length < 2) return
 
     const color = safeHex(col.color || '#3b82f6')
     const showStraight = !!col.show_route_line
     const showExact = !!col.show_exact_route
-
-    let segmentMap
-    try { segmentMap = await getSegments(col.id, signal) } catch (err) { if (!signal.aborted) routeError.value = err.message; return }
-    if (token !== renderToken) return
-    const legs = []
-
-    for (let i = 0; i < markers.length - 1; i++) {
-      const map = getMap()
-      if (!map) return
-      const from = markers[i]
+    const legs = markers.slice(0, -1).map((from, i) => {
       const to = markers[i + 1]
-      const seg = segmentMap[`${from.id}-${to.id}`]
-      const viaPoints = seg?.via_points || []
-      const mode = seg?.mode || 'walk'
-      const straightPath = [[from.lat, from.lng], [to.lat, to.lng]]
-      const leg = { path: straightPath, distance: haversineMeters(from, to), duration: null }
-      legs.push(leg)
+      return { from, to, path: [[from.lat, from.lng], [to.lat, to.lng]], distance: haversineMeters(from, to), duration: null, mode: 'walk', viaPoints: [] }
+    })
+    const summarize = (routed) => { tripSummary.value = { name: col.name || 'Trip', stops: markers, legs, routed, ...summarizeLegs(legs) } }
 
-      // Straight reference line
-      if (showStraight) {
-        polylines.push(L.polyline(straightPath, {
+    // Straight reference lines
+    if (showStraight) {
+      for (const leg of legs) {
+        polylines.push(L.polyline(leg.path, {
           color, weight: showExact ? 2 : 3, opacity: showExact ? 0.4 : 0.8, dashArray: showExact ? '6,5' : null,
         }).addTo(map))
       }
-      if (!showExact) continue
-
-      try {
-        const route = await fetchSegmentRoute(from, to, viaPoints, mode, signal)
-        Object.assign(leg, { path: route.path, distance: route.distance ?? leg.distance, duration: route.duration })
-      } catch (err) { if (!signal.aborted) routeError.value = 'Route unavailable; showing a straight line. ' + err.message }
-      if (token !== renderToken || !getMap()) return
-
-      const routedPoly = L.polyline(leg.path, { color, weight: 4, opacity: 0.88 }).addTo(map)
-      routedPoly.bindTooltip([formatDistance(leg.distance), formatDuration(leg.duration), MODE_LABELS[mode]].filter(Boolean).join(' · '), { sticky: true })
-      polylines.push(routedPoly)
-      if (onEdit) addEditHandles(map, col, color, from, to, mode, viaPoints, routedPoly)
     }
-    if (token !== renderToken) return
-    tripSummary.value = { name: col.name || 'Trip', stops: markers, legs, routed: showExact, ...summarizeLegs(legs) }
+    if (!showExact) return summarize(false)
+
+    let segmentMap
+    try { segmentMap = await getSegments(col.id, signal) } catch (err) {
+      if (stale() || signal.aborted) return
+      setError('Could not load the trip legs; showing straight distances. ' + err.message)
+      return summarize(false)
+    }
+    if (stale()) return
+
+    const failures = []
+    const warnings = new Set()
+    async function routeLeg(leg) {
+      const seg = segmentMap[`${leg.from.id}-${leg.to.id}`]
+      leg.viaPoints = seg?.via_points || []
+      leg.mode = seg?.mode || 'walk'
+      try {
+        const route = await fetchSegmentRoute(leg.from, leg.to, leg.viaPoints, leg.mode, signal)
+        Object.assign(leg, { path: route.path, distance: route.distance ?? leg.distance, duration: route.duration })
+        if (route.warning) warnings.add(route.warning)
+      } catch (err) {
+        if (signal.aborted) return
+        failures.push(err.message)
+      }
+      if (stale()) return
+      const routedPoly = L.polyline(leg.path, { color, weight: 4, opacity: 0.88 }).addTo(getMap())
+      routedPoly.bindTooltip([formatDistance(leg.distance), formatDuration(leg.duration), MODE_LABELS[leg.mode]].filter(Boolean).join(' · '), { sticky: true })
+      polylines.push(routedPoly)
+      if (onEdit) addEditHandles(getMap(), col, color, leg, routedPoly)
+    }
+
+    let next = 0
+    const worker = async () => { while (next < legs.length && !stale()) await routeLeg(legs[next++]) }
+    await Promise.all(Array.from({ length: Math.min(ROUTE_CONCURRENCY, legs.length) }, worker))
+    if (stale()) return
+
+    if (failures.length) {
+      const scope = failures.length === legs.length ? 'Route unavailable' : `${failures.length} of ${legs.length} legs could not be routed`
+      setError(`${scope}; showing straight lines. ${failures[0]}`)
+    } else if (warnings.size) setError([...warnings][0])
+    summarize(failures.length < legs.length)
   }
 
   function dispose() {
@@ -168,6 +197,7 @@ export function useTripRouteLayer(getMap, { getSegments, onEdit = null }) {
   }
 
   watch(tripRouteKey, () => render())
+  watch(() => activeTrip.value?.id, () => { routeError.value = ''; ownError = '' })
 
   return { tripSummary, routeError, render, dispose }
 }

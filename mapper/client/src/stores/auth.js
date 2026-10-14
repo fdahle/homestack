@@ -6,6 +6,8 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: false,
     setupRequired: false,
     _sessionChecked: false,
+    sessionExpired: false, // a write was rejected with 401 while the app was open
+    offline: false, // the last session check could not reach the server
   }),
 
   actions: {
@@ -18,14 +20,29 @@ export const useAuthStore = defineStore('auth', {
     async checkSession() {
       if (this._sessionChecked && this.isAuthenticated) return true
       try {
-        const res = await apiFetch('/api/auth/me')
-        this.isAuthenticated = res.ok
-        this._sessionChecked = true
-        return this.isAuthenticated
-      } catch {
-        this.isAuthenticated = false
-        return false
+        await apiFetch('/api/auth/me')
+        Object.assign(this, { isAuthenticated: true, _sessionChecked: true, sessionExpired: false, offline: false })
+        return true
+      } catch (err) {
+        // Only the server answering 401 means signed out. A dropped connection or a proxy error
+        // must not send the user to a login page that cannot work either; the view's own
+        // requests show what failed, and a real 401 there still redirects.
+        if (err.status === 401) {
+          this.isAuthenticated = false
+          this.offline = false
+          return false
+        }
+        this.offline = !err.status
+        return true
       }
+    },
+
+    // Called when the tab becomes visible or the connection returns: clears the
+    // "session expired" / "offline" hints once the server accepts the session again.
+    async recheck() {
+      if (!this.sessionExpired && !this.offline) return
+      this._sessionChecked = false
+      await this.checkSession()
     },
 
     async setup(password) {
@@ -41,6 +58,7 @@ export const useAuthStore = defineStore('auth', {
       this.isAuthenticated = true
       this.setupRequired = false
       this._sessionChecked = true
+      this.sessionExpired = false
     },
 
     async login(password) {
@@ -55,6 +73,7 @@ export const useAuthStore = defineStore('auth', {
       }
       this.isAuthenticated = true
       this._sessionChecked = true
+      this.sessionExpired = false
     },
 
     async logout() {

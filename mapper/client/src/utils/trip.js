@@ -33,7 +33,31 @@ export function summarizeLegs(legs) {
   }
 }
 
-const escapeXml = (value) => String(value ?? '').replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]))
+// Fractional index of the point on `path` ([[lat, lng], ...]) nearest to `point` ({ lat, lng }):
+// 2.5 means halfway between path[2] and path[3]. Uses a local flat projection, fine at leg scale.
+export function pathPosition(path, point) {
+  const k = Math.cos(point.lat * Math.PI / 180)
+  let best = 0, bestDist = Infinity
+  for (let i = 0; i < path.length - 1; i++) {
+    const [ay, ax] = path[i], [by, bx] = path[i + 1]
+    const dx = (bx - ax) * k, dy = by - ay
+    const px = (point.lng - ax) * k, py = point.lat - ay
+    const len = dx * dx + dy * dy
+    const t = len ? Math.max(0, Math.min(1, (px * dx + py * dy) / len)) : 0
+    const d = (px - t * dx) ** 2 + (py - t * dy) ** 2
+    if (d < bestDist) { bestDist = d; best = i + t }
+  }
+  return best
+}
+
+// Where a via-point clicked on a (possibly winding) routed leg belongs among the existing ones:
+// order by position along the drawn path, not by distance to straight-line midpoints.
+export function viaInsertIndex(path, viaPoints, point) {
+  const at = pathPosition(path, point)
+  return viaPoints.filter((vp) => pathPosition(path, vp) < at).length
+}
+
+const escapeXml =(value) => String(value ?? '').replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]))
 const coord = (n) => Number(n).toFixed(6)
 
 // stops: markers in trip order; legs: [{ path: [[lat, lng], ...] }] between consecutive stops.

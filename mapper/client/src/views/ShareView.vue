@@ -33,7 +33,9 @@
     <div v-else-if="state === 'error'" class="gate">
       <div class="gate-card">
         <div class="gate-logo">MapMarker</div>
-        <p class="gate-error-big">{{ errorMessage }}</p><button @click="requestShare()">Retry</button>
+        <p class="gate-error-big">{{ errorMessage }}</p>
+        <!-- A missing or expired link stays that way; retrying only helps with transient failures. -->
+        <button v-if="errorRetryable" class="gate-btn" @click="requestShare()">Retry</button>
       </div>
     </div>
 
@@ -108,6 +110,7 @@
         </button>
 
         <TripSummaryChip v-if="tripSummary" :summary="tripSummary" />
+        <div v-if="routeError" class="map-status" role="alert">{{ routeError }} <button @click="routeError = ''">Dismiss</button></div>
 
       </div>
 
@@ -118,6 +121,7 @@
       <Transition name="panel">
         <FilterPanel
           v-show="sidebarOpen"
+          class="safe-sidebar"
           :read-only="true"
           @fly-to="(m) => map && map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 14))"
           @open-marker="openMarker"
@@ -177,6 +181,7 @@ const personsStore = usePersonsStore()
 const state = ref('loading')  // 'loading' | 'password' | 'loaded' | 'error'
 const shareMeta = ref(null)
 const errorMessage = ref('')
+const errorRetryable = ref(true)
 const passwordInput = ref('')
 const showPw = ref(false)
 const gateError = ref('')
@@ -190,7 +195,7 @@ let tileLayer = null
 
 // Trip routes come with the share payload: { collectionId: { 'fromId-toId': segment } }
 let sharedSegments = {}
-const { tripSummary, render: renderTripRoute, dispose: disposeTripRoute } = useTripRouteLayer(() => map, {
+const { tripSummary, routeError, render: renderTripRoute, dispose: disposeTripRoute } = useTripRouteLayer(() => map, {
   getSegments: async (collectionId) => sharedSegments[collectionId] ?? {},
 })
 
@@ -209,8 +214,8 @@ function switchTile(key) {
   const t = tileOptions(key)
   if (tileLayer) tileLayer.remove()
   tileLayer = L.tileLayer(t.url, t).addTo(map)
-  map.options.maxZoom = t.maxZoom
-  if (map.getZoom() > t.maxZoom) map.setZoom(t.maxZoom)
+  // setMaxZoom (unlike assigning options.maxZoom) clamps the view and updates the zoom buttons.
+  map.setMaxZoom(t.maxZoom)
 }
 
 const getMap = () => map
@@ -236,8 +241,15 @@ async function fetchData(password, signal) {
   const init = password
     ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }), signal }
     : { signal }
-  const res = await fetch(`/api/public/share/${route.params.token}/data`, init)
-  return { status: res.status, data: await res.json() }
+  let res
+  try { res = await fetch(`/api/public/share/${route.params.token}/data`, init) } catch (err) {
+    if (err.name === 'AbortError') throw err
+    throw new Error('Could not reach the server. Check your connection and retry.', { cause: err })
+  }
+  // A proxy or a restarting server can answer with an HTML page instead of JSON.
+  let data = null
+  try { data = await res.json() } catch { /* handled by the status checks */ }
+  return { status: res.status, data }
 }
 
 async function loadMap(data, id) {
@@ -247,12 +259,13 @@ async function loadMap(data, id) {
   if (map) { map.remove(); map = null }
   sharedSegments = {}
   for (const s of data.segments ?? []) (sharedSegments[s.collection_id] ??= {})[`${s.from_marker_id}-${s.to_marker_id}`] = s
-  markersStore.items = data.markers
+  // Links carry only the groups their filter selects (and fewer marker fields), so lists may be absent.
+  markersStore.items = (data.markers ?? []).map((m) => ({ ...m, categories: m.categories ?? [], collections: m.collections ?? [], persons: m.persons ?? [] }))
   markersStore.activeGroupFilter = null
   markersStore.visitedFilter = 'all'
-  categoriesStore.items = data.categories.sort(byName)
-  collectionsStore.items = data.collections.sort(byName)
-  personsStore.items = data.persons.sort(byName)
+  categoriesStore.items = [...data.categories ?? []].sort(byName)
+  collectionsStore.items = [...data.collections ?? []].sort(byName)
+  personsStore.items = [...data.persons ?? []].sort(byName)
 
   state.value = 'loaded'
   await nextTick()
@@ -260,7 +273,7 @@ async function loadMap(data, id) {
 
   const s = loadSettings()
   map = L.map(mapEl.value, { zoomControl: false, maxZoom: 21 }).setView([s?.lat ?? 20, s?.lng ?? 0], s?.zoom ?? 2)
-  if (window.innerWidth > 1024) L.control.zoom({ position: 'bottomright' }).addTo(map)
+  if (window.innerWidth > 640) L.control.zoom({ position: 'bottomright' }).addTo(map)
 
   const tileKey = validTileKey(s?.tile)
   currentTile.value = tileKey
@@ -285,15 +298,25 @@ async function requestShare(password = null) {
   try {
     const { status, data } = await fetchData(password, requestAbort.signal)
     if (id !== requestId) return
-    if (status === 401 && data.requiresPassword) { shareMeta.value = data.meta; state.value = 'password'; return }
+    if (status === 401 && data?.requiresPassword) { shareMeta.value = data.meta; state.value = 'password'; return }
     if (status === 403) { gateError.value = 'Incorrect password. Try again.'; state.value = 'password'; return }
-    if (status === 429 && password) { gateError.value = data.error || 'Too many attempts. Try again later.'; return }
-    if (status !== 200) throw new Error(status === 404 ? 'This share link does not exist.' : status === 410 ? 'This share link has expired.' : 'Failed to load shared map. Please retry.')
+    if (status === 429 && password) { gateError.value = data?.error || 'Too many attempts. Try again later.'; return }
+    if (status === 404 || status === 410) {
+      errorMessage.value = status === 404 ? 'This share link does not exist.' : 'This share link has expired.'
+      errorRetryable.value = false
+      state.value = 'error'
+      return
+    }
+    if (status !== 200 || !data) throw new Error(status === 429 ? 'Too many requests. Wait a moment, then retry.' : 'Failed to load shared map. Please retry.')
     await loadMap(data, id)
   } catch (err) {
     if (id !== requestId || err.name === 'AbortError') return
     if (password) gateError.value = 'Could not load the map. Check your connection and retry.'
-    else { errorMessage.value = err.message; state.value = 'error' }
+    else {
+      errorMessage.value = err.message
+      errorRetryable.value = true
+      state.value = 'error'
+    }
   } finally { if (id === requestId) loading.value = false }
 }
 
@@ -434,7 +457,33 @@ watch(sidebarOpen, async () => {
 .pw-toggle:hover { background: var(--surface-2, #f5f5f5); }
 
 .gate-error { font-size: 13px; color: #ef4444; margin-bottom: 10px; }
-.gate-error-big { font-size: 15px; color: #ef4444; }
+.gate-error-big { font-size: 15px; color: #ef4444; margin-bottom: 12px; }
+
+.map-status {
+  position: absolute;
+  top: calc(56px + var(--sat, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  width: max-content;
+  max-width: calc(100% - 32px - var(--sal, 0px) - var(--sar, 0px));
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.map-status button { padding: 2px 8px; margin-left: 6px; background: var(--surface-2); color: var(--text); }
+
+/* Landscape notches: keep the sidebar content and Leaflet's own controls clear of them. */
+.safe-sidebar { padding-right: var(--sar, 0px); }
+@media (max-width: 640px) {
+  .safe-sidebar { padding-left: var(--sal, 0px); }
+}
+.map-area :deep(.leaflet-left) { left: var(--sal, 0px); }
+.map-area :deep(.leaflet-right) { right: var(--sar, 0px); }
+.map-area :deep(.leaflet-bottom) { bottom: var(--sab, 0px); }
 
 .gate-btn {
   width: 100%;
@@ -557,7 +606,7 @@ watch(sidebarOpen, async () => {
 .tile-control {
   position: absolute;
   top: 10px;
-  left: 10px;
+  left: calc(10px + var(--sal, 0px));
   z-index: 1000;
 }
 
@@ -618,7 +667,7 @@ watch(sidebarOpen, async () => {
 .sidebar-open-btn {
   position: absolute;
   top: 12px;
-  right: 12px;
+  right: calc(12px + var(--sar, 0px));
   z-index: 500;
   background: var(--surface, #fff);
   border: 1px solid var(--border, #e0e0e0);
@@ -644,7 +693,7 @@ watch(sidebarOpen, async () => {
   /* Full-width search bar on mobile */
   .top-bar {
     top: calc(10px + var(--sat, 0px));
-    padding: 0 10px;
+    padding: 0 calc(10px + var(--sar, 0px)) 0 calc(10px + var(--sal, 0px));
   }
   .search-wrapper {
     width: 100%;
@@ -655,14 +704,14 @@ watch(sidebarOpen, async () => {
   .tile-control {
     top: auto;
     bottom: calc(22px + var(--sab, 0px));
-    left: 10px;
+    left: calc(10px + var(--sal, 0px));
   }
 
   /* Move hamburger to bottom-right on mobile so it doesn't clash with search */
   .sidebar-open-btn {
     top: auto;
     bottom: calc(22px + var(--sab, 0px));
-    right: 10px;
+    right: calc(10px + var(--sar, 0px));
   }
 }
 

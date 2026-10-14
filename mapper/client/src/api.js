@@ -23,7 +23,13 @@ export async function apiFetch(url, { retryRateLimit = false, onRetry, ...option
     if (!response.ok) {
       let data
       try { data = await response.json() } catch { /* proxies can return HTML */ }
-      if (response.status === 401 && !url.startsWith('/api/auth/') && !url.startsWith('/api/public/')) onUnauthorized()
+      if (response.status === 401 && !url.startsWith('/api/auth/') && !url.startsWith('/api/public/')) {
+        // A rejected write usually comes from an open form: navigating to /login would throw the
+        // user's input away, so the caller shows this error and the form stays open.
+        const write = !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())
+        onUnauthorized({ write })
+        if (write) throw Object.assign(new Error('Your session has expired. Sign in again in a new tab, then save again.'), { status: 401 })
+      }
       throw Object.assign(new Error(data?.error || `Request failed (${response.status})`), { status: response.status, requiresPassword: data?.requiresPassword, meta: data?.meta })
     }
     return response

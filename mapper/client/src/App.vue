@@ -1,18 +1,36 @@
 <template>
   <RouterView />
+  <!-- Writes rejected with 401 keep the page; signing in elsewhere renews the shared cookie. -->
+  <div v-if="route.meta.requiresAuth && authStore.sessionExpired" class="app-banner" role="alert">
+    Session expired — <a href="/login" target="_blank" rel="noopener">sign in</a> in a new tab, then save again.
+  </div>
+  <div v-else-if="route.meta.requiresAuth && authStore.offline" class="app-banner" role="status">
+    Offline — the server can’t be reached right now.
+  </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { onMounted, onUnmounted } from 'vue'
+import { RouterView, useRoute } from 'vue-router'
 import { useAuthStore } from './stores/auth.js'
 
 const authStore = useAuthStore()
+const route = useRoute()
+
+function onVisible() {
+  if (document.hidden) return
+  authStore.invalidateSession()
+  authStore.recheck()
+}
+const onOnline = () => authStore.recheck()
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) authStore.invalidateSession()
-  })
+  document.addEventListener('visibilitychange', onVisible)
+  window.addEventListener('online', onOnline)
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisible)
+  window.removeEventListener('online', onOnline)
 })
 </script>
 
@@ -106,4 +124,20 @@ label {
   letter-spacing: 0.04em;
   margin-bottom: 4px;
 }
+.app-banner {
+  position: fixed;
+  top: calc(8px + var(--sat, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5000;
+  max-width: calc(100% - 24px - var(--sal, 0px) - var(--sar, 0px));
+  padding: 8px 14px;
+  background: var(--text);
+  color: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  text-align: center;
+}
+.app-banner a { color: inherit; font-weight: 700; }
 </style>

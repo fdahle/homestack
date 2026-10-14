@@ -211,7 +211,7 @@ function mapEnvironment() {
   globalThis.window = { innerWidth: 1200, addEventListener: (key, fn) => listeners.set(key, fn), removeEventListener: key => listeners.delete(key) }
   globalThis.document = { body: { style: {} }, addEventListener() {}, removeEventListener() {} }
   globalThis.__testLeaflet = {
-    map: () => ({ options: {}, setView() { return this }, getZoom: () => 2, on() { return this }, remove() { removed.push('map') }, invalidateSize() {} }),
+    map: () => ({ options: {}, setView() { return this }, setMaxZoom() { return this }, getZoom: () => 2, on() { return this }, remove() { removed.push('map') }, invalidateSize() {} }),
     control: { zoom: () => ({ addTo() {} }) },
     tileLayer: () => ({ addTo() { return this }, remove() {} }),
   }
@@ -400,4 +400,105 @@ test('marker search ignores accents, matches all words across fields and ranks l
   assert.deepEqual(searchMarkers(markers, 'hotel food').map(m => m.id), [1])
   assert.deepEqual(searchMarkers(markers, 'zoe france').map(m => m.id), [3])
   assert.deepEqual(searchMarkers(markers, '   '), [])
+})
+
+test('names sort numerically and ignore case', async () => {
+  const { byName } = await import('../src/utils/byName.js')
+  assert.deepEqual([{ name: 'Trip 10' }, { name: 'trip 9' }, { name: 'Alpha' }].sort(byName).map(x => x.name), ['Alpha', 'trip 9', 'Trip 10'])
+})
+
+test('a via-point clicked on a winding leg goes where it lies along the path', async () => {
+  const { viaInsertIndex } = await import('../src/utils/trip.js')
+  // U-shaped route from (0,0) up to (0,1), across to (1,1) and back down to (1,0); the straight
+  // line between the stops is short, so midpoints would pick the wrong slot.
+  const path = [[0, 0], [1, 0], [1, 1], [0, 1]]
+  const via = [{ lat: 1, lng: 0.5 }]
+  assert.equal(viaInsertIndex(path, via, { lat: 0.5, lng: 0 }), 0)
+  assert.equal(viaInsertIndex(path, via, { lat: 0.5, lng: 1 }), 1)
+  assert.equal(viaInsertIndex(path, [], { lat: 0.5, lng: 1 }), 0)
+})
+
+test('trip order/mode saves bump the route revision; a failed persons refresh does not fail a restore', async () => {
+  const store = useMarkersStore()
+  store.items = [{ id: 1, collections: [{ id: 2, position: 1 }] }]
+  globalThis.fetch = async () => response({ ok: true })
+  await store.updateTripPositions(2, [{ marker_id: 1, position: 1 }], [])
+  assert.equal(store.routeRevision, 1)
+  globalThis.fetch = async url => url.endsWith('/restore') ? response({ id: 4, label: 'Back', categories: [], collections: [], persons: [] }) : new Response('down', { status: 503 })
+  const restored = await store.restoreFromTrash(4)
+  assert.equal(restored.id, 4)
+  assert.equal(store.items[0].id, 4)
+})
+
+test('a 401 on a write keeps the page and explains how to recover; a 401 on a read still signs out', async () => {
+  const calls = []
+  setUnauthorizedHandler(info => calls.push(info))
+  globalThis.fetch = async () => response({ error: 'Unauthorized' }, 401)
+  await assert.rejects(apiFetch('/api/markers/1', { method: 'PUT', body: '{}' }), /session has expired.*new tab/)
+  await assert.rejects(apiFetch('/api/markers'), /Unauthorized/)
+  assert.deepEqual(calls, [{ write: true }, { write: false }])
+})
+
+test('only a real 401 counts as signed out when re-checking the session', async () => {
+  const { useAuthStore } = await import('../src/stores/auth.js')
+  const auth = useAuthStore()
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch') }
+  assert.equal(await auth.checkSession(), true)
+  assert.equal(auth.offline, true)
+  globalThis.fetch = async () => response({ error: 'Unauthorized' }, 401)
+  assert.equal(await auth.checkSession(), false)
+  assert.equal(auth.isAuthenticated, false)
+  globalThis.fetch = async () => response({ ok: true })
+  auth.sessionExpired = true
+  await auth.recheck()
+  assert.equal(auth.sessionExpired, false)
+  assert.equal(auth.offline, false)
+})
+
+test('routing falls back to OSRM when the ORS key is rejected and explains ORS quota errors', async () => {
+  const { fetchSegmentRoute } = await import('../src/composables/useTripRouting.js')
+  globalThis.localStorage = { getItem: () => JSON.stringify({ orsApiKey: 'bad-key' }), setItem() {} }
+  const urls = []
+  globalThis.fetch = async url => {
+    urls.push(String(url))
+    if (String(url).includes('openrouteservice')) return response({ error: 'Access denied' }, 403)
+    return response({ code: 'Ok', routes: [{ geometry: { coordinates: [[5, 52], [5.1, 52.1]] }, distance: 900, duration: 600 }] })
+  }
+  const route = await fetchSegmentRoute({ lat: 52, lng: 5 }, { lat: 52.1, lng: 5.1 }, [], 'walk')
+  assert.deepEqual(route.path, [[52, 5], [52.1, 5.1]])
+  assert.match(route.warning, /rejected the API key/)
+  assert.ok(urls.some(u => u.includes('routing.openstreetmap.de')))
+  globalThis.fetch = async () => response({}, 429)
+  await assert.rejects(fetchSegmentRoute({ lat: 40, lng: 5 }, { lat: 40.1, lng: 5.1 }, [], 'bike'), /quota/)
+})
+
+test('MapView: undo history is per group type, filter chip and search outside the filter', async () => {
+  mapEnvironment()
+  globalThis.history = { state: null, pushState() {}, back() {} }
+  globalThis.fetch = async url => response(url === '/api/categories' ? [{ id: 3, name: 'Food', color: '#ff0000' }] : [])
+  const MapView = await component('MapView', 'views')
+  const { app, state } = mount(MapView)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  const store = useMarkersStore()
+  store.setGroupFilter({ type: 'collection', id: 3 })
+  await nextTick()
+  state.undoStack = [{ colId: 3, fromId: 1, toId: 2, via_points: [] }]
+  store.setGroupFilter({ type: 'category', id: 3 })
+  await nextTick()
+  assert.equal(state.undoStack.length, 0)
+  state.undoStack = [{ colId: 3, fromId: 1, toId: 2, via_points: [] }]
+  store.bumpRouteRevision()
+  await nextTick()
+  assert.equal(state.undoStack.length, 0)
+
+  assert.equal(state.filterChip, null)
+  state.sidebarOpen = false
+  assert.equal(state.filterChip.name, 'Food')
+
+  const hidden = { id: 8, label: 'Elsewhere', lat: 1, lng: 2, categories: [], collections: [], persons: [] }
+  store.items = [hidden]
+  state.handleSearchSelect({ _marker: true, _markerObj: hidden, lat: '1', lon: '2', display_name: 'Elsewhere' })
+  assert.equal(state.modalOpen, true)
+  assert.equal(state.editingMarker.id, 8)
+  app.unmount()
 })
