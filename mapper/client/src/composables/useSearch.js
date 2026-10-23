@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { nominatim } from '../utils/nominatim.js'
 import { searchMarkers } from '../utils/markerSearch.js'
+import { findGoogleMapsLink, resolveGoogleMapsPlace } from '../utils/googleMaps.js'
 
 const COORD_RE = /^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/
 
@@ -17,7 +18,9 @@ function zoomForResult(r) {
 
 // getMarkers: optional () => marker[]  — enables local marker search
 // onMarkerSelect: optional (marker) => void — called when a marker result is chosen
-export function useSearch(getMap, getMarkers, onMarkerSelect) {
+// onSharedPlace: optional ({ lat, lng, name, approximate }) => void — enables pasting Google Maps
+//   links (they are expanded by the API, so only for the signed-in owner)
+export function useSearch(getMap, getMarkers, onMarkerSelect, onSharedPlace) {
   const searchQuery = ref('')
   const searchResults = ref([])
   const searchOpen = ref(false)
@@ -66,6 +69,11 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
     localResults = []
     if (!q) { searchResults.value = []; searchLoading.value = false; return }
 
+    if (onSharedPlace && findGoogleMapsLink(q)) {
+      searchResults.value = [{ place_id: '__gmaps__', display_name: 'Open this Google Maps place', _gmaps: true }]
+      return
+    }
+
     // Coordinate shortcut — no network request needed
     const coordMatch = q.match(COORD_RE)
     if (coordMatch) {
@@ -93,6 +101,7 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
     const q = searchQuery.value.trim()
     if (!q) return
     if (q.match(COORD_RE) && searchResults.value[0]?._coord) return selectResult(searchResults.value[0])
+    if (searchResults.value[0]?._gmaps) return openSharedLink(q)
     cancelPending()
     const currentId = requestId
     searchOpen.value = true
@@ -120,7 +129,33 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
     setTimeout(() => { searchOpen.value = false }, 150)
   }
 
+  // Moves the map to a place shared from Google Maps and hands it on; text may contain more than the link.
+  async function openSharedLink(text) {
+    cancelPending()
+    const currentId = requestId
+    searchOpen.value = true
+    searchError.value = null
+    searchResults.value = []
+    searchLoading.value = true
+    controller = new AbortController()
+    try {
+      const place = await resolveGoogleMapsPlace(text, { signal: controller.signal })
+      if (currentId !== requestId) return
+      searchLoading.value = false
+      searchOpen.value = false
+      searchQuery.value = place.name || `${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}`
+      getMap()?.setView([place.lat, place.lng], place.approximate ? 17 : 18)
+      onSharedPlace(place)
+    } catch (err) {
+      if (currentId !== requestId || err.name === 'AbortError') return
+      searchLoading.value = false
+      searchSubmitted.value = true
+      searchError.value = err.status === 401 ? 'Sign in again to open Google Maps links.' : err.message
+    }
+  }
+
   function selectResult(r) {
+    if (r._gmaps) return openSharedLink(searchQuery.value)
     cancelPending()
     const map = getMap()
     if (map) {
@@ -138,5 +173,5 @@ export function useSearch(getMap, getMarkers, onMarkerSelect) {
     cancelPending()
   }
 
-  return { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, clearSearch, cleanup }
+  return { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, openSharedLink, clearSearch, cleanup }
 }

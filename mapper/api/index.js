@@ -28,6 +28,7 @@ import personRoutes from './routes/persons.js'
 import shareLinksRoutes from './routes/shareLinks.js'
 import publicShareRoutes from './routes/publicShare.js'
 import backupRoutes from './routes/backup.js'
+import linkRoutes from './routes/links.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -75,6 +76,7 @@ app.use('/api/persons', applyWriteLimiter, personRoutes)
 app.use('/api/share-links', applyWriteLimiter, shareLinksRoutes)
 app.use('/api/public/share', publicShareRoutes)
 app.use('/api/backup', applyWriteLimiter, backupRoutes)
+app.use('/api/links', linkRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 

@@ -15,7 +15,8 @@ router.beforeEach(async (to) => {
   if (!to.meta.requiresAuth) return true
   const auth = useAuthStore()
   const ok = await auth.checkSession()
-  if (!ok) return '/login'
+  // Keeps e.g. a place shared to the app (/?share_url=…) for after signing in.
+  if (!ok) return to.fullPath === '/' ? '/login' : { path: '/login', query: { redirect: to.fullPath } }
 })
 
 export default router

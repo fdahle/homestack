@@ -8,6 +8,7 @@
             <span>{{ categoryIcon }}</span>
             {{ categoryLabel }}
           </div>
+          <div v-else-if="!loading && hint" class="category-badge">From Google Maps</div>
         </div>
         <button class="close-btn" @click="$emit('close')">✕</button>
       </div>
@@ -19,6 +20,11 @@
         </div>
 
         <div v-else class="info-rows">
+          <div v-if="hint?.approximate" class="panel-warning">
+            <span class="panel-warning-icon">⚠</span>
+            <span>Google’s link had no coordinates, so this spot was found from the address. Check it before saving.</span>
+          </div>
+
           <!-- Address lookup failed (Nominatim unreachable) -->
           <div v-if="locationError" class="panel-warning">
             <span class="panel-warning-icon">⚠</span>
@@ -90,9 +96,9 @@
           </div>
 
           <!-- Alternative POI picker -->
-          <div v-if="isPoi && poiAlternatives.length > 1" class="alt-section">
+          <div v-if="poiAlternatives.length > (isPoi ? 1 : 0)" class="alt-section">
             <button class="wrong-place-btn" type="button" @click="showAlternatives = !showAlternatives">
-              Got the wrong place?
+              {{ isPoi ? 'Got the wrong place?' : 'Is it one of the places here?' }}
             </button>
             <div v-if="showAlternatives" class="alt-list">
               <button
@@ -105,6 +111,15 @@
               >
                 <span class="alt-name">{{ poiLabel(alt) }}</span>
                 <span v-if="poiSubLabel(alt)" class="alt-sub">{{ poiSubLabel(alt) }}</span>
+              </button>
+              <button
+                v-if="hint?.name && isPoi"
+                type="button"
+                class="alt-item"
+                @click="emit('select-poi', null); showAlternatives = false"
+              >
+                <span class="alt-name">None of these</span>
+                <span class="alt-sub">Save as “{{ hint.name }}”</span>
               </button>
             </div>
           </div>
@@ -154,6 +169,8 @@ const props = defineProps({
   locationError: { type: String, default: null },
   poiError: { type: String, default: null },
   poiStatus: { type: String, default: null },
+  // { name, approximate } of a place opened from a Google Maps link
+  hint: { type: Object, default: null },
 })
 
 const emit = defineEmits(['close', 'save-as-marker', 'select-poi'])
@@ -269,6 +286,7 @@ const categoryLabel = computed(() => {
 
 const displayTitle = computed(() => {
   if (props.poiData?.name) return props.poiData.name
+  if (props.hint?.name) return props.hint.name
   if (!props.info) return null
   return props.info.name || props.info.address?.road || null
 })
@@ -408,6 +426,7 @@ function emitSave(poi) {
 
 const suggestedLabel = computed(() => {
   if (props.poiData?.name) return props.poiData.name
+  if (props.hint?.name) return props.hint.name
   if (!props.info) return ''
   return props.info.name ||
     [props.info.address?.road, props.info.address?.city || props.info.address?.town]

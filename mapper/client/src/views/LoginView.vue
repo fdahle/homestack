@@ -46,12 +46,15 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import AppIcon from '../components/AppIcon.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
+// Only paths within the app: "//other.site" would leave it.
+const redirect = typeof route.query.redirect === 'string' && /^\/(?!\/)/.test(route.query.redirect) ? route.query.redirect : '/'
 
 const password = ref('')
 const showPassword = ref(false)
@@ -87,7 +90,7 @@ async function submit() {
     } else {
       await authStore.login(password.value)
     }
-    router.push('/')
+    router.push(redirect)
   } catch (err) {
     error.value = err.message
   } finally {

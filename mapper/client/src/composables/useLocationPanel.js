@@ -144,8 +144,7 @@ function photonElement({ properties: p, geometry }) {
 // Photon (komoot) usually answers within a second or two and has no slot limits, but it only knows
 // named places, measures distance to their centre and carries no details. So it gives the first
 // answer, Nominatim fills in the details, and Overpass later adds containing areas and full tags.
-async function fetchPhotonPois(lat, lon, signal) {
-  const r = getPoiRadius()
+async function fetchPhotonPois(lat, lon, signal, r = getPoiRadius()) {
   const params = new URLSearchParams({ lat, lon, limit: 20, radius: r / 1000 })
   for (const k of POI_KEYS) params.append('osm_tag', k)
   const data = await fetchJson(`${PHOTON_URL}?${params}`, { signal, timeoutMs: PHOTON_TIMEOUT_MS, label: 'Photon' })
@@ -305,8 +304,8 @@ async function loadOverpassElements(lat, lon, r, signal, onStatus) {
 }
 
 // Resolves to the places found, best match first.
-async function fetchOverpassPois(lat, lon, signal, onStatus) {
-  const elements = await loadOverpassElements(lat, lon, getPoiRadius(), signal, onStatus)
+async function fetchOverpassPois(lat, lon, signal, onStatus, r = getPoiRadius()) {
+  const elements = await loadOverpassElements(lat, lon, r, signal, onStatus)
   return sortCandidates(markContaining(elements), lat, lon, getExcludedAmenities())
 }
 
@@ -321,6 +320,19 @@ function isNearResult(lat, lon, data) {
   return haversineMeters(lat, lon, parseFloat(data.lat), parseFloat(data.lon)) <= ADDRESS_MAX_M
 }
 
+// A place shared from Google Maps is matched to an OSM place by name ("Café Zoë" ~ "Cafe Zoe Amsterdam").
+const normalizeName = s => s?.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim() ?? ''
+function sameName(a, b) {
+  const [x, y] = [normalizeName(a), normalizeName(b)]
+  if (x.length < 3 || y.length < 3) return x === y && !!x
+  return x.includes(y) || y.includes(x)
+}
+// Google's pin and OSM's node for the same shop are often a few dozen metres apart; a position found
+// from the address only can be further off.
+const HINT_RADIUS_M = { exact: 60, approximate: 120 }
+// Picked "none of these": the hint's own name is kept.
+const NO_PLACE = 'none'
+
 export function useLocationPanel(getMap) {
   const locationPanelOpen = ref(false)
   const locationLatLng = ref(null)
@@ -332,6 +344,8 @@ export function useLocationPanel(getMap) {
   const poiError = ref(null)
   const poiStatus = ref(null)
   const poiAlternatives = ref([])
+  // { name, approximate } of a place opened from a Google Maps link
+  const placeHint = ref(null)
 
   let locationLayer = null
   let clickPin = null
@@ -354,7 +368,7 @@ export function useLocationPanel(getMap) {
     }).addTo(map)
   }
 
-  async function openLocationPanel(latlng) {
+  async function openLocationPanel(latlng, hint = null) {
     // Cancel any in-flight requests from a previous click
     if (activeAbort) activeAbort.abort()
     activeAbort = new AbortController()
@@ -370,6 +384,8 @@ export function useLocationPanel(getMap) {
     poiError.value = null
     poiStatus.value = null
     poiAlternatives.value = []
+    placeHint.value = hint
+    const radius = hint ? Math.max(getPoiRadius(), HINT_RADIUS_M[hint.approximate ? 'approximate' : 'exact']) : getPoiRadius()
     locationLoading.value = true
     poiLoading.value = true
     locationPanelOpen.value = true
@@ -412,7 +428,9 @@ export function useLocationPanel(getMap) {
       const list = dedupePois([...overpass, ...sources.photon.filter(p => !known.has(poiKey(p)))], pickedKey)
       poiAlternatives.value = list
       // Overpass's order (containing area first) replaces Photon's guess, unless the user picked a place.
-      poiData.value = (pickedKey && list.find(p => poiKey(p) === pickedKey)) || list[0] || null
+      // A shared place only takes a nearby place of the same name: a different shop next door is not it.
+      const auto = hint?.name ? list.find(p => sameName(p.name, hint.name)) : list[0]
+      poiData.value = pickedKey === NO_PLACE ? null : (pickedKey && list.find(p => poiKey(p) === pickedKey)) || auto || null
       if (list.length) poiLoading.value = false
     }
     // Overpass is the complete source, so only its failure counts as "couldn't load".
@@ -424,7 +442,7 @@ export function useLocationPanel(getMap) {
       }
     }
 
-    fetchPhotonPois(latlng.lat, latlng.lng, signal)
+    fetchPhotonPois(latlng.lat, latlng.lng, signal, radius)
       .then(async pois => {
         if (!pois.length) return render()
         const lookup = withExtraTags(pois, signal)
@@ -445,7 +463,7 @@ export function useLocationPanel(getMap) {
       if (signal.aborted) return
       try {
         const onStatus = status => { if (!signal.aborted) poiStatus.value = status }
-        sources.overpass = await fetchOverpassPois(latlng.lat, latlng.lng, signal, onStatus)
+        sources.overpass = await fetchOverpassPois(latlng.lat, latlng.lng, signal, onStatus, radius)
         render()
       } catch (err) {
         if (err.name === 'AbortError') return
@@ -459,6 +477,7 @@ export function useLocationPanel(getMap) {
     if (activeAbort) { activeAbort.abort(); activeAbort = null }
     clearTimeout(overpassTimer)
     pickedKey = null
+    placeHint.value = null
     locationPanelOpen.value = false
     poiAlternatives.value = []
     locationError.value = null
@@ -472,7 +491,7 @@ export function useLocationPanel(getMap) {
   if (getCurrentScope()) onScopeDispose(closeLocationPanel)
 
   function selectAlternativePoi(poi) {
-    pickedKey = poi ? poiKey(poi) : null
+    pickedKey = poi ? poiKey(poi) : NO_PLACE
     poiData.value = poi
   }
 
@@ -487,6 +506,7 @@ export function useLocationPanel(getMap) {
     poiError,
     poiStatus,
     poiAlternatives,
+    placeHint,
     openLocationPanel,
     closeLocationPanel,
     clearTempLayers,

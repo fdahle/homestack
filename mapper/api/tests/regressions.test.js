@@ -11,7 +11,7 @@ process.env.SESSION_SECRET = 'regression-test-secret-'.repeat(3)
 const { default: db } = await import('../db.js')
 const app = express()
 app.use(express.json(), cookieParser())
-for (const [path, file] of [['markers','markers'],['categories','categories'],['collections','collections'],['persons','persons'],['backup','backup'],['auth','auth'],['share-links','shareLinks'],['public/share','publicShare']]) app.use('/api/' + path, (await import('../routes/' + file + '.js')).default)
+for (const [path, file] of [['markers','markers'],['categories','categories'],['collections','collections'],['persons','persons'],['backup','backup'],['auth','auth'],['share-links','shareLinks'],['public/share','publicShare'],['links','links']]) app.use('/api/' + path, (await import('../routes/' + file + '.js')).default)
 app.use((err, _req, res, _next) => res.status(err.status || 500).json({ error: err.message }))
 let server, origin, token
 before(async () => {
@@ -481,4 +481,30 @@ test('reset-password sets the new password directly and signs out every device',
     assert.ok(await bcrypt.compare('a brand new password', user.password_hash))
     assert.notEqual(user.session_version, 'old-version')
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('Google Maps short links are expanded on Google hosts only; other hosts are never requested', async () => {
+  const requested = []
+  const nativeFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith(origin)) return nativeFetch(url, init)
+    requested.push(String(url))
+    if (String(url) === 'https://maps.app.goo.gl/consent') return new Response(null, { status: 302, headers: { Location: 'https://consent.google.com/m?continue=https://www.google.com/maps/place/Cafe/@52,5,17z&gl=NL' } })
+    if (String(url) === 'https://maps.app.goo.gl/elsewhere') return new Response(null, { status: 302, headers: { Location: 'https://example.com/maps' } })
+    if (String(url) === 'https://maps.app.goo.gl/gone') return new Response('Dynamic Link Not Found', { status: 400 })
+    return new Response(null, { status: 302, headers: { Location: 'https://www.google.com/maps/place/Naka+Sushi/data=!3d35.83!4d139.64' } })
+  }
+  const resolve = (url) => request('links/google-maps?url=' + encodeURIComponent(url))
+  try {
+    assert.deepEqual((await resolve('https://maps.app.goo.gl/abc')).data, { url: 'https://www.google.com/maps/place/Naka+Sushi/data=!3d35.83!4d139.64' })
+    assert.deepEqual((await resolve('https://maps.app.goo.gl/consent')).data, { url: 'https://www.google.com/maps/place/Cafe/@52,5,17z' })
+    assert.equal((await resolve('https://www.google.de/maps/@52,5,15z')).data.url, 'https://www.google.de/maps/@52,5,15z')
+    assert.equal((await resolve('https://maps.app.goo.gl/gone')).status, 404)
+    assert.equal((await resolve('https://maps.app.goo.gl/elsewhere')).status, 400)
+    for (const url of ['https://example.com/x', 'http://127.0.0.1:3000/api/backup', 'https://www.google.com/search?q=x', 'not a url']) {
+      assert.equal((await resolve(url)).status, 400, url)
+    }
+    assert.deepEqual(requested, ['https://maps.app.goo.gl/abc', 'https://maps.app.goo.gl/consent', 'https://maps.app.goo.gl/gone', 'https://maps.app.goo.gl/elsewhere'])
+    assert.equal((await request('links/google-maps?url=x', 'GET', undefined, 'bad-token')).status, 401)
+  } finally { globalThis.fetch = nativeFetch }
 })

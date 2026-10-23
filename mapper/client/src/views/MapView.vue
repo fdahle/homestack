@@ -40,9 +40,10 @@
             v-model="searchQuery"
             @input="onSearchInput"
             @keydown.enter.prevent="onSearchSubmit"
+            @paste="onSearchPaste"
             @focus="searchOpen = true"
             @blur="onSearchBlur"
-            placeholder="Search address…"
+            placeholder="Search address or paste a Google Maps link…"
             autocomplete="off"
             type="text"
           />
@@ -90,6 +91,7 @@
         :location-error="locationError"
         :poi-error="poiError"
         :poi-status="poiStatus"
+        :hint="placeHint"
         @close="closeLocationPanel"
         @save-as-marker="handleSaveAsMarker"
         @select-poi="selectAlternativePoi"
@@ -260,6 +262,7 @@ import ShareManageModal from '../components/ShareManageModal.vue'
 import MarkerTableModal from '../components/MarkerTableModal.vue'
 import CsvImportModal from '../components/CsvImportModal.vue'
 import { useSearch } from '../composables/useSearch.js'
+import { findGoogleMapsLink } from '../utils/googleMaps.js'
 import { useLocationPanel } from '../composables/useLocationPanel.js'
 import { useMarkerLayer } from '../composables/useMarkerLayer.js'
 import { useModals } from '../composables/useModals.js'
@@ -486,10 +489,45 @@ async function closeSidebar() {
 }
 
 // Composables
-const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, clearSearch, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+const { searchQuery, searchResults, searchOpen, searchLoading, searchError, searchJustClosed, searchSubmitted, clearSearch, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, openSharedLink, cleanup: cleanupSearch } = useSearch(
   getMap,
   () => markersStore.items,
+  undefined,
+  (place) => {
+    addMode.value = false
+    openLocationPanel({ lat: place.lat, lng: place.lng }, { name: place.name, approximate: place.approximate })
+  },
 )
+
+// A pasted Google Maps link opens straight away; anything else waits for Enter as usual.
+function onSearchPaste(e) {
+  const text = e.clipboardData?.getData('text') ?? ''
+  if (!findGoogleMapsLink(text)) return
+  e.preventDefault()
+  searchQuery.value = text.trim()
+  closeLocationPanel()
+  openSharedLink(text)
+}
+
+// Shared to the installed app from another app's share sheet (Android, see share_target in the
+// manifest): /?share_title=…&share_text=…&share_url=…
+function takeSharedText() {
+  if (!globalThis.location?.search) return null
+  const params = new URLSearchParams(location.search)
+  const shared = ['share_title', 'share_text', 'share_url'].map((k) => params.get(k)).filter(Boolean).join('\n')
+  if (!shared) return null
+  for (const k of ['share_title', 'share_text', 'share_url']) params.delete(k)
+  const query = params.toString()
+  history.replaceState(history.state, '', location.pathname + (query ? `?${query}` : '') + location.hash)
+  return shared
+}
+function openSharedText() {
+  const shared = takeSharedText()
+  if (!shared) return
+  searchQuery.value = shared.replace(/\s+/g, ' ').trim()
+  if (findGoogleMapsLink(shared)) openSharedLink(shared)
+  else onSearchInput()
+}
 
 // Search results only move the map; clicking the spot or marker opens details. Markers are
 // searched across all groups, and one hidden by the current filter has no pin to click there,
@@ -503,7 +541,7 @@ function handleSearchSelect(r) {
     openMarkerModal(markersStore.items.find((m) => m.id === id) ?? r._markerObj)
   }
 }
-const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, locationError, poiData, poiLoading, poiError, poiStatus, poiAlternatives, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
+const { locationPanelOpen, locationLatLng, locationInfo, locationLoading, locationError, poiData, poiLoading, poiError, poiStatus, poiAlternatives, placeHint, openLocationPanel, closeLocationPanel, selectAlternativePoi } = useLocationPanel(getMap)
 const { renderMarkers, initClusterGroup, reconfigureClustering } = useMarkerLayer(getMap, (marker) => {
   closeLocationPanel()
   addMode.value = false
@@ -598,6 +636,7 @@ async function initializeMap() {
   authStore.offline = false
   // Not awaited: slow routing services must not keep "Loading map…" up; route errors show on their own.
   renderTripRoute()
+  openSharedText()
   } catch (err) {
     mapLoadError.value = err.message
     if (map) { map.remove(); map = null }

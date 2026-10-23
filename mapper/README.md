@@ -15,6 +15,7 @@ Built for my own use — but feel free to use it, fork it, or adapt it however y
 - **Persons** — associate places with people and store their addresses
 - **Share links** — share a filtered view (read-only, including trip routes) with optional password and expiry
 - Save places found on the map with their website and Wikipedia image
+- **Add from Google Maps** — paste a place's "Share" link into the search bar (or, on Android, share it straight to the installed app); it opens at that spot with Google's name, matched to the OpenStreetMap place when there is one
 - Search across names, notes, addresses and groups (accent-insensitive)
 - **Trash** — deleted markers can be undone or restored for 30 days
 - Import places from Google Maps (saved-list CSV, Takeout "Saved Places.json"), Google My Maps / Google Earth (KML, KMZ; folders can become collections or categories), GPX waypoints and GeoJSON, or from a Mapper JSON export; export/backup to JSON or download the full database
