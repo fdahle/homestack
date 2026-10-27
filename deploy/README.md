@@ -29,6 +29,7 @@ homestack-deploy --all
 
 # A user that may only start the deploy
 useradd --system --create-home --shell /bin/sh ghdeploy
+usermod -p '*' ghdeploy   # no password, but not "locked": with UsePAM no, sshd refuses locked accounts even with a key
 echo 'ghdeploy ALL=(root) NOPASSWD: /usr/bin/systemctl start homestack-deploy.service' > /etc/sudoers.d/homestack-deploy
 chmod 440 /etc/sudoers.d/homestack-deploy
 install -d -m 755 -o root ~ghdeploy/.ssh
