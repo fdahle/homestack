@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { validUsername, validPassword, isValidPushEndpoint } = require('./validate')
+const { validUsername, validPassword, validDbId, isValidPushEndpoint } = require('./validate')
 
 test('validUsername accepts allowed names', () => {
   assert.ok(validUsername('alice'))
@@ -27,18 +27,32 @@ test('validPassword enforces a 12-char minimum', () => {
   assert.ok(!validPassword(undefined))
 })
 
-test('isValidPushEndpoint accepts public HTTPS endpoints', () => {
+test('validDbId only accepts a lowercase UUID', () => {
+  assert.ok(validDbId('0f8fad5b-d9cb-469f-a165-70867728950e'))
+  assert.ok(!validDbId('x/../_users'))                              // path traversal
+  assert.ok(!validDbId('0f8fad5b-d9cb-469f-a165-70867728950e/../x'))
+  assert.ok(!validDbId('0F8FAD5B-D9CB-469F-A165-70867728950E'))     // uppercase
+  assert.ok(!validDbId('alice'))
+  assert.ok(!validDbId(''))
+  assert.ok(!validDbId(null))
+})
+
+test('isValidPushEndpoint accepts the real push services', () => {
   assert.ok(isValidPushEndpoint('https://fcm.googleapis.com/fcm/send/abc'))
   assert.ok(isValidPushEndpoint('https://updates.push.services.mozilla.com/wpush/v2/xyz'))
+  assert.ok(isValidPushEndpoint('https://web.push.apple.com/QGx'))
+  assert.ok(isValidPushEndpoint('https://wns2-par02p.notify.windows.com/w/?token=1'))
 })
 
 test('isValidPushEndpoint rejects SSRF-prone / malformed endpoints', () => {
   assert.ok(!isValidPushEndpoint('http://fcm.googleapis.com/x'))     // not https
+  assert.ok(!isValidPushEndpoint('https://fcm.googleapis.com:8443/x')) // non-default port
+  assert.ok(!isValidPushEndpoint('https://fcm.googleapis.com.evil.com/x'))
+  assert.ok(!isValidPushEndpoint('https://evilpush.services.mozilla.com.attacker.io/x'))
+  assert.ok(!isValidPushEndpoint('https://example.com/x'))
   assert.ok(!isValidPushEndpoint('https://localhost/x'))
   assert.ok(!isValidPushEndpoint('https://127.0.0.1/x'))
-  assert.ok(!isValidPushEndpoint('https://10.0.0.5/x'))
-  assert.ok(!isValidPushEndpoint('https://192.168.1.10/x'))
-  assert.ok(!isValidPushEndpoint('https://172.16.0.1/x'))
+  assert.ok(!isValidPushEndpoint('https://[::1]/x'))
   assert.ok(!isValidPushEndpoint('https://169.254.169.254/latest/meta-data')) // cloud metadata
   assert.ok(!isValidPushEndpoint('not a url'))
   assert.ok(!isValidPushEndpoint(''))

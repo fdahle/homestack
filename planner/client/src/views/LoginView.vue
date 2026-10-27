@@ -3,11 +3,14 @@
     <div class="login-card">
       <h1 class="login-title">Planner</h1>
 
+      <div v-if="authStore.notice" class="setup-notice">{{ authStore.notice }}</div>
+
       <div v-if="authStore.setupRequired" class="setup-notice">
-        <strong>Welcome!</strong> No accounts exist yet. Create the first account to get started.
+        <strong>Welcome!</strong> No accounts exist yet. Set <code>ADMIN_USERNAME</code> and
+        <code>ADMIN_PASSWORD</code> on the server and restart it to create the admin account.
       </div>
 
-      <div v-else-if="authStore.allowSignup" class="login-tabs">
+      <div v-if="authStore.allowSignup" class="login-tabs">
         <button class="tab" :class="{ active: tab === 'login' }" @click="tab = 'login'">Sign In</button>
         <button class="tab" :class="{ active: tab === 'register' }" @click="tab = 'register'">Create Account</button>
       </div>
@@ -71,9 +74,6 @@ export default {
 
   async created() {
     await this.authStore.fetchConfig()
-    if (this.authStore.setupRequired) {
-      this.tab = 'register'
-    }
   },
 
   methods: {
@@ -86,6 +86,7 @@ export default {
         } else {
           await this.authStore.register(this.username, this.password)
         }
+        this.authStore.notice = null
         this.$router.push('/')
       } catch (err) {
         this.error = err.message

@@ -102,8 +102,15 @@ export async function unsubscribeFromPush() {
 
   try {
     const subscription = await registration.pushManager.getSubscription()
-    if (subscription) await subscription.unsubscribe()
-    await fetch('/api/push/unsubscribe', { method: 'DELETE' }).catch(() => {})
+    if (!subscription) return
+    const { endpoint } = subscription
+    await subscription.unsubscribe()
+    // Remove only this device's subscription; the user's others stay active.
+    await fetch('/api/push/unsubscribe', {
+      method:  'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ endpoint }),
+    }).catch(() => {})
   } catch (err) {
     console.warn('[push] unsubscribeFromPush failed:', err)
   }

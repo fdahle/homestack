@@ -55,9 +55,10 @@ export const useAuthStore = defineStore('auth', {
       wrappedDek:        null, // the DEK wrapped under the password's KEK (opaque blob from the server)
       encryptionEnabled: localStorage.getItem(ENCRYPTION_KEY) === 'true',
       isAdmin:           false,
-      allowSignup:       true,
+      allowSignup:       false,
       setupRequired:     false,
       maxAttachmentMb:   10,
+      notice:            null, // message for the login screen (e.g. session expired with unsynced changes)
     }
   },
 
@@ -68,7 +69,7 @@ export const useAuthStore = defineStore('auth', {
         const body = await res.json()
         this.encryptionEnabled = !!body.encryptionEnabled
         localStorage.setItem(ENCRYPTION_KEY, String(!!body.encryptionEnabled))
-        this.allowSignup       = body.allowSignup !== false
+        this.allowSignup       = body.allowSignup === true
         this.setupRequired     = !!body.setupRequired
         this.maxAttachmentMb   = parseInt(body.maxAttachmentMb) || 10
       } catch { /* server may not be up in local dev */ }
@@ -77,6 +78,9 @@ export const useAuthStore = defineStore('auth', {
     async checkSession() {
       try {
         const res  = await fetch('/api/auth/me')
+        // Only a 401 means "logged out"; a 5xx is a server hiccup — keep the
+        // cached state like the offline case below.
+        if (!res.ok && res.status !== 401) return this.isAuthenticated
         const body = await res.json()
         if (body.authenticated) {
           this.username        = body.username
@@ -120,9 +124,7 @@ export const useAuthStore = defineStore('auth', {
       writeStorage(USERNAME_KEY, username, rememberMe)
       if (body.dbId) writeStorage(DBID_KEY, body.dbId, rememberMe)
 
-      if (this.encryptionEnabled) {
-        this.encryptionKey = await this._establishDek(password)
-      }
+      if (this.encryptionEnabled) await this._unlockOrLogout(password)
     },
 
     async register(username, password) {
@@ -144,9 +146,7 @@ export const useAuthStore = defineStore('auth', {
       writeStorage(USERNAME_KEY, username, true)
       if (body.dbId) writeStorage(DBID_KEY, body.dbId, true)
 
-      if (this.encryptionEnabled) {
-        this.encryptionKey = await this._establishDek(password)
-      }
+      if (this.encryptionEnabled) await this._unlockOrLogout(password)
     },
 
     // Envelope encryption: derive the KEK from the password, then either unwrap
@@ -154,24 +154,47 @@ export const useAuthStore = defineStore('auth', {
     // wrap it, and persist it server-side. Returns the DEK (used to encrypt notes).
     async _establishDek(password) {
       const { deriveKek, importDek, generateDekBytes, wrapDek, unwrapDek } = await import('../utils/crypto.js')
+      // Without the server's salt the KEK is wrong, and a DEK minted from it
+      // would orphan every existing note. Never guess — fail the login instead.
+      if (!this.encSalt) throw new Error('Could not load your encryption settings. Please try again.')
       const kek = await deriveKek(password, this.encSalt)
       if (this.wrappedDek) {
         return importDek(await unwrapDek(kek, this.wrappedDek))
       }
       const dekBytes = generateDekBytes()
       const wrapped  = await wrapDek(kek, dekBytes)
-      await this._saveWrappedDek(wrapped)
-      this.wrappedDek = wrapped
-      return importDek(dekBytes)
+      if (await this._saveWrappedDek(wrapped)) {
+        this.wrappedDek = wrapped
+        return importDek(dekBytes)
+      }
+      // 409: another device stored the first DEK meanwhile — use that one.
+      const me = await parseJson(await fetch('/api/auth/me'))
+      if (!me.wrappedDek) throw new Error('Could not load your encryption key. Please try again.')
+      this.wrappedDek = me.wrappedDek
+      return importDek(await unwrapDek(kek, me.wrappedDek))
     },
 
+    // true when stored, false when the server already has a DEK (409).
     async _saveWrappedDek(wrappedDek) {
       const res = await fetch('/api/auth/enc-key', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ wrappedDek }),
       })
+      if (res.status === 409) return false
       if (!res.ok) throw new Error('Could not store encryption key')
+      return true
+    },
+
+    // Login/register succeeded server-side but the notes key couldn't be set
+    // up: drop the session again rather than run without (or with a wrong) key.
+    async _unlockOrLogout(password) {
+      try {
+        this.encryptionKey = await this._establishDek(password)
+      } catch (err) {
+        await this.logout()
+        throw err
+      }
     },
 
     async logout() {

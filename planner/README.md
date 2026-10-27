@@ -62,7 +62,11 @@ production, so it only works over HTTPS:
 
 **Do not expose CouchDB (5984) publicly.** It is bound to `127.0.0.1` in
 `docker-compose.yml`; all production traffic must go through nginx, which rate
-limits and blocks the CouchDB admin paths.
+limits and only lets through the per-user `notes_<uuid>` databases.
+
+The upstream proxy must **append** the client address to `X-Forwarded-For`
+(nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`). The
+bundled nginx takes the last entry as the client IP for rate limiting.
 
 ### Configuration
 
@@ -72,8 +76,22 @@ See [.env.example](.env.example) for all variables. Notable ones:
 |----------|---------|
 | `COUCHDB_USER` / `COUCHDB_PASSWORD` | CouchDB admin credentials (must match `couchdb/local.ini`) |
 | `ENCRYPTION_ENABLED` | Client-side E2E encryption of note fields |
-| `ALLOW_SIGNUP` | Set `false` to disable registration after initial setup |
+| `ALLOW_SIGNUP` | `true` opens public registration (default `false`). Sign-ups never get admin. |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin account, created on API startup if it doesn't exist (see below) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web push (generate with `npx web-push generate-vapid-keys`) |
+
+### First admin account
+
+Registration is closed by default and never grants the admin role, so a fresh
+server can't be claimed by whoever visits it first. Create the admin from the
+server side instead:
+
+1. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` (12+ characters) in `.env`.
+2. Start (or restart) the API: `docker compose up -d`. It creates the user with
+   the `admin` role if that username doesn't exist yet. Existing users are never
+   modified, so you can clear `ADMIN_PASSWORD` afterwards.
+3. Sign in. Add more users by setting `ALLOW_SIGNUP=true` temporarily, or grant
+   admin to others from Settings → Admin.
 
 ### A note on end-to-end encryption
 

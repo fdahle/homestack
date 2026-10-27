@@ -1,5 +1,6 @@
 const { randomUUID, randomBytes } = require('crypto')
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args))
+const { validDbId } = require('./validate')
 
 const BASE    = process.env.COUCHDB_URL      || 'http://localhost:5984'
 const DB_USER = process.env.COUCHDB_USER     || 'admin'
@@ -15,6 +16,14 @@ const USER_RANGE_QUERY = 'startkey=%22org.couchdb.user%3A%22&endkey=%22org.couch
 
 function userDocPath(username) {
   return `/_users/${USER_DOC_PREFIX}${encodeURIComponent(username)}`
+}
+
+// Path of a user's notes DB. Users can edit their own `_users` doc (where the
+// dbId lives) through CouchDB, so refuse anything but a well-formed id — a value
+// like `x/../_users` would otherwise steer an admin request at another database.
+function notesDbPath(dbId) {
+  if (!validDbId(dbId)) throw new Error('Invalid notes database id')
+  return `/${encodeURIComponent(`notes_${dbId}`)}`
 }
 
 function adminAuth() {
@@ -50,7 +59,9 @@ async function updateUserDoc(username, mutate) {
   const putRes = await couch('PUT', userDocPath(username), doc)
   if (!putRes.ok) {
     const body = await putRes.json().catch(() => ({}))
-    throw new Error(body.reason || `CouchDB error ${putRes.status}`)
+    const err  = new Error(body.reason || `CouchDB error ${putRes.status}`)
+    err.status = putRes.status
+    throw err
   }
 }
 
@@ -77,8 +88,7 @@ async function createUser(username, password, roles = [], dbId) {
 }
 
 async function createUserDb(dbId) {
-  const db  = `notes_${dbId}`
-  const res = await couch('PUT', `/${db}`)
+  const res = await couch('PUT', notesDbPath(dbId))
   if (!res.ok && res.status !== 412) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.reason || `CouchDB error ${res.status}`)
@@ -86,11 +96,24 @@ async function createUserDb(dbId) {
 }
 
 async function setSecurityDoc(username, dbId) {
-  const db = `notes_${dbId}`
-  await couch('PUT', `/${db}/_security`, {
+  const res = await couch('PUT', `${notesDbPath(dbId)}/_security`, {
     admins:  { names: [], roles: [] },
     members: { names: [username], roles: [] },
   })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.reason || `CouchDB error ${res.status}`)
+  }
+}
+
+// User doc + notes DB + security doc. Shared by registration and the startup
+// admin bootstrap.
+async function provisionUser(username, password, roles = []) {
+  const dbId = randomUUID()
+  await createUser(username, password, roles, dbId)
+  await createUserDb(dbId)
+  await setSecurityDoc(username, dbId)
+  return dbId
 }
 
 async function getUserDbId(username) {
@@ -100,22 +123,26 @@ async function getUserDbId(username) {
     return null
   }
   const doc = await res.json()
-  const dbId = doc.dbId || null
+  const dbId = validDbId(doc.dbId) ? doc.dbId : null
   debug(`[getUserDbId] username="${username}" dbId=${dbId}`)
   return dbId
 }
 
 // Returns the bits the client needs after authenticating: the notes DB id and
-// the encryption salt. The salt is non-secret (see createUser).
+// the encryption salt. The salt is non-secret (see createUser). Throws (with
+// `status`) when the lookup fails — callers must not carry on with null values,
+// or an encrypted client would mint a fresh key and orphan its notes.
 async function getUserMeta(username) {
   const res = await couch('GET', userDocPath(username))
   if (!res.ok) {
-    debug(`[getUserMeta] user doc not found for "${username}" — status ${res.status}`)
-    return { dbId: null, encSalt: null }
+    debug(`[getUserMeta] user doc lookup failed for "${username}" — status ${res.status}`)
+    const err  = new Error(res.status === 404 ? 'User not found' : `CouchDB error ${res.status}`)
+    err.status = res.status
+    throw err
   }
   const doc = await res.json()
   return {
-    dbId:       doc.dbId || null,
+    dbId:       validDbId(doc.dbId) ? doc.dbId : null,
     encSalt:    doc.encSalt || null,
     // Wrapped Data Encryption Key (envelope encryption). Opaque to the server —
     // it can only be unwrapped client-side with the password-derived KEK.
@@ -143,8 +170,18 @@ async function changeUserPassword(username, newPassword, wrappedDek) {
   }))
 }
 
+// Only ever sets the FIRST wrapped DEK. Overwriting an existing one would orphan
+// every note encrypted under it, so that throws with status 409 (a concurrent
+// first write loses CouchDB's rev check and also surfaces as 409).
 async function setUserWrappedDek(username, wrappedDek) {
-  await updateUserDoc(username, (doc) => ({ ...doc, encWrappedDek: wrappedDek }))
+  await updateUserDoc(username, (doc) => {
+    if (doc.encWrappedDek) {
+      const err  = new Error('Encryption key already set')
+      err.status = 409
+      throw err
+    }
+    return { ...doc, encWrappedDek: wrappedDek }
+  })
 }
 
 async function updateUserRoles(username, roles) {
@@ -155,8 +192,11 @@ async function deleteUser(username) {
   const res = await couch('GET', userDocPath(username))
   if (!res.ok) throw new Error('User not found')
   const doc = await res.json()
-  if (doc.dbId) {
-    const delDb = await couch('DELETE', `/notes_${doc.dbId}`)
+  if (doc.dbId && !validDbId(doc.dbId)) {
+    // Tampered user doc — never DELETE a path built from it.
+    console.warn('[deleteUser] user doc has an invalid dbId; no notes database deleted')
+  } else if (doc.dbId) {
+    const delDb = await couch('DELETE', notesDbPath(doc.dbId))
     if (!delDb.ok && delDb.status !== 404) {
       const body = await delDb.json().catch(() => ({}))
       throw new Error(body.reason || `Could not delete notes database: ${delDb.status}`)
@@ -183,16 +223,26 @@ async function ensurePushDb() {
   }
 }
 
+// One doc per user holding one subscription per device (keyed by endpoint).
+// Older docs stored a single `subscription` field — read those as a 1-item list.
+const MAX_PUSH_DEVICES = 10
+
+function pushSubscriptionsOf(doc) {
+  if (Array.isArray(doc?.subscriptions)) return doc.subscriptions
+  return doc?.subscription ? [doc.subscription] : []
+}
+
 async function savePushSubscription(username, subscription, dbId) {
-  // Fetch existing doc to preserve _rev, sentKeys and dbId
+  // Fetch existing doc to preserve _rev, sentKeys, dbId and other devices
   const existing = await couch('GET', `/${PUSH_DB}/${encodeURIComponent(username)}`)
-  let rev, sentKeys = [], existingDbId = null
+  let rev, sentKeys = [], existingDbId = null, subscriptions = []
 
   if (existing.ok) {
     const existingDoc = await existing.json()
-    rev          = existingDoc._rev
-    sentKeys     = existingDoc.sentKeys || []
-    existingDbId = existingDoc.dbId || null
+    rev           = existingDoc._rev
+    sentKeys      = existingDoc.sentKeys || []
+    existingDbId  = validDbId(existingDoc.dbId) ? existingDoc.dbId : null
+    subscriptions = pushSubscriptionsOf(existingDoc).filter(s => s?.endpoint !== subscription.endpoint)
   } else if (existing.status !== 404) {
     const body = await existing.json().catch(() => ({}))
     throw new Error(body.reason || `CouchDB error ${existing.status}`)
@@ -200,11 +250,11 @@ async function savePushSubscription(username, subscription, dbId) {
 
   const doc = {
     _id: username,
-    subscription,
+    subscriptions: [...subscriptions, subscription].slice(-MAX_PUSH_DEVICES),
     sentKeys,
     // The user's notes DB is named notes_<dbId>; store it so the push
     // scheduler can find the right database (it can't derive it from username).
-    dbId: dbId || existingDbId || null,
+    dbId: (validDbId(dbId) ? dbId : null) || existingDbId,
     updatedAt: new Date().toISOString(),
   }
   if (rev) doc._rev = rev
@@ -216,15 +266,21 @@ async function savePushSubscription(username, subscription, dbId) {
   }
 }
 
-async function deletePushSubscription(username) {
+// Removes one device's subscription (by endpoint), or all of the user's when no
+// endpoint is given. The doc is deleted once no subscriptions remain.
+async function deletePushSubscription(username, endpoint) {
   const existing = await couch('GET', `/${PUSH_DB}/${encodeURIComponent(username)}`)
   if (existing.status === 404) throw new Error('not_found')
   if (!existing.ok) {
     const body = await existing.json().catch(() => ({}))
     throw new Error(body.reason || `CouchDB error ${existing.status}`)
   }
-  const doc = await existing.json()
-  const res = await couch('DELETE', `/${PUSH_DB}/${encodeURIComponent(username)}?rev=${encodeURIComponent(doc._rev)}`)
+  const doc       = await existing.json()
+  const remaining = endpoint ? pushSubscriptionsOf(doc).filter(s => s?.endpoint !== endpoint) : []
+  const docPath   = `/${PUSH_DB}/${encodeURIComponent(username)}`
+  const res = remaining.length
+    ? await couch('PUT', docPath, { ...doc, subscription: undefined, subscriptions: remaining })
+    : await couch('DELETE', `${docPath}?rev=${encodeURIComponent(doc._rev)}`)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.reason || `CouchDB error ${res.status}`)
@@ -249,10 +305,10 @@ async function updateSentKeys(username, sentKeys) {
 }
 
 module.exports = {
-  couch,
-  hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, getUserDbId, getUserMeta,
+  couch, notesDbPath,
+  hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, provisionUser, getUserDbId, getUserMeta,
   changeUserPassword, setUserWrappedDek,
   listUsers, updateUserRoles, deleteUser,
-  ensurePushDb, savePushSubscription, deletePushSubscription,
+  ensurePushDb, savePushSubscription, deletePushSubscription, pushSubscriptionsOf,
   getAllPushSubscriptions, updateSentKeys,
 }

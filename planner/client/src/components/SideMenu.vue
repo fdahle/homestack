@@ -643,7 +643,9 @@ export default {
 
     async logout() {
       const { useNotesStore } = await import('../stores/notes.js')
-      await useNotesStore().reset()
+      const notesStore = useNotesStore()
+      if (!(await notesStore.confirmLogout())) return
+      await notesStore.reset({ keepUnsynced: true })
       await this.authStore.logout()
       this.$router.push('/login')
     },

@@ -8,7 +8,11 @@ const webpush      = require('web-push')
 const authRoutes   = require('./routes/auth')
 const pushRoutes   = require('./routes/push')
 const adminRoutes  = require('./routes/admin')
-const { couch, ensurePushDb, getAllPushSubscriptions, updateSentKeys, deletePushSubscription, getUserDbId } = require('./lib/couchdb')
+const {
+  couch, notesDbPath, ensurePushDb, getAllPushSubscriptions, updateSentKeys, deletePushSubscription,
+  pushSubscriptionsOf, getUserDbId, userExists, provisionUser,
+} = require('./lib/couchdb')
+const { validDbId, validUsername, validPassword, isValidPushEndpoint } = require('./lib/validate')
 
 const PORT = process.env.PORT || 3070
 
@@ -26,6 +30,9 @@ const app = express()
 
 app.use(helmet())
 app.use(express.json({ limit: '10kb' }))
+// One hop: the bundled nginx. It resolves the real client address from the
+// host proxy's X-Forwarded-For (real_ip in docker/nginx.conf) and appends it as
+// the last XFF entry, so req.ip — and the rate limiters below — see the client.
 app.set('trust proxy', 1)
 
 const authLimiter = rateLimit({
@@ -117,6 +124,18 @@ function initWebPush() {
   return true
 }
 
+// A non-empty title that isn't an encrypted field blob (client utils/crypto.js
+// stores those as a JSON string: {"v":1,"iv":…,"ct":…}).
+function isPlainTitle(title) {
+  if (typeof title !== 'string' || !title.trim()) return false
+  try {
+    const obj = JSON.parse(title)
+    return !(obj?.v === 1 && typeof obj.ct === 'string')
+  } catch {
+    return true
+  }
+}
+
 async function runPushScheduler() {
   const subscriptions = await getAllPushSubscriptions()
   if (subscriptions.length === 0) return
@@ -127,18 +146,20 @@ async function runPushScheduler() {
   const end      = now.toISOString()
 
   for (const doc of subscriptions) {
-    const { _id: username, subscription, sentKeys = [] } = doc
-    if (!subscription?.endpoint) continue
+    const { _id: username, sentKeys = [] } = doc
+    // Re-check endpoints: docs saved before the push-host allowlist may hold others.
+    const devices = pushSubscriptionsOf(doc).filter(s => isValidPushEndpoint(s?.endpoint))
+    if (devices.length === 0) continue
 
     // The notes DB is named notes_<dbId>, not notes_<username>. Older
     // subscription docs predate the stored dbId — look it up as a fallback.
-    const dbId = doc.dbId || await getUserDbId(username)
+    // Validated either way: a crafted dbId must never reach an admin request.
+    const dbId = validDbId(doc.dbId) ? doc.dbId : await getUserDbId(username)
     if (!dbId) continue
-    const notesDb = `notes_${dbId}`
 
     try {
       // Query this user's notes db for notes with notificationAt in the current window
-      const findRes = await couch('POST', `/${notesDb}/_find`, {
+      const findRes = await couch('POST', `${notesDbPath(dbId)}/_find`, {
         selector: {
           notificationAt: { $gte: start, $lte: end },
           deletedAt:      null,
@@ -152,32 +173,38 @@ async function runPushScheduler() {
       if (!notes || notes.length === 0) continue
 
       const newSentKeys = [...sentKeys]
+      const dead        = new Set()
 
       for (const note of notes) {
         const key = `${note._id}:${note.notificationAt}`
         if (newSentKeys.includes(key)) continue
 
-        // If title is a string it is plaintext; if an object it is encrypted —
-        // in that case we must not leak the ciphertext to the push service.
-        const titleIsPlaintext = typeof note.title === 'string'
+        // Encrypted titles are JSON blob strings — never show the ciphertext.
         const payload = JSON.stringify({
           noteId:         note._id,
           notificationAt: note.notificationAt,
-          title:          titleIsPlaintext ? note.title || 'Task reminder' : 'Task reminder',
+          title:          isPlainTitle(note.title) ? note.title : 'Task reminder',
           body:           'You have a task due.',
         })
 
-        try {
-          await webpush.sendNotification(subscription, payload)
-          newSentKeys.push(key)
-        } catch (pushErr) {
-          if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
-            // Subscription expired — remove it so we don't keep trying
-            await deletePushSubscription(username).catch(() => {})
-            break
+        // Deliver to every device; the reminder counts as sent once any got it.
+        let delivered = false
+        for (const device of devices) {
+          if (dead.has(device.endpoint)) continue
+          try {
+            await webpush.sendNotification(device, payload)
+            delivered = true
+          } catch (pushErr) {
+            if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
+              // Subscription expired — remove it so we don't keep trying
+              dead.add(device.endpoint)
+              await deletePushSubscription(username, device.endpoint).catch(() => {})
+              continue
+            }
+            console.warn(`[push] Failed to send to ${username}:`, pushErr.message)
           }
-          console.warn(`[push] Failed to send to ${username}:`, pushErr.message)
         }
+        if (delivered) newSentKeys.push(key)
       }
 
       if (newSentKeys.length !== sentKeys.length) {
@@ -189,8 +216,27 @@ async function runPushScheduler() {
   }
 }
 
+// ── Admin bootstrap ───────────────────────────────────────────────────────────
+// Registration never grants admin. The admin account comes from the server's
+// env instead: when ADMIN_USERNAME / ADMIN_PASSWORD are set and that user does
+// not exist yet, create it with the admin role. Existing users are left alone
+// (no password reset), so the vars can be removed after the first start.
+
+async function ensureAdminUser() {
+  const { ADMIN_USERNAME: username, ADMIN_PASSWORD: password } = process.env
+  if (!username && !password) return
+  if (!validUsername(username) || !validPassword(password)) {
+    console.error('❌ ADMIN_USERNAME must be 3–32 lowercase a-z/0-9/_/- characters and ADMIN_PASSWORD at least 12 characters — admin not created')
+    return
+  }
+  if (await userExists(username)) return
+  await provisionUser(username, password, ['admin'])
+  console.log(`✅ Created admin user "${username}" from ADMIN_USERNAME / ADMIN_PASSWORD`)
+}
+
 checkCouchDb().then(async () => {
   await ensurePushDb()
+  await ensureAdminUser().catch((e) => console.error('❌ Could not create admin user:', e.message))
   const pushEnabled = initWebPush()
   if (pushEnabled) {
     // Run once immediately on startup, then every minute

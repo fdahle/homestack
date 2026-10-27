@@ -1,7 +1,6 @@
-const { randomUUID } = require('crypto')
 const express  = require('express')
 const fetch    = (...args) => import('node-fetch').then(({ default: f }) => f(...args))
-const { hasAnyUsers, userExists, createUser, createUserDb, setSecurityDoc, getUserMeta, changeUserPassword, setUserWrappedDek } = require('../lib/couchdb')
+const { hasAnyUsers, userExists, provisionUser, getUserMeta, changeUserPassword, setUserWrappedDek } = require('../lib/couchdb')
 const { getSession, requireAuth } = require('../lib/session')
 const { validUsername, validPassword } = require('../lib/validate')
 
@@ -12,7 +11,8 @@ const DB_BASE = process.env.COUCHDB_URL || 'http://localhost:5984'
 // leaking it into prod logs.
 function debug(...args) { if (process.env.NODE_ENV !== 'production') console.log(...args) }
 
-function signupsAllowed()  { return process.env.ALLOW_SIGNUP !== 'false' }
+// Opt-in: an open sign-up form on a personal server is an invitation to abuse.
+function signupsAllowed()  { return process.env.ALLOW_SIGNUP === 'true' }
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
@@ -29,16 +29,13 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 12 characters' })
   }
 
-  const dbId = randomUUID()
-
   try {
     if (await userExists(username)) {
       return res.status(409).json({ error: 'Username already taken' })
     }
-    const isFirstUser = !(await hasAnyUsers())
-    await createUser(username, password, isFirstUser ? ['admin'] : [], dbId)
-    await createUserDb(dbId)
-    await setSecurityDoc(username, dbId)
+    // Never grants admin — the admin account comes from ADMIN_USERNAME /
+    // ADMIN_PASSWORD at startup (see index.js), not from whoever signs up first.
+    await provisionUser(username, password)
   } catch (err) {
     console.error('[register] failed:', err.message)
     return res.status(500).json({ error: 'Registration failed' })
@@ -75,6 +72,14 @@ async function loginUser(username, password, rememberMe, _req, res, retries = 0)
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
+    // Look up the account BEFORE handing out the session: if this fails the
+    // login must fail too (getUserMeta throws), never succeed with null meta.
+    const { dbId, encSalt, wrappedDek } = await getUserMeta(username)
+    if (!dbId) {
+      console.error('[login] account has no valid notes database id')
+      return res.status(500).json({ error: 'This account has no notes database — contact the administrator' })
+    }
+
     const setCookie = couchRes.headers.get('set-cookie')
     if (setCookie) {
       const secure  = process.env.NODE_ENV === 'production' ? '; Secure' : ''
@@ -83,7 +88,6 @@ async function loginUser(username, password, rememberMe, _req, res, retries = 0)
       res.setHeader('Set-Cookie', patched)
     }
 
-    const { dbId, encSalt, wrappedDek } = await getUserMeta(username)
     const isAdmin = (body.roles || []).includes('admin')
     debug(`[login] username="${username}" dbId=${dbId} isAdmin=${isAdmin} rememberMe=${rememberMe}`)
     return res.json({ ok: true, username, dbId, encSalt, wrappedDek, isAdmin })
@@ -113,6 +117,7 @@ router.get('/me', async (req, res) => {
     if (!ctx) return res.status(401).json({ authenticated: false })
 
     const { dbId, encSalt, wrappedDek } = await getUserMeta(ctx.name)
+    if (!dbId) return res.status(500).json({ error: 'This account has no notes database — contact the administrator' })
     const isAdmin = ctx.roles.includes('admin')
     debug(`[/me] username="${ctx.name}" dbId=${dbId} isAdmin=${isAdmin}`)
     return res.json({ authenticated: true, username: ctx.name, dbId, encSalt, wrappedDek, isAdmin })
@@ -170,7 +175,8 @@ router.post('/change-password', async (req, res) => {
 
 // POST /api/auth/enc-key — store the caller's wrapped DEK (envelope encryption).
 // Used to persist the DEK the first time a user establishes it (registration /
-// first login with encryption enabled).
+// first login with encryption enabled). 409 if one is already stored: the client
+// must then unwrap that one instead (another device got there first).
 router.post('/enc-key', requireAuth, async (req, res) => {
   const { wrappedDek } = req.body || {}
   if (typeof wrappedDek !== 'string' || !wrappedDek) {
@@ -180,6 +186,7 @@ router.post('/enc-key', requireAuth, async (req, res) => {
     await setUserWrappedDek(req.username, wrappedDek)
     return res.json({ ok: true })
   } catch (err) {
+    if (err.status === 409) return res.status(409).json({ error: 'An encryption key is already stored for this account' })
     console.error('[enc-key] failed:', err.message)
     return res.status(500).json({ error: 'Could not store encryption key' })
   }

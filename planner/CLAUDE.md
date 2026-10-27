@@ -10,11 +10,11 @@ Three services wired together via Docker Compose:
 Browser (Vue 3 SPA)
   ↕  /api/*        → Express API (Node.js, port 3000)
   ↕  /db/*         → CouchDB 3 (port 5984) via nginx reverse proxy
-Nginx (port 80) — serves built SPA, proxies API & CouchDB, blocks admin paths
+Nginx (port 80) — serves built SPA, proxies API & the per-user notes DBs only
 ```
 
 - **Client** syncs notes directly with CouchDB via PouchDB (offline-first). The Express API is only used for auth and push notifications — not for note CRUD.
-- **Per-user databases**: each user gets their own `notes_<username>` CouchDB database, locked down via a security doc so only that user can access it.
+- **Per-user databases**: each user gets their own `notes_<dbId>` CouchDB database (`dbId` = random UUID stored on the user doc), locked down via a security doc so only that user can access it.
 
 ## Directory Structure
 
@@ -62,7 +62,9 @@ Requires a `.env` file in the project root:
 COUCHDB_USER=admin
 COUCHDB_PASSWORD=yourpassword
 ENCRYPTION_ENABLED=false       # set true to enable client-side E2E encryption
-ALLOW_SIGNUP=true
+ALLOW_SIGNUP=false              # true opens public registration
+ADMIN_USERNAME=...             # admin created on API startup if missing
+ADMIN_PASSWORD=...
 VAPID_PUBLIC_KEY=...           # generate with: npx web-push generate-vapid-keys
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:you@example.com
@@ -81,8 +83,9 @@ docker compose up -d            # starts nginx + api + couchdb
 - **Optional encryption**: when `ENCRYPTION_ENABLED=true`, note fields are encrypted client-side (`utils/crypto.js`) before being stored in CouchDB. The API never sees plaintext.
 - **Push notifications**: the API polls each user's notes DB every minute for notes with a `notificationAt` timestamp in the past window and sends a web push if not already sent (dedup via `sentKeys`).
 - **Smart views**: the notes store derives filtered lists (Today, Upcoming, etc.) at read time — no separate DB queries.
-- **First user = admin**: the first registered user is automatically granted the `admin` role in CouchDB.
-- **Signup control**: set `ALLOW_SIGNUP=false` in env to prevent new registrations after initial setup.
+- **Admin bootstrap**: registration never grants admin. On startup the API creates `ADMIN_USERNAME` / `ADMIN_PASSWORD` with the `admin` role if that user doesn't exist.
+- **Signup control**: registration is off unless `ALLOW_SIGNUP=true`.
+- **dbId is untrusted**: users can edit their own `_users` doc through CouchDB, so every `dbId` read from it is validated as a UUID (`validDbId`) before it's used in an admin request (`notesDbPath`). nginx only proxies `/db/notes_<uuid>/…` (plus a read-only `/db/`).
 
 ## API Routes
 

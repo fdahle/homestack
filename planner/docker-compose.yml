@@ -21,7 +21,10 @@ services:
       COUCHDB_USER: ${COUCHDB_USER}
       COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
       ENCRYPTION_ENABLED: ${ENCRYPTION_ENABLED:-false}
-      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+      # First admin account, created at startup if it doesn't exist yet
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Web Push (VAPID) — generate keys with: npx web-push generate-vapid-keys
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}

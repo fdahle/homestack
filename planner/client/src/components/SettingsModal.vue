@@ -582,7 +582,8 @@ async function executeAdminReset(user) {
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 async function logout() {
-  await notesStore.reset()
+  if (!(await notesStore.confirmLogout())) return
+  await notesStore.reset({ keepUnsynced: true })
   await authStore.logout()
   router.push('/login')
 }

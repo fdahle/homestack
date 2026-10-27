@@ -374,10 +374,78 @@ export const useNotesStore = defineStore('notes', {
     _handleUnauthorized() {
       this.syncState = 'error'
       // Session is gone server-side — treat as a logout: wipe local note data so
-      // it isn't left at rest for whoever logs in next on this browser.
-      this.reset().catch(() => {})
-      useAuthStore().logout()
+      // it isn't left at rest for whoever logs in next on this browser. Unless
+      // it holds edits that never reached the server: then keep it (the local DB
+      // is per-user) and ask for a re-login, which resumes the sync.
+      const auth = useAuthStore()
+      this.reset({ keepUnsynced: true })
+        .then((kept) => {
+          if (kept) auth.notice = 'Your session expired before all changes were synced. Sign in again to finish syncing — until then they stay on this device.'
+        })
+        .catch(() => {})
+      auth.logout()
       import('../router/index.js').then(({ default: router }) => router.push('/login'))
+    },
+
+    // ── Unsynced-change tracking ──────────────────────────────────────────────
+    // We remember the highest local sequence known to have reached the server
+    // (per local DB). Anything above it may exist only on this device. Pulled
+    // docs also bump the local sequence, so this errs towards "unsynced" — which
+    // only means a local copy is kept that could have been wiped.
+
+    _syncedSeqKey(local) {
+      return `syncedSeq:${local.name}`
+    },
+
+    _markSynced(local, seq) {
+      const n = Number(seq)
+      if (!local || !Number.isFinite(n)) return
+      try {
+        const key = this._syncedSeqKey(local)
+        if (n > Number(localStorage.getItem(key) || 0)) localStorage.setItem(key, String(n))
+      } catch {}
+    },
+
+    // Sync just went idle with both directions caught up: everything local up to
+    // the current sequence is on the server. Skipped if sync resumed meanwhile.
+    async _markSyncedNow(local) {
+      const token = {}
+      this._pauseToken = token
+      try {
+        const { update_seq } = await local.info()
+        if (this._pauseToken === token && this.syncState === 'synced') this._markSynced(local, update_seq)
+      } catch {}
+    },
+
+    async _hasUnsyncedChanges(local) {
+      try {
+        const { update_seq } = await local.info()
+        return Number(update_seq) > Number(localStorage.getItem(this._syncedSeqKey(local)) || 0)
+      } catch {
+        return true // can't tell — assume there is something to keep
+      }
+    },
+
+    // Before an explicit logout: try to push anything pending; if some edits
+    // still can't reach the server (offline), ask before logging out. Returns
+    // false when the user cancels.
+    async confirmLogout() {
+      const local = this._local
+      if (!local || !(await this._hasUnsyncedChanges(local))) return true
+      if (this._remote) {
+        const rep = local.replicate.to(this._remote)
+        const res = await Promise.race([
+          rep.catch((err) => { dbg('flush before logout failed', err?.message); return null }),
+          new Promise(r => setTimeout(r, 5000, null)),
+        ])
+        rep.cancel()
+        if (res?.status === 'complete' && res.ok !== false) this._markSynced(local, res.last_seq)
+        if (!(await this._hasUnsyncedChanges(local))) return true
+      }
+      return window.confirm(
+        'Some changes have not been synced to the server yet (are you offline?).\n\n' +
+        'Log out anyway? They stay on this device and sync the next time you sign in here.'
+      )
     },
 
     async _connectSync() {
@@ -394,15 +462,17 @@ export const useNotesStore = defineStore('notes', {
       this._syncHandler?.cancel()
       this.syncState = 'active'
 
-      this._syncHandler = this._local
-        .sync(this._remote, { live: true, retry: false, checkpoint: false })
-        .on('active',   () => { dbg('sync active'); this.syncState = 'active' })
+      const local = this._local
+      this._syncHandler = local
+        .sync(this._remote, { live: true, retry: false })
+        .on('active',   () => { dbg('sync active'); this._pauseToken = null; this.syncState = 'active' })
         .on('paused',   (err) => {
           if (err) {
             dbg('sync paused with error —', err?.status, err?.message, err)
           } else {
             dbg('sync up to date')
             this.syncState = 'synced'
+            this._markSyncedNow(local)
           }
         })
         .on('denied',   (err) => { dbg('sync denied —', err?.status, err?.message, JSON.stringify(err)) })
@@ -411,6 +481,8 @@ export const useNotesStore = defineStore('notes', {
           const parts = [`wrote: ${d.docs_written}`, `read: ${d.docs_read}`]
           if (d.pending != null) parts.push(`pending: ${d.pending}`)
           dbg(`sync change [${info.direction}] — ${parts.join(', ')}`)
+          // A push batch's last_seq is the local sequence written up to.
+          if (info.direction === 'push') this._markSynced(local, d.last_seq)
           this.syncState = 'synced'
         })
         .on('error',    (err) => {
@@ -431,9 +503,15 @@ export const useNotesStore = defineStore('notes', {
 
     // Called on logout. Cancels sync and DESTROYS the local IndexedDB store so no
     // note data is left at rest for the next user on this browser. Must be awaited
-    // before navigating away so the wipe completes.
-    async reset() {
+    // before navigating away so the wipe completes. With `keepUnsynced`, a store
+    // holding edits not yet on the server is closed instead of destroyed (it is
+    // named per user, so only the same user reopens it). Returns true if kept.
+    async reset({ keepUnsynced = false } = {}) {
       this._destroy()
+      // Detach first so a re-login during the awaits below gets a fresh store.
+      const local  = this._local
+      this._local  = null
+      this._remote = null
       unsubscribeFromPush().catch(() => {})
       for (const url of Object.values(this.attachmentUrls)) URL.revokeObjectURL(url)
       this.attachmentUrls = {}
@@ -441,12 +519,16 @@ export const useNotesStore = defineStore('notes', {
       this.views          = []
       this.boardColumns   = []
       this.syncState      = 'local'
-      if (this._local) {
-        try { await this._local.destroy() }
-        catch (err) { dbg('local destroy failed', err?.message) }
-        this._local = null
-        this._remote = null
+      if (!local) return false
+      if (keepUnsynced && await this._hasUnsyncedChanges(local)) {
+        try { await local.close() } catch { /* already closed */ }
+        return true
       }
+      const seqKey = this._syncedSeqKey(local)
+      try { await local.destroy() }
+      catch (err) { dbg('local destroy failed', err?.message) }
+      try { localStorage.removeItem(seqKey) } catch {}
+      return false
     },
 
     // ── Notifications ─────────────────────────────────────────────────────────
@@ -541,14 +623,15 @@ export const useNotesStore = defineStore('notes', {
       if (!this._local) return
       // viewId defaults to the current view; an explicit value (incl. null) overrides.
       const resolvedViewId = viewId === undefined ? this.defaultNoteViewId : viewId
-      const fields = await this._encryptNote({ title: title.trim(), content: content.trim() })
+      // scratch goes through _encryptNote too, so it's never stored in plaintext
+      // when encryption is on.
+      const fields = await this._encryptNote({ title: title.trim(), content: content.trim(), scratch: scratch || '' })
       const res = await this._local.post({
         type:        'note',
         ...fields,
         viewId:      resolvedViewId,
         columnId:    null,
         labels:      Array.isArray(labels) ? labels : [],
-        scratch:     scratch || '',
         attachments: [],
         deletedAt:   null,
         isTask:      isTask || false,

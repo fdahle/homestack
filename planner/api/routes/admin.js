@@ -63,6 +63,7 @@ router.post('/users/:username/password', requireAdmin, async (req, res) => {
     await changeUserPassword(username, newPassword)
     return res.json({ ok: true })
   } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: 'User not found' })
     console.error('[admin] reset password failed:', err.message)
     return res.status(500).json({ error: 'Could not reset password' })
   }
