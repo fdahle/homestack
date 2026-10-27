@@ -3,3 +3,6 @@ dist
 data
 .env
 *.log
+
+# Server-only settings next to an app (see autodeploy/)
+docker-compose.override.yml

@@ -158,7 +158,7 @@ frank + ilona -> cousin
     );
     const kin = new Family(family.kinGraph('jakob'));
     const ids = kin.people().map((p) => p.id).sort();
-    expect(ids).toEqual(['lena', 'monika', 'veronika', 'sebastian', 'cousin', 'rainer', 'olga', 'jakob', 'frank', 'gerhard', 'paul', 'oma', 'opa', 'ilona']);
+    expect(ids).toEqual(['cousin', 'frank', 'gerhard', 'ilona', 'jakob', 'lena', 'monika', 'olga', 'oma', 'opa', 'paul', 'rainer', 'sebastian', 'veronika']);
     expect(kin.parents('lena')).toEqual([]);
     expect(kin.children('jakob').map((p) => p.id)).toEqual(['paul']);
   });

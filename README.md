@@ -24,6 +24,10 @@ Each app has its own port, so all of them can run side by side on one machine, i
 
 `PORT` in an app's `.env` overrides its Docker port.
 
+## Running them on a server
+
+Each app's README explains how to run it with Docker. To keep a server up to date on its own after every push, see [autodeploy/](autodeploy/).
+
 ## Credits and licence
 
 Stammbaum was created by [Maximilian Pierzyna](https://github.com/maxiimilian) in [maxiimilian/stammbaum](https://github.com/maxiimilian/stammbaum) and continued here. It stays under the GPL-3.0 (see [stammbaum/LICENSE](stammbaum/LICENSE)), and his commits are part of this repository's history. More in [stammbaum/README.md](stammbaum/README.md#credits).

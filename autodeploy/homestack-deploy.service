@@ -1,0 +1,9 @@
+[Unit]
+Description=Deploy what changed in the homestack repository
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/homestack-deploy
+TimeoutStartSec=30min

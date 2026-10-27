@@ -1,0 +1,11 @@
+# /etc/homestack-deploy.conf, read by homestack-deploy (sourced as bash).
+
+# The checkout to keep up to date. Its owner runs git; root only runs docker.
+REPO=/srv/docker/homestack
+BRANCH=main
+
+# The apps (folders of the repo) this server runs. Others are never built.
+APPS=(backlog fernweh stammbaum zettel)
+
+# Optional: hear about a failed deploy. Gets a subject and a message.
+# notify() { printf '%s\n' "$2" | mail -s "$1" you@example.com; }
