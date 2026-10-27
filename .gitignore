@@ -4,5 +4,5 @@ data
 .env
 *.log
 
-# Server-only settings next to an app (see autodeploy/)
+# Server-only settings next to an app (see deploy/)
 docker-compose.override.yml

@@ -26,7 +26,7 @@ Each app has its own port, so all of them can run side by side on one machine, i
 
 ## Running them on a server
 
-Each app's README explains how to run it with Docker. To keep a server up to date on its own after every push, see [autodeploy/](autodeploy/).
+Each app's README explains how to run it with Docker. To update a server on every push to GitHub, see [deploy/](deploy/).
 
 ## Credits and licence
 

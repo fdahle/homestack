@@ -1,0 +1,38 @@
+# Tells the server that something was pushed. The server then fetches the
+# repository itself and rebuilds the apps that changed (deploy/README.md).
+# The SSH key in DEPLOY_SSH_KEY can only start that deploy: no shell, no docker.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time; a second push waits instead of cancelling the first.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  deploy:
+    # Forks have no server to deploy to.
+    if: github.repository == 'fdahle/homestack'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Start the deploy on the server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -q -i ~/.ssh/deploy -p "$PORT" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 "ghdeploy@$HOST"
+          echo 'Deployed. Details on the server: journalctl -u homestack-deploy'

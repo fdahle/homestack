@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Keeps a server in step with this repository: fetches it, fast-forwards the
-# checkout and rebuilds every app whose folder changed since its last deploy.
-# Runs as root for docker; git runs as the owner of the checkout.
+# Brings a server up to date with this repository: fetches it, fast-forwards
+# the checkout and rebuilds every app whose folder changed since its last
+# deploy. Runs as root for docker; git runs as the owner of the checkout.
 #
-#   homestack-deploy          deploy what changed (what the timer runs)
+#   homestack-deploy          deploy what changed (what a push starts)
 #   homestack-deploy --all    rebuild every app in APPS, changed or not
 #
 # Settings live in /etc/homestack-deploy.conf, see homestack-deploy.conf.example.
@@ -20,7 +20,7 @@ all=0
 [ "${1:-}" != --all ] || all=1
 
 exec 9>/run/lock/homestack-deploy.lock
-flock -n 9 || { echo 'Another deploy is running'; exit 0; }
+flock 9
 mkdir -p "$STATE_DIR"
 
 owner=$(stat -c %U "$REPO")
@@ -29,31 +29,20 @@ git_() { runuser -u "$owner" -- env HOME="$owner_home" git -C "$REPO" "$@"; }
 
 git_ fetch --quiet origin "$BRANCH"
 if ! git_ merge --ff-only --quiet "origin/$BRANCH"; then
-    # Tell once per stuck commit, not on every run of the timer.
-    target=$(git_ rev-parse "origin/$BRANCH")
-    if [ "$(cat "$STATE_DIR/stuck" 2>/dev/null || true)" != "$target" ]; then
-        echo "$target" > "$STATE_DIR/stuck"
-        notify "Deploy stuck on $(hostname)" "$REPO can't fast-forward to origin/$BRANCH. Look at: git -C $REPO status"
-    fi
+    notify "Deploy stuck on $(hostname)" "$REPO can't fast-forward to origin/$BRANCH. Look at: git -C $REPO status"
     echo "Can't fast-forward $REPO to origin/$BRANCH" >&2
     exit 1
 fi
-rm -f "$STATE_DIR/stuck"
 
 head=$(git_ rev-parse HEAD)
 deployed_any=0
 failed=()
 for app in "${APPS[@]}"; do
     deployed=$(cat "$STATE_DIR/$app.deployed" 2>/dev/null || true)
-    tried=$(cat "$STATE_DIR/$app.tried" 2>/dev/null || true)
-    if [ $all = 0 ]; then
-        # Nothing new in the app's folder, or this commit already failed once:
-        # the next push (or --all) tries again.
-        if [ -n "$deployed" ] && git_ diff --quiet "$deployed" "$head" -- "$app"; then continue; fi
-        if [ "$tried" = "$head" ]; then continue; fi
+    if [ $all = 0 ] && [ -n "$deployed" ] && git_ diff --quiet "$deployed" "$head" -- "$app"; then
+        continue
     fi
     echo "Deploying $app at ${head:0:7}"
-    echo "$head" > "$STATE_DIR/$app.tried"
     deployed_any=1
     # Build first: if that fails, the running containers stay as they are.
     if (cd "$REPO/$app" && docker compose build --pull && docker compose up -d --remove-orphans); then
@@ -63,6 +52,7 @@ for app in "${APPS[@]}"; do
     fi
 done
 
+[ $deployed_any = 1 ] || echo "Nothing to deploy at ${head:0:7}"
 [ $deployed_any = 0 ] || docker image prune -f >/dev/null
 
 if [ ${#failed[@]} -gt 0 ]; then
