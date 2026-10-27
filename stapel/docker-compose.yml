@@ -1,0 +1,21 @@
+services:
+  stapel:
+    build: .
+    container_name: stapel
+    restart: unless-stopped
+    # Only reachable through nginx on the same machine (see deploy/)
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
+    # A small init as PID 1, so `docker stop` shuts the server down cleanly
+    init: true
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      GCD_EMAIL: ${GCD_EMAIL:-}
+      GCD_PASSWORD: ${GCD_PASSWORD:-}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - stapel-data:/data
+
+volumes:
+  stapel-data:

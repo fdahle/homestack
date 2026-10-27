@@ -1,0 +1,21 @@
+services:
+  backlog:
+    build: .
+    container_name: backlog
+    restart: unless-stopped
+    # Only reachable through nginx on the same machine (see deploy/)
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
+    # A small init as PID 1, so `docker stop` shuts the server down cleanly
+    init: true
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in .env}
+      SCAN_INTERVAL_HOURS: ${SCAN_INTERVAL_HOURS:-12}
+      READ_LANGUAGES: ${READ_LANGUAGES:-en,de}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - backlog-data:/data
+
+volumes:
+  backlog-data:
