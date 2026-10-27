@@ -1,0 +1,40 @@
+; Copy this file to local.ini and fill in real values.
+; local.ini is gitignored because it holds the admin password hash and the
+; cookie-signing auth secret — never commit it.
+
+[httpd]
+enable_cors = true
+
+[chttpd]
+enable_cors = true
+require_valid_user = true
+
+[couch_httpd_auth]
+require_valid_user = true
+; Server-side session lifetime (seconds). Must be >= the "remember me" cookie
+; Max-Age set by the API (30 days = 2592000) or remembered logins expire early.
+session_timeout = 2592000
+
+; CORS is only needed for direct browser → CouchDB access (i.e. local dev, where
+; vite proxies /db). In production all traffic is same-origin through nginx, so
+; CORS is effectively unused — set `origins` to your deployment URL if you ever
+; expose CouchDB directly, otherwise leave it as the dev origin.
+[cors]
+origins = http://localhost:5173
+credentials = true
+methods = GET, PUT, POST, HEAD, DELETE
+headers = accept, authorization, content-type, origin, referer
+
+[admins]
+; CouchDB hashes a plaintext password on first startup. Set it to match
+; COUCHDB_PASSWORD in your .env, e.g.:
+;   admin = changeme
+admin = CHANGE_ME
+
+[couchdb]
+; Generate with: openssl rand -hex 16
+uuid = GENERATE_ME
+
+[chttpd_auth]
+; Cookie-signing secret. Generate with: openssl rand -hex 16
+secret = GENERATE_ME
