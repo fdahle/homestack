@@ -37,10 +37,13 @@ function familyCommit(dir: string): string {
 // `npm run dev` serves the same api/family and api/edits the production server
 // does, so the family can be edited locally too. The made-up sample ships with
 // this repository, so it stays read-only unless STAMMBAUM_EDIT=1 says otherwise.
+// Only asked for as localhost: Vite's own check of the Host header comes after
+// this middleware, and without one, a page elsewhere could rebind its name to
+// 127.0.0.1 and read the family — or change it — through the dev server.
 function familyApiPlugin(): Plugin {
   const sample = path.join(root, 'sample');
   const writable = process.env.STAMMBAUM_EDIT === '1' || path.resolve(familyDir) !== sample;
-  const api = familyApi({ dataDir: familyDir, user: () => 'local', editors: [], writable });
+  const api = familyApi({ dataDir: familyDir, user: () => 'local', editors: [], writable, localOnly: true });
   return {
     name: 'stammbaum-family-api',
     configureServer: (server) => void server.middlewares.use(api),

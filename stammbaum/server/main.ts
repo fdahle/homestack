@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decode, familyApi, parseAddress, sendFile } from './api';
+import { missingSecret, switchedOn } from './settings';
 
 /**
  * The app and its family, behind the reverse proxy: the built page from
@@ -14,10 +15,17 @@ import { decode, familyApi, parseAddress, sendFile } from './api';
  *   PORT, HOST              where to listen                        (3065, 127.0.0.1)
  *   STAMMBAUM_USER_HEADER   the header naming the login            (Remote-User)
  *   STAMMBAUM_EDITORS       logins that may edit, comma-separated  (everyone)
- *   STAMMBAUM_READONLY=1    nobody may edit
+ *   STAMMBAUM_READONLY=1    nobody may edit (also true, yes, on)
  *   STAMMBAUM_PROXY_SECRET  if set, only requests whose X-Stammbaum-Proxy
  *                           header carries it are answered        (unset)
+ *                           — and with NODE_ENV=production, as in the
+ *                           docker image, the server will not start without it
  */
+const refusal = missingSecret(process.env);
+if (refusal) {
+  console.error(refusal);
+  process.exit(1);
+}
 const dataDir = path.resolve(process.env.DATA_DIR ?? 'data');
 const staticDir = path.resolve(process.env.STATIC_DIR ?? fileURLToPath(new URL('../dist', import.meta.url)));
 const port = Number(process.env.PORT ?? 3065);
@@ -29,6 +37,10 @@ const editors = (process.env.STAMMBAUM_EDITORS ?? '')
   .filter(Boolean);
 // Compared as hashes, so the comparison takes as long whatever was sent.
 const proxySecret = process.env.STAMMBAUM_PROXY_SECRET ? digest(process.env.STAMMBAUM_PROXY_SECRET) : undefined;
+// A value it cannot read keeps the family safe rather than open.
+const readonly = switchedOn(process.env.STAMMBAUM_READONLY);
+if (readonly === undefined) console.warn(`STAMMBAUM_READONLY="${process.env.STAMMBAUM_READONLY}" is neither yes nor no — read-only, to be safe`);
+const writable = readonly === false;
 
 const api = familyApi({
   dataDir,
@@ -38,7 +50,7 @@ const api = familyApi({
     return login || undefined;
   },
   editors,
-  writable: process.env.STAMMBAUM_READONLY !== '1',
+  writable,
 });
 
 /**
@@ -136,8 +148,9 @@ export const server = createServer((request, response) => {
     fail(error);
   }
 }).listen(port, host, () => {
-  const who = editors.length > 0 ? editors.join(', ') : 'everyone logged in';
-  console.log(`Stammbaum on http://${host}:${(server.address() as AddressInfo).port} — family from ${dataDir}, editing: ${who}`);
+  const who = !writable ? 'nobody (read-only)' : editors.length > 0 ? editors.join(', ') : 'everyone logged in';
+  const through = proxySecret ? 'only through the proxy' : 'from whatever reaches the port (no STAMMBAUM_PROXY_SECRET)';
+  console.log(`Stammbaum on http://${host}:${(server.address() as AddressInfo).port} — family from ${dataDir}, editing: ${who}, answering ${through}`);
 });
 
 // `docker stop` and Ctrl-C: no new requests, and the saves under way are

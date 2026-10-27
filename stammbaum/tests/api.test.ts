@@ -4,7 +4,7 @@ import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { familyApi, type ApiOptions } from '../server/api';
+import { familyApi, localHost, outdatedCopies, type ApiOptions } from '../server/api';
 
 const FILE = '# Test\n\n```family\nperson anna "Anna Berg" sex=f born=1950\nperson ben "Ben Berg" sex=m\nanna + ben married=1975\n```\n';
 
@@ -331,5 +331,75 @@ describe('a family.md that cannot be read', () => {
     const { server, base } = await serve({ dataDir: fresh });
     others.push(server);
     expect((await (await fetch(`${base}/api/family`)).json()).markdown).toBe('');
+  });
+});
+
+describe('the api for npm run dev', () => {
+  /** A request with the Host header a browser would send for `host`. */
+  const asked = (at: string, target: string, host: string) =>
+    new Promise<number>((resolve, reject) => {
+      const { hostname, port } = new URL(at);
+      const sent = httpRequest({ hostname, port, path: target, headers: { Host: host } }, (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      });
+      sent.on('error', reject);
+      sent.end();
+    });
+
+  it('answers only what is addressed to this machine, against DNS rebinding', async () => {
+    const { server, base } = await serve({ dataDir: dir, localOnly: true });
+    others.push(server);
+    const port = new URL(base).port;
+    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`, 'LOCALHOST']) {
+      expect(await asked(base, '/api/family', host)).toBe(200);
+    }
+    for (const host of [`evil.example:${port}`, 'localhost.evil.example', 'evil.example@localhost']) {
+      expect(await asked(base, '/api/family', host)).toBe(403);
+      expect(await asked(base, '/photos/Anna.JPG', host)).toBe(403);
+    }
+    // The rest is Vite's: its own check of the Host header comes after.
+    expect(await asked(base, '/index.html', 'evil.example')).toBe(404);
+  });
+
+  it('tells a Host header naming this machine from any other', () => {
+    expect(localHost('localhost:5165')).toBe(true);
+    expect(localHost('127.0.0.1')).toBe(true);
+    expect(localHost('[::1]:4173')).toBe(true);
+    expect(localHost(undefined)).toBe(false);
+    expect(localHost('127.0.0.1.nip.io')).toBe(false);
+    expect(localHost('localhost:5165/evil')).toBe(false);
+  });
+});
+
+describe('the history', () => {
+  const NOW = new Date('2026-10-27T12:00:00.000Z');
+  const copy = (iso: string) => `family-${iso.replace(/[:.]/g, '-')}.md`;
+
+  it('keeps everything from the last month, however many saves there were', () => {
+    const burst = Array.from({ length: 5000 }, (_, i) => copy(new Date(NOW.getTime() - i * 1000).toISOString()));
+    const old = copy('2025-01-15T08:00:00.000Z');
+    expect(outdatedCopies([...burst, old], NOW)).toEqual([]);
+  });
+
+  it('keeps the first of each day for a year, then the first of each month', () => {
+    const names = [
+      // Two months ago: the first of each day stays.
+      copy('2026-08-20T09:00:00.000Z'),
+      copy('2026-08-20T21:00:00.000Z'),
+      copy('2026-08-21T10:00:00.000Z'),
+      // Over a year ago: the first of the month stays.
+      copy('2025-03-02T10:00:00.000Z'),
+      copy('2025-03-28T10:00:00.000Z'),
+      copy('2025-04-01T10:00:00.000Z'),
+    ];
+    expect(outdatedCopies([...names].reverse(), NOW).sort()).toEqual([
+      copy('2025-03-28T10:00:00.000Z'),
+      copy('2026-08-20T21:00:00.000Z'),
+    ]);
+  });
+
+  it('leaves files alone that the server did not name', () => {
+    expect(outdatedCopies(['changes.log', 'family-by-hand.md', 'family-2020-01-01.md'], NOW)).toEqual([]);
   });
 });

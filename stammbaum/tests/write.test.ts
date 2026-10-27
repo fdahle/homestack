@@ -378,6 +378,12 @@ describe('names that give no id of their own', () => {
     }
   });
 
+  it('refuses an id with a backtick, which could end the family block', () => {
+    for (const to of ['```', '```family', '`jakob', 'fe`lix']) {
+      expect(() => apply({ kind: 'rename-id', id: 'jonas', to })).toThrow(EditError);
+    }
+  });
+
   it('gives the `person` an earlier version made a proper id when tidying', () => {
     const file = '```family\nperson person "Анна Иванова"\nperson b "B"\nperson + b -> kind\n```\n';
     const { markdown, renamed } = applyEdits(file, [{ kind: 'tidy' }]);

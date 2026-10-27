@@ -558,9 +558,13 @@ export function madeFrom(name: string, id: string): boolean {
 /** The words a statement can begin with, which no id may be. */
 const KEYWORDS = new Set(['person', 'me']);
 
-/** Whether `id` can stand in the file as an id: one bare word, and no keyword or comment. */
+/**
+ * Whether `id` can stand in the file as an id: one bare word, and no keyword or
+ * comment. No backtick either: an id begins relation lines, and a line that
+ * begins with ``` ends the family block there.
+ */
 function usableId(id: string): boolean {
-  return /^[^\s"\\,=%+]+$/.test(id) && !id.includes('->') && !id.startsWith('$') && !id.startsWith('#') && !KEYWORDS.has(id);
+  return /^[^\s"\\,=%+`]+$/.test(id) && !id.includes('->') && !id.startsWith('$') && !id.startsWith('#') && !KEYWORDS.has(id);
 }
 
 /** Cyrillic and Greek letters as they are usually written in Latin ones. */

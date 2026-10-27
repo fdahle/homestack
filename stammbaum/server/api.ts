@@ -24,6 +24,13 @@ export interface ApiOptions {
   editors: string[];
   /** Whether the family may be changed at all. */
   writable: boolean;
+  /**
+   * Answer only requests addressed to this machine by name — for `npm run
+   * dev`, where no proxy stands in front. Otherwise a page on some other site
+   * could point its own name at 127.0.0.1 (DNS rebinding) and read, or change,
+   * the family through the browser of whoever runs the dev server.
+   */
+  localOnly?: boolean;
 }
 
 /** What the app gets: the file, and what goes with it. */
@@ -76,8 +83,15 @@ const THUMB_SIZE = 512 * 1024;
 const MAX_EDITS = 50;
 /** How long the rest of a body that is too large is waited out before the connection closes. */
 const LINGER = 2000;
-/** How many earlier versions of family.md history/ keeps: a busy evening of relatives editing is a few hundred. */
-const KEEP_COPIES = 1000;
+/**
+ * How long history/ keeps every earlier version of family.md: a busy evening
+ * of relatives editing, and the weeks until someone notices a slip. Kept by
+ * age, not by count, so no burst of saves can push the older versions out.
+ */
+const KEEP_ALL_DAYS = 30;
+/** After that, the first version of each day stays this long — and then the first of each month, for good. */
+const KEEP_DAILY_DAYS = 365;
+const DAY = 24 * 60 * 60 * 1000;
 
 type Next = () => void;
 
@@ -239,6 +253,9 @@ export function familyApi(options: ApiOptions): FamilyApi {
     if (!address) return json(response, 400, { error: 'bad address' });
     const { pathname, searchParams } = address;
     const reading = request.method === 'GET' || request.method === 'HEAD';
+    if (options.localOnly && !localHost(request.headers.host) && /^\/(api|photos|thumbs)\//.test(pathname)) {
+      return json(response, 403, { error: 'not from this machine' });
+    }
 
     if (pathname === '/api/family' && request.method === 'GET') {
       payload(options.user(request))
@@ -301,11 +318,38 @@ async function keepHistory(dataDir: string, before: string, user: string, messag
   if (before !== '') {
     const stamp = now.toISOString().replace(/[:.]/g, '-');
     await writeFile(path.join(folder, `family-${stamp}.md`), before, 'utf8');
-    // Enough to take back a slip, without growing for ever: the newest ones stay.
-    const copies = (await readdir(folder)).filter((name) => /^family-.*\.md$/.test(name)).sort();
-    await Promise.all(copies.slice(0, -KEEP_COPIES).map((name) => unlink(path.join(folder, name))));
+    await Promise.all(outdatedCopies(await readdir(folder), now).map((name) => unlink(path.join(folder, name))));
   }
   await appendFile(path.join(folder, 'changes.log'), `${now.toISOString()}\t${user}\t${message}\n`, 'utf8');
+}
+
+/**
+ * The copies in history/ that can go: enough stays to take back a slip,
+ * without growing for ever. Everything from the last KEEP_ALL_DAYS; before
+ * that, the first copy of each day — the family as it was when the day began
+ * — and beyond KEEP_DAILY_DAYS, the first of each month. Days and months are
+ * UTC, as the names are. Files not named the way the server names them stay.
+ */
+export function outdatedCopies(names: string[], now: Date): string[] {
+  const kept = new Set<string>();
+  const outdated: string[] = [];
+  // Oldest first, so the first of each day or month is the one kept.
+  for (const name of [...names].sort()) {
+    const match = /^family-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.md$/.exec(name);
+    if (!match) continue;
+    const [, day, hours, minutes, seconds, millis] = match;
+    const age = now.getTime() - Date.parse(`${day}T${hours}:${minutes}:${seconds}.${millis}Z`);
+    if (!(age >= KEEP_ALL_DAYS * DAY)) continue;
+    const period = age < KEEP_DAILY_DAYS * DAY ? day! : day!.slice(0, 7);
+    if (kept.has(period)) outdated.push(name);
+    else kept.add(period);
+  }
+  return outdated;
+}
+
+/** `localhost:5165`, `127.0.0.1`, `[::1]:5165` — a Host header that names this machine. */
+export function localHost(host: string | undefined): boolean {
+  return /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host ?? '');
 }
 
 async function historyFolder(dataDir: string): Promise<string> {

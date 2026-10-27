@@ -1,6 +1,7 @@
 # `docker compose up -d --build` runs the app on 127.0.0.1:3065 — only the
 # host itself can reach it, so the reverse proxy in front (see deploy/) is the
-# only way in, and the one that says who is logged in.
+# only way in, and the one that says who is logged in. It needs
+# STAMMBAUM_PROXY_SECRET in .env, the same value the proxy sends along.
 #
 # The family stays in ./data on the host: family.md, photos/, and history/
 # with every earlier version. Back that folder up and you have everything.
@@ -23,9 +24,11 @@ services:
     environment:
       # Logins that may edit, comma-separated; empty means everyone who can log in.
       STAMMBAUM_EDITORS: ${STAMMBAUM_EDITORS:-}
-      # 1 makes the family read-only for everyone.
+      # 1 (or true, yes, on) makes the family read-only for everyone.
       STAMMBAUM_READONLY: ${STAMMBAUM_READONLY:-}
       # The proxy's X-Stammbaum-Proxy header has to carry this, or nothing is
-      # answered — see deploy/. Empty: whatever reaches the port is trusted.
+      # answered — see deploy/. Required: without it the server does not start,
+      # since whatever reaches the port could otherwise claim to be anyone.
+      # `openssl rand -hex 32`, into .env next to this file.
       STAMMBAUM_PROXY_SECRET: ${STAMMBAUM_PROXY_SECRET:-}
     restart: unless-stopped

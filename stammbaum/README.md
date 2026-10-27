@@ -88,8 +88,13 @@ is logged in.
 | --- | --- |
 | `FAMILY_DIR=./sample` | Mount another folder than `./data` |
 | `STAMMBAUM_EDITORS=jonas,oma` | Only these logins may edit; everyone else reads. Empty: everyone who can log in |
-| `STAMMBAUM_READONLY=1` | Nobody may edit |
-| `STAMMBAUM_PROXY_SECRET` | A long random value the proxy sends along as `X-Stammbaum-Proxy` (see [`deploy/`](deploy/)). Once set, the server answers nobody else — not even another program on the host |
+| `STAMMBAUM_READONLY=1` | Nobody may edit (`true`, `yes`, `on` say the same) |
+| `STAMMBAUM_PROXY_SECRET` | A long random value the proxy sends along as `X-Stammbaum-Proxy` (see [`deploy/`](deploy/)) — `openssl rand -hex 32`. The server answers nobody else, not even another program on the host. Required: the container does not start without it |
+
+Put them into `.env` next to `docker-compose.yml`. The server says at the
+start who may edit and whether it checks the proxy's secret
+(`docker compose logs`). Only `npm start` without `NODE_ENV=production` runs
+without the secret, trusting whatever reaches its port.
 | `STAMMBAUM_UID`, `STAMMBAUM_GID` | Whose files the server writes (1000:1000) — make them yours, so `data/` stays yours to edit and back up |
 
 ## Editing in the app
@@ -154,8 +159,11 @@ stay as they were, so the file reads as if written by hand — and can still be
 edited by hand.
 
 Before each save the server puts the previous `family.md` into
-`data/history/`, named by the time — the newest 1000 are kept — and adds a line to
-`data/history/changes.log` saying who changed what:
+`data/history/`, named by the time, and adds a line to
+`data/history/changes.log` saying who changed what. Every copy from the last
+30 days stays; older ones thin out to the first of each day, and after a year
+to the first of each month — by age, so no burst of saves pushes the older
+versions out:
 
 ```
 2026-10-14T11:40:31.535Z	jonas	Lea Bauer als Kind von Jonas & Sara eingetragen
@@ -170,7 +178,9 @@ someone was quicker, sees the new version and can make the change again —
 nothing is overwritten unseen. An app left open picks up other people's changes
 when it comes back to the foreground.
 
-`npm run dev` edits `data/` the same way, as the user `local`. The made-up
+`npm run dev` edits `data/` the same way, as the user `local`, and answers
+only requests addressed to `localhost`, `127.0.0.1` or `[::1]` — no other site
+can reach the family through it. The made-up
 sample ships with this repository, so it stays read-only there unless
 `STAMMBAUM_EDIT=1` says otherwise.
 
