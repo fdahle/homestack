@@ -2,7 +2,7 @@
 // rescans every blog periodically, and visits each post once in the background.
 
 import * as store from './db.js';
-import { collect, feed, fetchArticleDetails, sleep, urlFilter } from './discover.js';
+import { collect, feed, fetchArticleDetails, scanBudget, sleep, urlFilter } from './discover.js';
 
 const SCAN_INTERVAL_HOURS = Number(process.env.SCAN_INTERVAL_HOURS || 12);
 const HARVEST_LINKS = process.env.HARVEST_LINKS !== '0';
@@ -45,7 +45,8 @@ async function scanBlog(blogId, { full }) {
   const started = Date.now();
   try {
     const known = store.knownUrls(blogId);
-    const items = await collect(blog, { known, full: full || !blog.backfilled_at });
+    const budget = scanBudget();
+    const items = await collect(blog, { known, full: full || !blog.backfilled_at, budget });
     let added = store.upsertArticles(blogId, items);
 
     // The feed has proper titles and dates, so use it to fill gaps from other strategies
@@ -59,7 +60,8 @@ async function scanBlog(blogId, { full }) {
     if (blog.config.include || blog.config.exclude) store.hideNonMatching(blogId, urlFilter(blog.config));
 
     const secs = Math.round((Date.now() - started) / 1000);
-    store.recordScan(blogId, true, `${added} new, ${items.length} found (${secs}s)`);
+    const cut = budget.hit ? ', stopped early: scan limit reached' : '';
+    store.recordScan(blogId, true, `${added} new, ${items.length} found (${secs}s)${cut}`);
     console.log(`scanned "${blog.name}": ${added} new`);
   } catch (err) {
     store.recordScan(blogId, false, err.message);
@@ -84,7 +86,7 @@ async function harvestBatch() {
       // Gone pages and repeated network trouble: give up, keeping the guessed title
       const attempts = (failures.get(article.id) || 0) + 1;
       failures.set(article.id, attempts);
-      if (/HTTP 4dd/.test(err.message) || attempts >= 3) {
+      if (/HTTP 4\d\d/.test(err.message) || attempts >= 3) {
         store.saveHarvest(article.id, {}, { enrich });
         failures.delete(article.id);
       }

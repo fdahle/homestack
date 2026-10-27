@@ -33,10 +33,37 @@ export function isLoggedIn(req) {
   return Boolean(token) && sameString(token, sessionToken());
 }
 
-export async function checkPassword(password) {
-  if (sameString(String(password || ''), PASSWORD)) return true;
+// Failed logins are counted per client and in total, in fixed 15-minute windows (in memory,
+// so a restart resets them). The total cap holds even against an attacker with many IPs;
+// it can lock out new logins for a while, but devices that are logged in stay logged in.
+const WINDOW_MS = 15 * 60_000;
+const MAX_FAILS_PER_IP = 10;
+const MAX_FAILS_TOTAL = 50;
+let windowStart = Date.now();
+let failsTotal = 0;
+const failsByIp = new Map();
+
+function failureWindow() {
+  if (Date.now() - windowStart > WINDOW_MS) {
+    windowStart = Date.now();
+    failsTotal = 0;
+    failsByIp.clear();
+  }
+}
+
+// 'ok', 'wrong' or 'blocked'. Counting happens before the first await, so parallel
+// requests can't all slip past the limit together.
+export async function checkPassword(password, ip) {
+  failureWindow();
+  if (failsTotal >= MAX_FAILS_TOTAL || (failsByIp.get(ip) || 0) >= MAX_FAILS_PER_IP) return 'blocked';
+  if (sameString(String(password || ''), PASSWORD)) {
+    failsByIp.delete(ip);
+    return 'ok';
+  }
+  failsTotal++;
+  failsByIp.set(ip, (failsByIp.get(ip) || 0) + 1);
   await new Promise((r) => setTimeout(r, 1000)); // slow down guessing
-  return false;
+  return 'wrong';
 }
 
 export function setSessionCookie(req, res) {

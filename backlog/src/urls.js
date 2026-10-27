@@ -26,9 +26,19 @@ export function hostOf(raw) {
   }
 }
 
+export function isHttpUrl(raw) {
+  try {
+    return ['http:', 'https:'].includes(new URL(raw).protocol);
+  } catch {
+    return false;
+  }
+}
+
+// Only http(s): scraped pages and feeds can contain javascript: or data: links
 export function absoluteUrl(href, base) {
   try {
     const u = new URL(href, base);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     u.hash = '';
     return u.href;
   } catch {

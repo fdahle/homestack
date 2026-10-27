@@ -69,7 +69,7 @@ If nginx runs in Docker too, put both containers in the same network and use `pr
 **Already read part of a blog?** Open the post you got to, then "⋯ → Mark this and all older as read".
 
 **Marking posts as read while on the blog:**
-- *Android:* open Backlog in Chrome → menu → "Add to home screen" / "Install". After that, *Share → Backlog* on any post marks it read and offers the next one.
+- *Android:* open Backlog in Chrome → menu → "Add to home screen" / "Install". After that, *Share → Backlog* on any post opens it in Backlog; one tap marks it read and offers the next one.
 - *Desktop:* drag the bookmarklet from the Tools page to your bookmarks bar.
 - *iPhone:* make a Shortcut that accepts URLs from the share sheet and opens `https://your-host/mark?url=` plus the URL (use "URL Encode" on it first).
 

@@ -324,7 +324,7 @@ export function toolsPage({ origin, authEnabled }) {
     body: html`
 <h2 class="section">Mark from the blog itself</h2>
 <div class="card-plain">
-  <p><strong>Android:</strong> install Backlog (browser menu → “Add to home screen” / “Install app”). Then, while reading a post, tap <em>Share → Backlog</em> and it's marked as read.</p>
+  <p><strong>Android:</strong> install Backlog (browser menu → “Add to home screen” / “Install app”). Then, while reading a post, tap <em>Share → Backlog</em>, then <em>Mark as read</em>.</p>
   <p><strong>Desktop:</strong> drag this to your bookmarks bar and click it on any post: <a class="btn bookmarklet" href="${bookmarklet}">✓ Mark read</a></p>
   <p><strong>iPhone:</strong> create a Shortcut that accepts URLs from the share sheet and opens <code>${origin}/mark?url=</code> followed by the shared URL. Or add the bookmarklet above as a Safari bookmark.</p>
 </div>
@@ -360,9 +360,22 @@ export function loginPage({ next = '/', error } = {}) {
 }
 
 // Result of the bookmarklet / share target
-export function markPage({ url, matches, next, guessBlog }) {
+export function markPage({ url, matches, next, guessBlog, confirm }) {
   let body;
-  if (matches.length) {
+  if (matches.length && confirm) {
+    const a = matches[0];
+    body = html`
+<div class="mark-result">
+  <p>${a.read_at ? 'Already marked as read' : 'Mark as read?'}</p>
+  <h2>${a.title}</h2>
+  <p class="muted">${a.blog_name}</p>
+  <form method="post" action="/mark" class="row center">
+    <input type="hidden" name="url" value="${url}">
+    <button class="btn primary" autofocus>Mark as read</button>
+    <a class="btn" href="/blog/${a.blog_id}">Open list</a>
+  </form>
+</div>`;
+  } else if (matches.length) {
     const a = matches[0];
     body = html`
 <div class="mark-result">

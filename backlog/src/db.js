@@ -80,6 +80,20 @@ if (!hasColumn('articles', 'harvested_at')) db.exec('ALTER TABLE articles ADD CO
 
 const now = () => new Date().toISOString();
 
+// Runs fn in a transaction. Rolls back on any error, so a failed write never leaves
+// the connection inside an open transaction (where every later write would go uncommitted).
+function transaction(fn) {
+  db.exec('BEGIN');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 // Chronological order: dated posts by date, undated ones by discovery order.
 const CHRONO = 'published IS NULL, published, id';
 
@@ -192,9 +206,9 @@ export function setArticleFlags(id, { read, starred, ignored }) {
 export function setReadMany(ids, read) {
   const mark = db.prepare('UPDATE articles SET read_at = ? WHERE id = ?');
   const ts = read ? now() : null;
-  db.exec('BEGIN');
-  for (const id of ids) mark.run(ts, id);
-  db.exec('COMMIT');
+  transaction(() => {
+    for (const id of ids) mark.run(ts, id);
+  });
 }
 
 // Marks the given article and everything chronologically before it as read.
@@ -223,8 +237,7 @@ export function upsertArticles(blogId, items) {
   const setPublished = db.prepare('UPDATE articles SET published = ? WHERE id = ?');
   const ts = now();
   let added = 0;
-  db.exec('BEGIN');
-  try {
+  transaction(() => {
     for (const item of items) {
       const norm = normalizeUrl(item.url);
       if (!norm) continue;
@@ -237,11 +250,7 @@ export function upsertArticles(blogId, items) {
       if (existing.title_guessed && !item.titleGuessed && item.title) setTitle.run(item.title, existing.id);
       if (!existing.published && item.published) setPublished.run(item.published, existing.id);
     }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+  });
   return added;
 }
 
@@ -250,9 +259,9 @@ export function hideNonMatching(blogId, matches) {
   const hide = db.prepare('UPDATE articles SET ignored = 1 WHERE id = ?');
   const rows = db.prepare('SELECT id, url FROM articles WHERE blog_id = ? AND ignored = 0').all(blogId);
   const hidden = rows.filter((r) => !matches(r.url));
-  db.exec('BEGIN');
-  for (const r of hidden) hide.run(r.id);
-  db.exec('COMMIT');
+  transaction(() => {
+    for (const r of hidden) hide.run(r.id);
+  });
   return hidden.length;
 }
 
@@ -268,15 +277,15 @@ export function articlesToHarvest(limit, { links }) {
 // Only sitemap entries have guessed titles, so a date from the page itself beats the sitemap's lastmod.
 export function saveHarvest(id, { title, published, links = [] }, { enrich }) {
   const insertLink = db.prepare('INSERT OR IGNORE INTO article_links (article_id, host, url) VALUES (?, ?, ?)');
-  db.exec('BEGIN');
-  if (enrich) {
-    db.prepare(`UPDATE articles SET title = COALESCE(?, title), title_guessed = 0,
-      published = COALESCE(?, published) WHERE id = ?`).run(title || null, published || null, id);
-  }
-  db.prepare('DELETE FROM article_links WHERE article_id = ?').run(id);
-  for (const link of links) insertLink.run(id, link.host, link.url);
-  db.prepare('UPDATE articles SET harvested_at = ? WHERE id = ?').run(now(), id);
-  db.exec('COMMIT');
+  transaction(() => {
+    if (enrich) {
+      db.prepare(`UPDATE articles SET title = COALESCE(?, title), title_guessed = 0,
+        published = COALESCE(?, published) WHERE id = ?`).run(title || null, published || null, id);
+    }
+    db.prepare('DELETE FROM article_links WHERE article_id = ?').run(id);
+    for (const link of links) insertLink.run(id, link.host, link.url);
+    db.prepare('UPDATE articles SET harvested_at = ? WHERE id = ?').run(now(), id);
+  });
 }
 
 export function harvestProgress() {
@@ -402,11 +411,11 @@ export function importAll(data) {
     }
     const articles = blog.articles || [];
     upsertArticles(blogId, articles.map((a) => ({ url: a.url, title: a.title, published: a.published })));
-    db.exec('BEGIN');
-    for (const a of articles) {
-      update.run(a.read_at || null, a.starred ? 1 : 0, a.ignored ? 1 : 0, blogId, normalizeUrl(a.url));
-    }
-    db.exec('COMMIT');
+    transaction(() => {
+      for (const a of articles) {
+        update.run(a.read_at || null, a.starred ? 1 : 0, a.ignored ? 1 : 0, blogId, normalizeUrl(a.url));
+      }
+    });
   }
   return { blogsAdded };
 }

@@ -12,10 +12,14 @@ const PORT = Number(process.env.PORT || 3066);
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
 const app = express();
-app.set('trust proxy', true);
+// Exactly one proxy (nginx) in front: req.ip is the address nginx saw, not whatever a
+// client put into X-Forwarded-For itself.
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json({ limit: '50mb' }));
+// Small bodies everywhere; only the backup import (after login) may be big
+const smallJson = express.json();
+app.use((req, res, next) => (req.path.toLowerCase() === '/api/import' ? next() : smallJson(req, res, next)));
 app.use((req, res, next) => {
   req.body ??= {}; // Express 5 leaves it undefined for body-less requests
   next();
@@ -27,11 +31,24 @@ app.get('/sw.js', (req, res) => res.sendFile('sw.js', { root: publicDir }));
 
 // --- login ---
 
-const safeNext = (next) => (typeof next === 'string' && next.startsWith('/') && !next.startsWith('//') ? next : '/');
+// Only paths on this site. Resolving it like a browser would catches "//evil.com",
+// "/\evil.com" and tab/newline tricks that turn into one of those.
+const safeNext = (next) => {
+  if (typeof next !== 'string' || !next.startsWith('/')) return '/';
+  try {
+    return new URL(next, 'http://backlog.invalid').origin === 'http://backlog.invalid' && !/[\\\x00-\x1f]/.test(next) ? next : '/';
+  } catch {
+    return '/';
+  }
+};
 
 app.get('/login', (req, res) => res.send(String(views.loginPage({ next: safeNext(req.query.next) }))));
 app.post('/login', async (req, res) => {
-  if (!(await checkPassword(req.body.password))) {
+  const result = await checkPassword(req.body.password, req.ip);
+  if (result === 'blocked') {
+    return res.status(429).send(String(views.loginPage({ next: safeNext(req.body.next), error: 'Too many wrong passwords. Try again in 15 minutes.' })));
+  }
+  if (result !== 'ok') {
     return res.status(401).send(String(views.loginPage({ next: safeNext(req.body.next), error: 'Wrong password' })));
   }
   setSessionCookie(req, res);
@@ -233,23 +250,26 @@ function sharedUrl(...candidates) {
   return null;
 }
 
-function markResult(res, url) {
+// The GET URLs (bookmarklet, Android share target) only show what would be marked, with a
+// button that POSTs: any website can send a logged-in browser to a GET URL.
+function markResult(res, url, { confirm = false } = {}) {
   const matches = url ? store.findArticlesByUrl(url) : [];
-  for (const m of matches) store.setArticleFlags(m.id, { read: true });
+  if (!confirm) for (const m of matches) store.setArticleFlags(m.id, { read: true });
   const guessBlog = !matches.length && url ? store.listBlogs().find((b) => hostOf(b.url) === hostOf(url)) : null;
-  const next = matches.length ? store.nextUnread(matches[0].blog_id) : null;
-  page(res, views.markPage({ url, matches, next, guessBlog }));
+  const next = matches.length && !confirm ? store.nextUnread(matches[0].blog_id) : null;
+  page(res, views.markPage({ url, matches, next, guessBlog, confirm }));
 }
 
-app.get('/mark', (req, res) => markResult(res, sharedUrl(req.query.url)));
-app.get('/share', (req, res) => markResult(res, sharedUrl(req.query.url, req.query.text, req.query.title)));
+app.get('/mark', (req, res) => markResult(res, sharedUrl(req.query.url), { confirm: true }));
+app.get('/share', (req, res) => markResult(res, sharedUrl(req.query.url, req.query.text, req.query.title), { confirm: true }));
+app.post('/mark', (req, res) => markResult(res, sharedUrl(req.body.url)));
 
 app.post('/mark/add', (req, res) => {
   const blogId = Number(req.body.blogId);
   const url = sharedUrl(req.body.url);
   if (!url || !store.getBlog(blogId)) return res.redirect('/');
   store.upsertArticles(blogId, [{ url, title: url, titleGuessed: true }]);
-  res.redirect(`/mark?url=${encodeURIComponent(url)}`);
+  markResult(res, url);
 });
 
 // --- JSON API used by app.js ---
@@ -285,7 +305,7 @@ app.get('/export.json', (req, res) => {
   res.attachment(`backlog-${new Date().toISOString().slice(0, 10)}.json`).json(store.exportAll());
 });
 
-app.post('/api/import', (req, res) => {
+app.post('/api/import', express.json({ limit: '50mb' }), (req, res) => {
   try {
     res.json(store.importAll(req.body));
   } catch (err) {
@@ -294,6 +314,8 @@ app.post('/api/import', (req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  // Body too large or malformed: the client's problem, not worth a stack trace
+  if (err.status >= 400 && err.status < 500) return res.status(err.status).send(err.expose ? err.message : 'Bad request');
   console.error(err);
   res.status(500).send('Something went wrong. Check the server logs.');
 });
