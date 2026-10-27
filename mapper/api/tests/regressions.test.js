@@ -10,6 +10,8 @@ process.env.MAPPER_DB_PATH = ':memory:'
 process.env.SESSION_SECRET = 'regression-test-secret-'.repeat(3)
 const { default: db } = await import('../db.js')
 const app = express()
+// Lets tests act as different clients through X-Forwarded-For; without the header req.ip is the socket.
+app.set('trust proxy', 1)
 app.use(express.json(), cookieParser())
 for (const [path, file] of [['markers','markers'],['categories','categories'],['collections','collections'],['persons','persons'],['backup','backup'],['auth','auth'],['share-links','shareLinks'],['public/share','publicShare'],['links','links']]) app.use('/api/' + path, (await import('../routes/' + file + '.js')).default)
 app.use((err, _req, res, _next) => res.status(err.status || 500).json({ error: err.message }))
@@ -317,9 +319,9 @@ test('deleted markers go to the trash and restore with links, trip stop, route a
   assert.equal((await request(`markers/trash/${b.id}/restore`, 'POST')).status, 404)
 })
 
-test('TRUST_PROXY=1 is a hop count, so the client address comes from X-Forwarded-For', async () => {
+test('TRUST_PROXY=1 is a hop count, so the client address comes from X-Forwarded-For; unset trusts no proxy', async () => {
   const { parseTrustProxy } = await import('../utils/trustProxy.js')
-  assert.deepEqual([parseTrustProxy(undefined), parseTrustProxy(' 2 '), parseTrustProxy('false'), parseTrustProxy('loopback')], [1, 2, false, 'loopback'])
+  assert.deepEqual([parseTrustProxy(undefined), parseTrustProxy(''), parseTrustProxy(' 2 '), parseTrustProxy('false'), parseTrustProxy('loopback')], [false, false, 2, false, 'loopback'])
   const proxied = express().set('trust proxy', parseTrustProxy('1')).get('/', (req, res) => res.json(req.ip))
   const server = proxied.listen(0, '127.0.0.1')
   await new Promise(resolve => server.once('listening', resolve))
@@ -358,6 +360,45 @@ test('parallel wrong share passwords cannot outrun the lockout', async () => {
   const results = await Promise.all(Array.from({ length: 20 }, () => request(`public/share/${share.token}/data`, 'POST', { password: 'wrong guess' }, '')))
   assert.equal(results.filter(r => r.status === 403).length, 10)
   assert.equal(results.filter(r => r.status === 429 && /incorrect passwords/.test(r.data.error)).length, 10)
+})
+
+test('wrong share passwords lock out only their client until the per-link ceiling is reached', async () => {
+  const saved = (await request('markers', 'POST', marker)).data
+  const password = 'correct horse'
+  const share = (await request('share-links', 'POST', { filter: { markers: [saved.id] }, password })).data
+  const attempt = async (ip, guess) => (await fetch(`${origin}/api/public/share/${share.token}/data`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify({ password: guess }) })).status
+  // Guesses over 72 bytes are counted but skip the slow bcrypt compare.
+  const wrong = 'x'.repeat(73)
+  for (let i = 0; i < 10; i++) assert.equal(await attempt('198.51.100.1', wrong), 403)
+  assert.equal(await attempt('198.51.100.1', password), 429)
+  assert.equal(await attempt('198.51.100.2', password), 200)
+  // Addresses in one IPv6 /64 count as one client.
+  for (let i = 0; i < 10; i++) assert.equal(await attempt(`2001:db8:1:2::${i + 1}`, wrong), 403)
+  assert.equal(await attempt('2001:db8:1:2:ffff::1', password), 429)
+  for (let client = 3; client < 11; client++) for (let i = 0; i < 10; i++) await attempt(`198.51.100.${client}`, wrong)
+  assert.equal(await attempt('203.0.113.1', password), 429)
+})
+
+test('client keys group IPv6 addresses by /64 and unwrap IPv4-mapped addresses', async () => {
+  const { clientKey } = await import('../utils/clientKey.js')
+  assert.equal(clientKey('203.0.113.7'), '203.0.113.7')
+  assert.equal(clientKey('::ffff:203.0.113.7'), '203.0.113.7')
+  assert.equal(clientKey('2001:DB8:0001:0002:aaaa::1'), '2001:db8:1:2::/64')
+  assert.equal(clientKey('2001:db8:1:2::9'), clientKey('2001:db8:1:2:ffff:ffff:ffff:ffff'))
+  assert.notEqual(clientKey('2001:db8:1:2::1'), clientKey('2001:db8:1:3::1'))
+  assert.equal(clientKey('2001:db8::1'), '2001:db8:0:0::/64')
+  assert.equal(clientKey('::1'), '0:0:0:0::/64')
+  assert.equal(clientKey('fe80::1%eth0'), 'fe80:0:0:0::/64')
+  assert.equal(clientKey('64:ff9b::192.0.2.1'), '64:ff9b:0:0::/64')
+})
+
+test('restoring a backup revokes every share link', async () => {
+  const saved = (await request('markers', 'POST', marker)).data
+  const share = (await request('share-links', 'POST', { filter: { markers: [saved.id] } })).data
+  const backup = (await request('backup')).data
+  assert.equal((await request('backup/restore', 'POST', backup)).status, 200)
+  assert.equal((await request(`public/share/${share.token}/data`, 'GET', undefined, '')).status, 404)
+  assert.deepEqual((await request('share-links')).data, [])
 })
 
 test('share filters are capped, resolved without SQL variable limits and listed even when one is broken', async () => {

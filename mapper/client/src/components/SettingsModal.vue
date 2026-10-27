@@ -240,7 +240,7 @@
               <p v-if="restoreError" class="msg error">{{ restoreError }}</p>
               <p v-if="restoreStatus" class="msg ok">{{ restoreStatus }}</p>
               <template v-if="restoreData && !restoreStatus">
-                <p class="msg warn">This will replace ALL existing data and cannot be undone.</p>
+                <p class="msg warn">This will replace ALL existing data and cannot be undone. All share links stop working and the trash is emptied.</p>
                 <div class="import-btn-row">
                   <button type="button" class="btn-secondary" @click="cancelRestore">Cancel</button>
                   <button type="button" class="btn-danger full" :disabled="restoring" @click="doRestore">

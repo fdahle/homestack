@@ -85,6 +85,7 @@ router.post('/restore', express.json({ limit: '100mb' }), (req, res) => {
 
   db.exec('BEGIN')
   try {
+    // Share filters name the replaced IDs; the restore warning in the settings says links are revoked.
     db.exec('DELETE FROM share_links')
     // Trashed markers refer to the replaced IDs and cannot be restored into the new data.
     db.exec('DELETE FROM deleted_markers')

@@ -15,6 +15,7 @@ import rateLimit from 'express-rate-limit'
 
 import './db.js' // opens the database and runs migrations before any route loads
 import { parseTrustProxy } from './utils/trustProxy.js'
+import { clientKey } from './utils/clientKey.js'
 
 if (process.env.RESET_PASSWORD) {
   console.warn('RESET_PASSWORD is no longer supported. Run "node api/reset-password.js" once instead (see README).')
@@ -33,8 +34,8 @@ import linkRoutes from './routes/links.js'
 const app = express()
 const PORT = process.env.PORT || 3063
 
-// Number of reverse proxies in front of the app (default 1, e.g. nginx). Only correct when the
-// app port is not reachable directly — docker-compose binds it to 127.0.0.1 for that reason.
+// Number of reverse proxies in front of the app (default none; docker-compose sets 1 for nginx).
+// Only correct when the app port is not reachable directly — docker-compose binds it to 127.0.0.1 for that reason.
 app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY))
 
 app.use(helmet({
@@ -58,8 +59,13 @@ const smallJson = express.json({ limit: '2mb' })
 app.use((req, res, next) => req.path === '/api/backup/restore' ? next() : smallJson(req, res, next))
 app.use(cookieParser())
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Too many sign-in attempts. Please wait 15 minutes.' }) })
-app.use('/api/auth', (req, res, next) => req.method === 'POST' && req.path !== '/logout' ? authLimiter(req, res, next) : next())
+const authLimit = { windowMs: 15 * 60 * 1000, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Too many sign-in attempts. Please wait 15 minutes.' }) }
+const authLimiter = rateLimit({ ...authLimit, max: 20, keyGenerator: req => clientKey(req.ip) })
+// Every attempt costs a bcrypt compare, so attempts spread over many addresses are capped as well.
+const authGlobalLimiter = rateLimit({ ...authLimit, max: 200, keyGenerator: () => 'all' })
+app.use('/api/auth', (req, res, next) => req.method === 'POST' && req.path !== '/logout'
+  ? authLimiter(req, res, err => err ? next(err) : authGlobalLimiter(req, res, next))
+  : next())
 
 // Generous for the single owner: a 1000-row import, the background country lookup (~1 write/s)
 // and long trip-editing sessions must fit, while a runaway client is still stopped.
