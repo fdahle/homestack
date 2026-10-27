@@ -1,8 +1,8 @@
 // Brings series, issues and covers from GCD into the local catalog, and runs the
 // background worker that fills in issue details and covers over time.
 
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { unlink, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import * as store from './db.js';
 import { canRunBackground, DAY_MS, gcdGet, GcdBusyError, GcdNotFoundError, idFromUrl } from './gcd.js';
 import { parseCode } from './isbn.js';
@@ -114,7 +114,7 @@ export async function importSeries(gcdId, { background = false, maxAgeMs = DAY_M
     seen.add(p.number);
     return { gcd_id: idFromUrl(url), position: i + 1, ...p, is_variant: isVariant };
   }).filter((it) => it.gcd_id);
-  store.syncIssues(seriesId, issues);
+  await removeCoverFiles(store.syncIssues(seriesId, issues));
 
   try {
     await ensurePublisher(publisherId, { background });
@@ -145,32 +145,92 @@ function creditsOf(stories = []) {
 
 const firstCode = (value, pattern) => String(value || '').split(/[;,]/).map((v) => v.replace(pattern, '')).find((v) => v.length >= 8) || null;
 
+// Library covers come only from these hosts (Open Library redirects to archive.org),
+// checked again on every redirect.
+const COVER_HOSTS = /(^|\.)(dnb\.de|openlibrary\.org|archive\.org)$/;
+const MAX_COVER_BYTES = 10 * 1024 * 1024;
+
+function allowedCoverUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && !u.port && !u.username && !u.password && COVER_HOSTS.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export const libraryCoverUrls = (isbn13) => [`https://portal.dnb.de/opac/mvb/cover?isbn=${isbn13}`, `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg?default=false`];
+
+// Downloads an image from a library cover host: { type, buffer }
+export async function fetchImage(url) {
+  for (let hop = 0; hop < 5; hop++) {
+    if (!allowedCoverUrl(url)) throw new Error(`Cover URL not allowed: ${url}`);
+    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, redirect: 'manual', signal: AbortSignal.timeout(30_000) });
+    const location = res.headers.get('location');
+    if (res.status >= 300 && res.status < 400 && location) {
+      await res.body?.cancel();
+      url = new URL(location, url).href;
+      continue;
+    }
+    const type = res.headers.get('content-type') || '';
+    if (!res.ok || !/^image\/(jpeg|png|webp|gif)\b/.test(type)) {
+      await res.body?.cancel();
+      throw new Error(`Cover download failed (${res.status} ${type})`);
+    }
+    return { type, buffer: await readCapped(res, MAX_COVER_BYTES) };
+  }
+  throw new Error('Cover download failed (too many redirects)');
+}
+
+async function readCapped(res, max) {
+  if (Number(res.headers.get('content-length')) > max) {
+    await res.body?.cancel();
+    throw new Error('Cover download failed (too large)');
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body ?? []) {
+    size += chunk.length;
+    if (size > max) throw new Error('Cover download failed (too large)'); // leaving the loop cancels the stream
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function removeCoverFiles(files) {
+  for (const file of files) if (file) await unlink(join(store.COVER_DIR, basename(file))).catch(() => {});
+}
+
+// Stores an image as the issue's cover and removes the one it replaces
+async function storeCover(issueId, buffer, type) {
+  const previous = store.getIssue(issueId)?.cover_file;
+  const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : 'jpg';
+  const file = `${issueId}-${Date.now().toString(36)}.${ext}`;
+  await writeFile(join(store.COVER_DIR, file), buffer);
+  store.updateIssueInfo(issueId, { cover_file: file });
+  if (previous && previous !== file) await removeCoverFiles([previous]);
+  return file;
+}
+
 let lastCoverDownload = 0;
 
 export async function downloadCover(issueId, url) {
   const wait = lastCoverDownload + 700 - Date.now();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastCoverDownload = Date.now();
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(30_000) });
-  const type = res.headers.get('content-type') || '';
-  if (!res.ok || !type.startsWith('image/')) throw new Error(`Cover download failed (${res.status} ${type})`);
-  const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';
-  const file = `${issueId}-${Date.now().toString(36)}.${ext}`;
-  await writeFile(join(store.COVER_DIR, file), Buffer.from(await res.arrayBuffer()));
-  store.updateIssueInfo(issueId, { cover_file: file });
-  return file;
+  const { type, buffer } = await fetchImage(url);
+  return storeCover(issueId, buffer, type);
 }
 
 export async function saveCoverUpload(issueId, buffer, type) {
-  const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';
-  const file = `${issueId}-${Date.now().toString(36)}.${ext}`;
-  await writeFile(join(store.COVER_DIR, file), buffer);
-  store.updateIssueInfo(issueId, { cover_file: file });
+  const file = await storeCover(issueId, buffer, type);
+  store.markUserFields(issueId, ['cover']);
   return file;
 }
 
 // Loads number-independent details (date, price, ISBN, barcode, credits, cover) for one issue.
-export async function loadDetails(issue, { background = false } = {}) {
+// Fields set in the app (user_fields) are kept. refresh: also replace a library cover.
+export async function loadDetails(issue, { background = false, refresh = false } = {}) {
   if (!issue.gcd_id) return;
   let d;
   try {
@@ -179,29 +239,34 @@ export async function loadDetails(issue, { background = false } = {}) {
     if (err instanceof GcdNotFoundError) store.updateIssueInfo(issue.id, { details_failed: 1 });
     throw err;
   }
+  // Read again: the issue may have been edited while the request waited for GCD
+  const current = store.getIssue(issue.id);
+  if (!current) return;
+  const own = store.userFields(current);
+  const pick = (field, value) => (own.has(field) ? current[field] : value || current[field] || null);
   // GCD doesn't allow servers to download its cover scans, so only the link is kept
   // and the browser shows it. Issues with an ISBN get a stored cover from the DNB.
   const coverUrl = d.cover && !/no_?cover/i.test(d.cover) ? d.cover : null;
-  const isbn = issue.isbn || firstCode(d.isbn, /[^0-9X]/gi);
+  const isbn = current.isbn || firstCode(d.isbn, /[^0-9X]/gi);
   store.updateIssueInfo(issue.id, {
-    title: issue.title || d.title || '',
-    key_date: d.key_date || d.on_sale_date || d.publication_date || null,
-    price: String(d.price || '').split(';')[0].trim() || null,
+    title: current.title || d.title || '',
+    key_date: pick('key_date', d.key_date || d.on_sale_date || d.publication_date),
+    price: pick('price', String(d.price || '').split(';')[0].trim()),
     page_count: Math.round(Number(d.page_count)) || null,
     isbn,
-    barcode: firstCode(d.barcode, /\D/g),
+    barcode: pick('barcode', firstCode(d.barcode, /\D/g)),
     credits: creditsOf(d.story_set),
     cover_url: coverUrl,
     details_at: store.now(),
   });
-  if (isbn && !issue.cover_file) await libraryCover(issue.id, isbn);
+  if (isbn && (!current.cover_file || (refresh && !own.has('cover')))) await libraryCover(issue.id, isbn);
 }
 
 // Stores the DNB's (German books) or Open Library's cover for an ISBN, if either has one.
 export async function libraryCover(issueId, isbn) {
   const { isbn13 } = parseCode(isbn);
   if (!isbn13) return;
-  for (const url of [`https://portal.dnb.de/opac/mvb/cover?isbn=${isbn13}`, `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg?default=false`]) {
+  for (const url of libraryCoverUrls(isbn13)) {
     try {
       return await downloadCover(issueId, url);
     } catch {

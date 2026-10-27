@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, loadSession } from '../api.js';
 import { t } from '../i18n.js';
+import { errorText } from '../util.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -20,7 +21,7 @@ async function submit() {
     const next = String(route.query.next || '/');
     router.replace(next.startsWith('/') && !next.startsWith('//') ? next : '/');
   } catch (err) {
-    error.value = err.status === 401 ? t('login.wrong') : t('errors.generic');
+    error.value = err.status === 401 ? t('login.wrong') : errorText(err);
   } finally {
     busy.value = false;
   }

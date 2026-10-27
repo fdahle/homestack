@@ -19,6 +19,7 @@ db.exec(`
     password_hash TEXT NOT NULL,
     lang TEXT NOT NULL DEFAULT 'de',
     is_admin INTEGER NOT NULL DEFAULT 0,
+    session_version INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   );
 
@@ -71,6 +72,7 @@ db.exec(`
     cover_file TEXT,
     details_at TEXT,
     details_failed INTEGER NOT NULL DEFAULT 0,
+    user_fields TEXT NOT NULL DEFAULT '', -- fields set in the app, e.g. "barcode,price,cover"; GCD doesn't overwrite them
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS issues_series ON issues (series_id, position);
@@ -110,6 +112,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS gcd_requests_at ON gcd_requests (at);
 `);
 
+// Columns added after the first version, for existing databases
+function addColumn(table, column, definition) {
+  if (!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+addColumn('users', 'session_version', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('issues', 'user_fields', "TEXT NOT NULL DEFAULT ''");
+
 export const now = () => new Date().toISOString();
 
 export function transaction(fn) {
@@ -140,8 +149,9 @@ const USER_COLUMNS = 'id, username, display_name, lang, is_admin, created_at';
 
 export const countUsers = () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 export const listUsers = () => db.prepare(`SELECT ${USER_COLUMNS} FROM users ORDER BY id`).all();
-export const getUser = (id) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE id = ?`).get(id);
-export const getUserByName = (username) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE username = ?`).get(username);
+export const getUser = (id) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash, session_version FROM users WHERE id = ?`).get(id);
+export const getUserByName = (username) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash, session_version FROM users WHERE username = ?`).get(username);
+export const bumpSessionVersion = (id) => db.prepare('UPDATE users SET session_version = session_version + 1 WHERE id = ?').run(id);
 
 export function createUser({ username, displayName, passwordHash, lang = 'de', isAdmin = false }) {
   const { lastInsertRowid } = db
@@ -203,6 +213,18 @@ export function updateSeriesInfo(id, { name, publisher_name, year_began, languag
 }
 
 export const deleteSeries = (id) => db.prepare('DELETE FROM series WHERE id = ?').run(id);
+
+export const coverFilesOfSeries = (id) =>
+  db.prepare('SELECT cover_file FROM issues WHERE series_id = ? AND cover_file IS NOT NULL').all(id).map((r) => r.cover_file);
+
+// Whether anyone besides userId has the series in their collection or a status on one of its issues
+export const seriesUsedByOthers = (seriesId, userId) =>
+  Boolean(db.prepare(`SELECT 1 FROM user_series WHERE series_id = :series AND user_id != :user
+    UNION ALL SELECT 1 FROM user_issues ui JOIN issues i ON i.id = ui.issue_id WHERE i.series_id = :series AND ui.user_id != :user
+    LIMIT 1`).get({ series: seriesId, user: userId }));
+
+export const issueUsedByOthers = (issueId, userId) =>
+  Boolean(db.prepare('SELECT 1 FROM user_issues WHERE issue_id = ? AND user_id != ?').get(issueId, userId));
 
 export function setCollected(userId, seriesId, collected) {
   if (collected) db.prepare('INSERT OR IGNORE INTO user_series (user_id, series_id, added_at) VALUES (?, ?, ?)').run(userId, seriesId, now());
@@ -278,9 +300,9 @@ export const variantsOf = (issue) =>
     .all(issue.series_id, issue.number, issue.id);
 
 // Inserts or updates the issue list of a GCD series. Issues that disappeared from
-// GCD are removed unless someone has a status on them.
+// GCD are removed unless someone has a status on them. Returns the removed cover files.
 export function syncIssues(seriesId, list) {
-  transaction(() => {
+  return transaction(() => {
     const seen = new Set();
     const findByGcd = db.prepare('SELECT id FROM issues WHERE gcd_id = ?');
     const update = db.prepare('UPDATE issues SET series_id = ?, position = ?, number = ?, title = ?, variant = ?, is_variant = ? WHERE id = ?');
@@ -295,11 +317,15 @@ export function syncIssues(seriesId, list) {
         seen.add(Number(insert.run(seriesId, it.gcd_id, it.position, it.number, it.title, it.variant, it.is_variant ? 1 : 0, now()).lastInsertRowid));
       }
     }
-    const stale = db.prepare('SELECT id FROM issues WHERE series_id = ? AND gcd_id IS NOT NULL').all(seriesId).filter((r) => !seen.has(r.id));
-    for (const { id } of stale) {
+    const stale = db.prepare('SELECT id, cover_file FROM issues WHERE series_id = ? AND gcd_id IS NOT NULL').all(seriesId).filter((r) => !seen.has(r.id));
+    const removedCovers = [];
+    for (const { id, cover_file } of stale) {
       const used = db.prepare('SELECT 1 FROM user_issues WHERE issue_id = ?').get(id);
-      if (!used) db.prepare('DELETE FROM issues WHERE id = ?').run(id);
+      if (used) continue;
+      db.prepare('DELETE FROM issues WHERE id = ?').run(id);
+      if (cover_file) removedCovers.push(cover_file);
     }
+    return removedCovers;
   });
 }
 
@@ -319,11 +345,24 @@ export function addCustomIssues(seriesId, items) {
 }
 
 export function updateIssueInfo(id, fields) {
-  const allowed = ['number', 'title', 'variant', 'isbn', 'barcode', 'key_date', 'price', 'page_count', 'credits', 'cover_url', 'cover_file', 'details_at', 'details_failed'];
+  const allowed = ['number', 'title', 'variant', 'isbn', 'barcode', 'key_date', 'price', 'page_count', 'credits', 'cover_url', 'cover_file', 'details_at', 'details_failed', 'user_fields'];
   const keys = Object.keys(fields).filter((k) => allowed.includes(k));
   if (!keys.length) return;
   db.prepare(`UPDATE issues SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => fields[k] ?? null), id);
 }
+
+// Fields of an issue that were set in the app (edited, scanned, own cover photo)
+export const userFields = (issue) => new Set(String(issue?.user_fields || '').split(',').filter(Boolean));
+
+export function markUserFields(id, names) {
+  const fields = userFields(getIssue(id));
+  for (const name of names) fields.add(name);
+  db.prepare('UPDATE issues SET user_fields = ? WHERE id = ?').run([...fields].join(','), id);
+}
+
+// The ids among issueIds that exist
+export const existingIssueIds = (issueIds) =>
+  db.prepare('SELECT id FROM issues WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(issueIds)).map((r) => r.id);
 
 export const deleteIssue = (id) => db.prepare('DELETE FROM issues WHERE id = ?').run(id);
 

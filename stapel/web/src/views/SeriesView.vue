@@ -250,8 +250,12 @@ async function setCollected(value) {
 async function deleteSeries() {
   menuOpen.value = false;
   if (!confirm(t('series.confirmDelete', { name: data.value.series.name }))) return;
-  await api(`/series/${props.id}`, { method: 'DELETE' });
-  router.replace('/collection');
+  try {
+    await api(`/series/${props.id}`, { method: 'DELETE' });
+    router.replace('/collection');
+  } catch (err) {
+    showToast(errorText(err));
+  }
 }
 
 // Adding issues by hand (also for GCD series that miss something)

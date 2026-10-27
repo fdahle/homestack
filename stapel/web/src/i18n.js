@@ -188,7 +188,7 @@ const de = {
     storedCovers: 'Gespeicherte Cover',
     pausedUntil: 'Pausiert bis',
     attribution: 'Daten: Grand Comics Database (comics.org), CC BY-SA 4.0. ISBN-Daten: Deutsche Nationalbibliothek, Open Library.',
-    logout: 'Abmelden',
+    logout: 'Abmelden (auf allen Geräten)',
   },
   errors: {
     generic: 'Das hat nicht geklappt. Bitte nochmal versuchen.',
@@ -204,6 +204,9 @@ const de = {
     numbers_required: 'Bitte Nummern eingeben.',
     query_too_short: 'Bitte mindestens 2 Zeichen eingeben.',
     image_required: 'Kein Bild erhalten.',
+    too_large: 'Das ist zu groß.',
+    too_many_attempts: 'Zu viele Anmeldeversuche. Bitte in 15 Minuten nochmal.',
+    used_by_others: 'Andere haben hier schon etwas markiert. Löschen kann das nur ein Admin.',
   },
 };
 
@@ -392,7 +395,7 @@ const en = {
     storedCovers: 'Stored covers',
     pausedUntil: 'Paused until',
     attribution: 'Data: Grand Comics Database (comics.org), CC BY-SA 4.0. ISBN data: German National Library, Open Library.',
-    logout: 'Log out',
+    logout: 'Log out (on all devices)',
   },
   errors: {
     generic: "That didn't work. Please try again.",
@@ -408,6 +411,9 @@ const en = {
     numbers_required: 'Please enter numbers.',
     query_too_short: 'Please type at least 2 characters.',
     image_required: 'No image received.',
+    too_large: 'That is too large.',
+    too_many_attempts: 'Too many login attempts. Please try again in 15 minutes.',
+    used_by_others: 'Others have marked something here. Only an admin can delete it.',
   },
 };
 

@@ -2,8 +2,10 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as store from './db.js';
-import { checkPassword, clearSessionCookie, ensureAdmin, hashPassword, login, requireAdmin, requireLogin, setSessionCookie } from './auth.js';
-import { downloadCover, importSeries, loadDetails, requestCovers, saveCoverUpload, searchSeries, startWorker, workerStatus } from './catalog.js';
+import { checkPassword, ensureAdmin, hashPassword, login, LoginLimitError, logout, requireAdmin, requireLogin, setSessionCookie } from './auth.js';
+import {
+  downloadCover, fetchImage, importSeries, libraryCoverUrls, loadDetails, removeCoverFiles, requestCovers, saveCoverUpload, searchSeries, startWorker, workerStatus,
+} from './catalog.js';
 import { GcdBusyError, GcdNotFoundError, usage } from './gcd.js';
 import { lookupIsbn, parseCode } from './isbn.js';
 
@@ -11,7 +13,8 @@ const PORT = Number(process.env.PORT || 3067);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
 const app = express();
-app.set('trust proxy', true);
+// One proxy (nginx) in front: req.ip is the address nginx saw, not a client-supplied X-Forwarded-For
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => {
@@ -27,43 +30,49 @@ const LANGS = ['de', 'en'];
 // --- login ---
 
 app.post('/api/login', route(async (req, res) => {
-  const user = await login(req.body.username, req.body.password);
+  let user;
+  try {
+    user = await login(req.body.username, req.body.password, req.ip);
+  } catch (err) {
+    if (err instanceof LoginLimitError) return res.status(429).json({ error: 'too_many_attempts', retryAt: err.retryAt });
+    throw err;
+  }
   if (!user) return res.status(401).json({ error: 'wrong_login' });
   setSessionCookie(req, res, user);
   res.json({ ok: true });
 }));
 
 app.post('/api/logout', (req, res) => {
-  clearSessionCookie(res);
+  logout(req, res);
   res.json({ ok: true });
 });
 
 app.use(['/api', '/covers'], requireLogin);
 
-const publicUser = ({ password_hash, ...u }) => ({ ...u, is_admin: Boolean(u.is_admin) });
+const publicUser = ({ password_hash, session_version, ...u }) => ({ ...u, is_admin: Boolean(u.is_admin) });
 
 app.get('/api/me', (req, res) => res.json(publicUser(req.user)));
 
-app.patch('/api/me', (req, res) => {
+app.patch('/api/me', route(async (req, res) => {
   const { lang, displayName, currentPassword, newPassword } = req.body;
   if (lang !== undefined && !LANGS.includes(lang)) return res.status(400).json({ error: 'bad_lang' });
   if (newPassword !== undefined) {
-    if (!checkPassword(req.user, currentPassword)) return res.status(400).json({ error: 'wrong_password' });
+    if (!(await checkPassword(req.user, currentPassword))) return res.status(400).json({ error: 'wrong_password' });
     if (String(newPassword).length < 8) return res.status(400).json({ error: 'password_too_short' });
   }
   store.updateUser(req.user.id, {
     lang,
     displayName: displayName !== undefined ? String(displayName).trim() || req.user.username : undefined,
-    passwordHash: newPassword !== undefined ? hashPassword(String(newPassword)) : undefined,
+    passwordHash: newPassword !== undefined ? await hashPassword(String(newPassword)) : undefined,
   });
   const user = store.getUser(req.user.id);
   if (newPassword !== undefined) setSessionCookie(req, res, user); // keep this device logged in
   res.json(publicUser(user));
-});
+}));
 
 app.get('/api/users', requireAdmin, (req, res) => res.json(store.listUsers().map(publicUser)));
 
-app.post('/api/users', requireAdmin, (req, res) => {
+app.post('/api/users', requireAdmin, route(async (req, res) => {
   const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
   if (!/^[\w.-]{2,40}$/.test(username)) return res.status(400).json({ error: 'bad_username' });
@@ -72,12 +81,12 @@ app.post('/api/users', requireAdmin, (req, res) => {
   store.createUser({
     username,
     displayName: String(req.body.displayName || '').trim() || username,
-    passwordHash: hashPassword(password),
+    passwordHash: await hashPassword(password),
     lang: LANGS.includes(req.body.lang) ? req.body.lang : 'de',
     isAdmin: Boolean(req.body.isAdmin),
   });
   res.json(store.listUsers().map(publicUser));
-});
+}));
 
 app.delete('/api/users/:id', requireAdmin, (req, res) => {
   if (id(req.params.id) === req.user.id) return res.status(400).json({ error: 'cannot_delete_self' });
@@ -221,13 +230,17 @@ app.post('/api/series/:id/issues', (req, res) => {
 });
 
 // Only hand-entered series can be deleted; GCD series are just removed from the collection.
-app.delete('/api/series/:id', (req, res) => {
+// Deleting takes everyone's statuses with it, so if others use it, only an admin may.
+app.delete('/api/series/:id', route(async (req, res) => {
   const series = seriesOr404(req, res);
   if (!series) return;
   if (series.gcd_id) return res.status(400).json({ error: 'not_custom' });
+  if (!req.user.is_admin && store.seriesUsedByOthers(series.id, req.user.id)) return res.status(403).json({ error: 'used_by_others' });
+  const covers = store.coverFilesOfSeries(series.id);
   store.deleteSeries(series.id);
+  await removeCoverFiles(covers);
   res.json({ ok: true });
-});
+}));
 
 // --- issues ---
 
@@ -264,23 +277,29 @@ app.patch('/api/issues/:id', (req, res) => {
   if (fields.variant === null) fields.variant = '';
   if (fields.isbn) fields.isbn = parseCode(fields.isbn).isbn13 || fields.isbn.replace(/[^0-9X]/gi, '');
   store.updateIssueInfo(issue.id, fields);
+  // Remember what was changed by hand, so loading details from GCD keeps it
+  const changed = Object.keys(fields).filter((k) => fields[k] !== (issue[k] ?? (['number', 'title', 'variant'].includes(k) ? '' : null)));
+  if (changed.length) store.markUserFields(issue.id, changed);
   res.json(store.getIssueForUser(issue.id, req.user.id));
 });
 
-app.delete('/api/issues/:id', (req, res) => {
+// Deleting takes everyone's statuses with it, so if others use the issue, only an admin may.
+app.delete('/api/issues/:id', route(async (req, res) => {
   const issue = issueOr404(req, res);
   if (!issue) return;
   if (issue.gcd_id) return res.status(400).json({ error: 'not_custom' });
+  if (!req.user.is_admin && store.issueUsedByOthers(issue.id, req.user.id)) return res.status(403).json({ error: 'used_by_others' });
   store.deleteIssue(issue.id);
+  await removeCoverFiles([issue.cover_file]);
   res.json({ ok: true });
-});
+}));
 
 app.post('/api/issues/:id/refresh', route(async (req, res) => {
   const issue = issueOr404(req, res);
   if (!issue) return;
   if (!issue.gcd_id) return res.status(400).json({ error: 'not_from_gcd' });
-  store.updateIssueInfo(issue.id, { cover_file: null, details_failed: 0 });
-  await loadDetails({ ...issue, cover_file: null });
+  store.updateIssueInfo(issue.id, { details_failed: 0 });
+  await loadDetails(issue, { refresh: true });
   res.json(store.getIssueForUser(issue.id, req.user.id));
 }));
 
@@ -303,10 +322,11 @@ app.patch('/api/issues/:id/mine', (req, res) => {
 
 // Sets owned/read/wanted on many issues at once: { ids: [...], owned: true, read: false }
 app.post('/api/status', (req, res) => {
-  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(id).filter(Number.isInteger).slice(0, 10_000);
+  const ids = [...new Set((Array.isArray(req.body.ids) ? req.body.ids : []).map(id).filter(Number.isInteger))].slice(0, 10_000);
   const flags = {};
   for (const flag of ['owned', 'read', 'wanted']) if (typeof req.body[flag] === 'boolean') flags[flag] = req.body[flag];
   if (!ids.length || !Object.keys(flags).length) return res.status(400).json({ error: 'bad_request' });
+  if (store.existingIssueIds(ids).length !== ids.length) return res.status(400).json({ error: 'not_found' });
   store.setStatus(req.user.id, ids, flags);
   // Marking something owned in a series you don't track yet adds the series to your collection
   if (flags.owned || flags.read || flags.wanted) {
@@ -330,12 +350,9 @@ app.get('/api/lookup/:code', route(async (req, res) => {
 app.get('/api/library-cover/:isbn', route(async (req, res) => {
   const { isbn13 } = parseCode(req.params.isbn);
   if (!isbn13) return res.status(400).end();
-  for (const url of [`https://portal.dnb.de/opac/mvb/cover?isbn=${isbn13}`, `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg?default=false`]) {
-    const upstream = await fetch(url, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
-    const type = upstream?.headers.get('content-type') || '';
-    if (upstream?.ok && type.startsWith('image/')) {
-      return res.type(type).set('Cache-Control', 'private, max-age=86400').send(Buffer.from(await upstream.arrayBuffer()));
-    }
+  for (const url of libraryCoverUrls(isbn13)) {
+    const image = await fetchImage(url).catch(() => null);
+    if (image) return res.type(image.type).set('Cache-Control', 'private, max-age=86400').send(image.buffer);
   }
   res.status(404).end();
 }));
@@ -346,8 +363,13 @@ app.post('/api/issues/:id/code', route(async (req, res) => {
   const issue = issueOr404(req, res);
   if (!issue) return;
   const parsed = parseCode(req.body.code);
-  if (parsed.isbn13 && !issue.isbn) store.updateIssueInfo(issue.id, { isbn: parsed.isbn13 });
-  else if (!parsed.isbn13 && parsed.code.length >= 8 && !issue.barcode) store.updateIssueInfo(issue.id, { barcode: parsed.code });
+  if (parsed.isbn13 && !issue.isbn) {
+    store.updateIssueInfo(issue.id, { isbn: parsed.isbn13 });
+    store.markUserFields(issue.id, ['isbn']);
+  } else if (!parsed.isbn13 && parsed.code.length >= 8 && !issue.barcode) {
+    store.updateIssueInfo(issue.id, { barcode: parsed.code });
+    store.markUserFields(issue.id, ['barcode']);
+  }
   const cover = String(req.body.cover || '');
   if (!issue.cover_file && /^https:\/\/(portal\.dnb\.de|covers\.openlibrary\.org)\//.test(cover)) {
     try {
@@ -373,14 +395,20 @@ app.get('/api/export.json', (req, res) => {
 app.get('/api/export.csv', (req, res) => {
   const rows = store.exportRows(req.user.id);
   const columns = rows.length ? Object.keys(rows[0]) : ['series'];
-  const cell = (v) => (v == null ? '' : /[",;\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  // Text starting with = + - @ would run as a formula in a spreadsheet; a leading ' keeps it text
+  const text = (v) => (typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v));
+  const cell = (v) => (v == null ? '' : /[",;\r\n]/.test(text(v)) ? `"${text(v).replace(/"/g, '""')}"` : text(v));
   const csv = [columns.join(';'), ...rows.map((r) => columns.map((c) => cell(r[c])).join(';'))].join('\r\n');
   res.attachment(`stapel-${req.user.username}-${new Date().toISOString().slice(0, 10)}.csv`).type('text/csv').send(`﻿${csv}`);
 });
 
 // --- static files ---
 
-app.use('/covers', express.static(store.COVER_DIR, { maxAge: '365d', immutable: true }));
+// private: covers are behind the login, so shared caches (Cloudflare) must not keep them
+app.use('/covers', express.static(store.COVER_DIR, {
+  cacheControl: false,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'private, max-age=31536000, immutable'),
+}));
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
 if (existsSync(distDir)) {
@@ -392,13 +420,17 @@ if (existsSync(distDir)) {
 }
 
 app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
   if (err instanceof GcdBusyError) return res.status(503).json({ error: 'gcd_busy', retryAt: err.retryAt });
   if (err instanceof GcdNotFoundError) return res.status(404).json({ error: 'gcd_not_found' });
+  // Body parser errors (bad JSON, too large) carry their own 4xx status
+  const status = err.status ?? err.statusCode;
+  if (status >= 400 && status < 500) return res.status(status).json({ error: err.type === 'entity.too.large' ? 'too_large' : 'bad_request' });
   console.error(err);
-  res.status(500).json({ error: 'server_error', message: err.message });
+  res.status(500).json({ error: 'server_error' });
 });
 
-ensureAdmin();
+await ensureAdmin();
 app.listen(PORT, () => {
   console.log(`Stapel listening on :${PORT}`);
   startWorker();

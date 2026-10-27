@@ -120,8 +120,12 @@ async function submitEdit() {
 
 async function deleteIssue() {
   if (!confirm(t('issue.confirmDelete'))) return;
-  await api(`/issues/${props.id}`, { method: 'DELETE' });
-  router.replace(`/series/${issue.value.series_id}`);
+  try {
+    await api(`/issues/${props.id}`, { method: 'DELETE' });
+    router.replace(`/series/${issue.value.series_id}`);
+  } catch (err) {
+    showToast(errorText(err));
+  }
 }
 </script>
 
