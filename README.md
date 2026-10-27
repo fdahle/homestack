@@ -31,5 +31,3 @@ Each app's README explains how to run it with Docker. To keep a server up to dat
 ## Credits and licence
 
 Stammbaum was created by [Maximilian Pierzyna](https://github.com/maxiimilian) in [maxiimilian/stammbaum](https://github.com/maxiimilian/stammbaum) and continued here. It stays under the GPL-3.0 (see [stammbaum/LICENSE](stammbaum/LICENSE)), and his commits are part of this repository's history. More in [stammbaum/README.md](stammbaum/README.md#credits).
-
-The history of every app, including its earlier repository, is kept in this one. Fernweh and Zettel were called Mapper and Planner before.
