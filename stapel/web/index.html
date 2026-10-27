@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#f5f3ef" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#17181c" media="(prefers-color-scheme: dark)">
 <title>Stapel</title>
-<link rel="manifest" href="/manifest.webmanifest">
+<!-- With cookies, so the manifest also loads behind a login proxy -->
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
