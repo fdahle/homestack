@@ -422,3 +422,14 @@ the middle of its children, then a relaxation sweep pulls couples towards their
 children and children towards their parents without ever reordering a row. Two
 families that marry into each other end up next to each other instead of at
 opposite ends of the page.
+
+## Credits
+
+Stammbaum was created by [Maximilian Pierzyna](https://github.com/maxiimilian)
+in [maxiimilian/stammbaum](https://github.com/maxiimilian/stammbaum): the app
+itself, the mobile-first gesture map, the Tailwind + daisyUI styling, keeping
+the real family out of the public repository, and the Docker setup. This copy
+continues from his repository with further changes by fdahle; its full
+history, including his commits, is part of this repository.
+
+It is licensed under the GNU General Public License v3.0, see [LICENSE](LICENSE).

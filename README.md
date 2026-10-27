@@ -26,4 +26,6 @@ Each app has its own port, so all of them can run side by side on one machine, i
 
 ## Credits and licence
 
-`stammbaum/` started as a fork of [maxiimilian/stammbaum](https://github.com/maxiimilian/stammbaum) by Maximilian Pierzyna and is licensed under the GPL-3.0 (see [stammbaum/LICENSE](stammbaum/LICENSE)). The history of every app, including its earlier repository, is kept in this one.
+Stammbaum was created by [Maximilian Pierzyna](https://github.com/maxiimilian) in [maxiimilian/stammbaum](https://github.com/maxiimilian/stammbaum) and continued here. It stays under the GPL-3.0 (see [stammbaum/LICENSE](stammbaum/LICENSE)), and his commits are part of this repository's history. More in [stammbaum/README.md](stammbaum/README.md#credits).
+
+The history of every app, including its earlier repository, is kept in this one.
