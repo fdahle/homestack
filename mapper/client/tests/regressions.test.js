@@ -1,0 +1,649 @@
+import test, { beforeEach, afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { createPinia, setActivePinia } from 'pinia'
+import { createRenderer, h, nextTick, reactive } from 'vue'
+import { parse, compileScript } from '@vue/compiler-sfc'
+import { useMarkersStore } from '../src/stores/markers.js'
+import { useCategoriesStore } from '../src/stores/categories.js'
+import { useCollectionsStore } from '../src/stores/collections.js'
+import { usePersonsStore } from '../src/stores/persons.js'
+import { useShareLinksStore } from '../src/stores/shareLinks.js'
+import { useImportExport } from '../src/composables/useImportExport.js'
+import { useSearch } from '../src/composables/useSearch.js'
+import { apiJson, apiFetch, setUnauthorizedHandler } from '../src/api.js'
+import { tooltipText } from '../src/utils/mapStyle.js'
+import { parseDate, normDate } from '../../shared/dates.js'
+
+const nativeFetch = globalThis.fetch
+const response = (data, status = 200, headers) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...headers } })
+beforeEach(() => {
+  setActivePinia(createPinia())
+  globalThis.localStorage = { getItem: () => null, setItem: () => {} }
+})
+afterEach(() => { globalThis.fetch = nativeFetch; setUnauthorizedHandler(() => {}) })
+
+test('failed GET preserves array state and invalidates authentication', async () => {
+  let invalidated = false
+  setUnauthorizedHandler(() => { invalidated = true })
+  const store = useMarkersStore()
+  store.items = [{ id: 1, label: 'Existing' }]
+  globalThis.fetch = async () => response({ error: 'Unauthorized' }, 401)
+  await assert.rejects(store.fetch(), /Unauthorized/)
+  assert.equal(store.filtered[0].label, 'Existing')
+  assert.equal(invalidated, true)
+  await assert.rejects(store.patchCountry(1, 'NL'))
+  assert.equal(store.items[0].country, undefined)
+})
+
+test('proxy errors and malformed success bodies are readable errors', async () => {
+  globalThis.fetch = async () => new Response('<html>offline</html>', { status: 502 })
+  await assert.rejects(apiJson('/api/markers'), /502/)
+  globalThis.fetch = async () => new Response('<html>oops</html>')
+  await assert.rejects(apiJson('/api/markers'), /invalid response/)
+})
+
+test('rate-limit retry respects cancellation', async () => {
+  const controller = new AbortController()
+  globalThis.fetch = async () => response({}, 429, { 'Retry-After': '900' })
+  await assert.rejects(apiFetch('/api/markers/import', { retryRateLimit: true, signal: controller.signal, onRetry: () => controller.abort() }), { name: 'AbortError' })
+})
+
+test('restore refreshes all entity stores, clears filters and revokes cached shares', async () => {
+  const markers = useMarkersStore(), categories = useCategoriesStore(), collections = useCollectionsStore(), persons = usePersonsStore()
+  useShareLinksStore().items = [{ token: 'old' }]
+  markers.activeGroupFilter = { type: 'collection', id: 99 }
+  const calls = []
+  globalThis.fetch = async url => {
+    calls.push(url)
+    return response(url.endsWith('/restore') ? { counts: { markers: 1, categories: 1, collections: 1, persons: 1 } } : [{ id: 7, name: 'Restored' }])
+  }
+  const transfer = useImportExport(markers, categories, collections, persons)
+  transfer.restoreData.value = { type: 'backup', markers: [] }
+  await transfer.doRestore()
+  for (const key of ['markers','categories','collections','persons']) assert.ok(calls.includes('/api/' + key))
+  assert.equal(persons.items[0].id, 7)
+  assert.equal(markers.activeGroupFilter, null)
+  assert.equal(useShareLinksStore().items.length, 0)
+  assert.equal(markers.revision, 1)
+})
+
+test('JSON import supports old names and structured persons and reports relationship failures', async () => {
+  const markers = useMarkersStore(), categories = useCategoriesStore(), collections = useCollectionsStore(), persons = usePersonsStore()
+  const bodies = []
+  globalThis.fetch = async (url, options) => {
+    const data = JSON.parse(options.body)
+    bodies.push({ url, data })
+    if (url === '/api/persons') return response({ id: bodies.length, name: data.first_name, ...data })
+    if (url === '/api/categories') return response({ error: 'Category unavailable' }, 400)
+    if (url.endsWith('/import')) return response({ results: data.markers.map((m, index) => ({ index, marker: { id: index + 10, ...m } })) })
+    throw new Error('Unexpected request ' + url)
+  }
+  const transfer = useImportExport(markers, categories, collections, persons)
+  transfer.importMarkers.value = [
+    { lat: 52, lng: 5, persons: ['Older Name'], source: 'original', use_coords: 1 },
+    { lat: 53, lng: 6, persons: [{ name: 'New Name', first_name: 'New', last_name: 'Name' }] },
+    { lat: 54, lng: 7, label: 'Failed relationship', categories: ['Unavailable'] },
+  ]
+  await transfer.doImport()
+  assert.equal(bodies[0].data.first_name, 'Older Name')
+  assert.equal(bodies[1].data.last_name, 'Name')
+  assert.equal(markers.items.length, 2)
+  assert.equal(markers.items.find(m => m.source === 'original').use_coords, 1)
+  assert.equal(transfer.importFailed.value.length, 1)
+  assert.match(transfer.importFailed.value[0].label, /Category unavailable/)
+})
+
+test('CSV import batches more than 300 rows and retains geocoded country/source', async () => {
+  const batches = []
+  globalThis.fetch = async (_url, options) => {
+    const { markers } = JSON.parse(options.body)
+    batches.push(markers)
+    return response({ results: markers.map((marker, index) => ({ index, marker: { ...marker, id: batches.length * 100 + index } })) })
+  }
+  const transfer = useImportExport(useMarkersStore())
+  await transfer.doCsvImport(Array.from({ length: 350 }, (_, i) => ({ lat: 52, lng: 5, label: 'Place ' + i, country: 'Netherlands' })))
+  assert.deepEqual(batches.map(b => b.length), [100, 100, 100, 50])
+  assert.equal(batches[0][0].country, 'Netherlands')
+  assert.equal(batches[0][0].source, 'google_maps_csv')
+  assert.equal(transfer.csvImportProgress.value, 350)
+})
+
+test('stale requests cannot overwrite coordinate searches or cleared searches', async () => {
+  let finish
+  globalThis.fetch = () => new Promise(resolve => { finish = resolve })
+  const search = useSearch(() => null, () => [])
+  search.searchQuery.value = 'old place'
+  search.onSearchInput()
+  search.onSearchSubmit()
+  await new Promise(resolve => setTimeout(resolve, 5))
+  search.searchQuery.value = '52,5'
+  search.onSearchInput()
+  finish(response([{ display_name: 'stale' }]))
+  await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(search.searchResults.value[0]._coord, true)
+  search.clearSearch()
+  assert.deepEqual(search.searchResults.value, [])
+  search.cleanup()
+})
+
+test('tooltips use text and dates validate leap days and real month ends', () => {
+  const previous = globalThis.document
+  globalThis.document = { createElement: () => ({}) }
+  try {
+    const element = tooltipText('<img src=x onerror=alert(1)>')
+    assert.equal(element.textContent, '<img src=x onerror=alert(1)>')
+    assert.equal(element.innerHTML, undefined)
+  } finally { globalThis.document = previous }
+  assert.equal(parseDate('29.02.2024'), '2024-02-29')
+  assert.equal(parseDate('29.02.2025'), null)
+  assert.equal(parseDate('2026-13'), null)
+  assert.equal(normDate('2026-02', true), '2026-02-28')
+})
+
+// Compile the real SFC script, with child views stubbed because these checks target behavior.
+async function component(name, folder = 'components') {
+  const url = new URL('../src/' + folder + '/' + name + '.vue', import.meta.url)
+  const { descriptor } = parse(readFileSync(url, 'utf8'))
+  let source = compileScript(descriptor, { id: name }).content
+  source = source.replace(/import ['"][^'"]+\.css['"]/g, '')
+  source = source.replace(/from (['"])(.*?)\1/g, (_match, _quote, specifier) => {
+    let target = specifier.endsWith('.vue') ? 'data:text/javascript,export default { render() { return null } }' : specifier.startsWith('.') ? new URL(specifier, url).href : import.meta.resolve(specifier)
+    if (folder === 'views') {
+      if (specifier === 'leaflet') target = 'data:text/javascript,export default new Proxy({}, {get(_, key) {return globalThis.__testLeaflet[key]}})'
+      if (specifier === 'vue-router') target = 'data:text/javascript,export const useRoute = () => globalThis.__testRoute'
+      if (specifier.endsWith('useMarkerLayer.js')) target = 'data:text/javascript,export const useMarkerLayer = () => ({renderMarkers(){}, initClusterGroup(){}, reconfigureClustering(){}, clearAll(){}})'
+      if (specifier.endsWith('useTripRouteLayer.js')) target = 'data:text/javascript,' + encodeURIComponent(`import { ref } from ${JSON.stringify(import.meta.resolve('vue'))}; export const useTripRouteLayer = () => ({ tripSummary: ref(null), routeError: ref(''), render() { globalThis.__routeRenders = (globalThis.__routeRenders || 0) + 1 }, dispose() { globalThis.__routeDisposed = true } })`)
+      if (specifier.endsWith('useLocationPanel.js')) target = 'data:text/javascript,' + encodeURIComponent(`import { ref } from ${JSON.stringify(import.meta.resolve('vue'))}; export const useLocationPanel = () => ({ locationPanelOpen:ref(false), locationLatLng:ref(null), locationInfo:ref(null),locationLoading:ref(false),locationError:ref(null),poiData:ref(null),poiLoading:ref(false),poiError:ref(null),poiAlternatives:ref([]),placeHint:ref(null),openLocationPanel(){},closeLocationPanel(){},selectAlternativePoi(){} })`)
+    }
+    return 'from ' + JSON.stringify(target)
+  })
+  return (await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'))).default
+}
+const renderer = createRenderer({ createElement: () => ({}), insert: () => {}, remove: () => {}, setElementText: () => {}, patchProp: () => {}, createText: () => ({}), createComment: () => ({}), parentNode: () => null, nextSibling: () => null })
+function mount(Component, props) {
+  Component.render = () => null
+  const app = renderer.createApp({ render: () => h(Component, props) })
+  app.mount({})
+  return { app, state: app._instance.subTree.component.setupState }
+}
+
+test('marker modal awaits failures and restores Save/Delete controls', async () => {
+  globalThis.fetch = async () => response({})
+  const Component = await component('MarkerModal')
+  const { app, state } = mount(Component, { latlng: { lat: 52, lng: 5 }, saveMarker: async () => { throw new Error('Save rejected') }, deleteMarker: async () => { throw new Error('Delete rejected') }, marker: { id: 1, lat: 52, lng: 5 } })
+  await nextTick()
+  await state.save()
+  assert.equal(state.error, 'Save rejected')
+  assert.equal(state.saving, false)
+  await state.del()
+  assert.equal(state.error, 'Delete rejected')
+  assert.equal(state.saving, false)
+  app.unmount()
+})
+
+test('trip mode edits stay local until Save and skip excluded stops', async () => {
+  const store = useMarkersStore()
+  store.items = [1,2,3].map(id => ({ id, lat: 52, lng: id, collections: [{ id: 1, position: id }] }))
+  const writes = []
+  globalThis.fetch = async (_url, options) => {
+    if (!options?.method) return response([])
+    writes.push(JSON.parse(options.body))
+    return response({ ok: true })
+  }
+  const Component = await component('TripOrderModal')
+  const { app, state } = mount(Component, { collection: { id: 1 } })
+  await new Promise(resolve => setTimeout(resolve, 5))
+  state.toggleExclude(state.localItems[1])
+  assert.equal(state.nextStop(0).markerId, 3)
+  state.setSegMode(0, 'bike')
+  assert.equal(writes.length, 0)
+  await state.save()
+  assert.equal(writes.length, 1)
+  assert.deepEqual(writes[0].segments, [{ from_marker_id: 1, to_marker_id: 3, mode: 'bike', via_points: [] }])
+  assert.equal(writes[0].positions[1].position, null)
+  app.unmount()
+})
+
+function mapEnvironment() {
+  const listeners = new Map()
+  const removed = []
+  globalThis.window = { innerWidth: 1200, addEventListener: (key, fn) => listeners.set(key, fn), removeEventListener: key => listeners.delete(key) }
+  globalThis.document = { body: { style: {} }, addEventListener() {}, removeEventListener() {} }
+  globalThis.__testLeaflet = {
+    map: () => ({ options: {}, setView() { return this }, setMaxZoom() { return this }, getZoom: () => 2, on() { return this }, remove() { removed.push('map') }, invalidateSize() {} }),
+    control: { zoom: () => ({ addTo() {} }) },
+    tileLayer: () => ({ addTo() { return this }, remove() {} }),
+  }
+  return { listeners, removed }
+}
+
+test('MapView mounts and tears down map/keyboard handlers without an out-of-scope timer', async () => {
+  const env = mapEnvironment()
+  globalThis.fetch = async () => response([])
+  const Component = await component('MapView', 'views')
+  const { app, state } = mount(Component)
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(state.mapLoadError, '')
+  assert.ok(env.listeners.has('keydown'))
+  app.unmount()
+  assert.deepEqual(env.removed, ['map'])
+  assert.equal(env.listeners.has('keydown'), false)
+  assert.equal(env.listeners.has('popstate'), false)
+})
+
+test('public share recovers from network errors and reloads when token changes', async () => {
+  mapEnvironment()
+  globalThis.__testRoute = reactive({ params: { token: 'first' } })
+  globalThis.fetch = async () => { throw new Error('offline') }
+  const Component = await component('ShareView', 'views')
+  const { app, state } = mount(Component)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(state.state, 'error')
+  assert.equal(state.loading, false)
+  globalThis.fetch = async () => response({ requiresPassword: true, meta: { name: 'Protected' } }, 401)
+  await state.requestShare()
+  assert.equal(state.state, 'password')
+  state.passwordInput = 'test-password'
+  globalThis.fetch = async () => { throw new Error('offline') }
+  await state.submitPassword()
+  assert.equal(state.loading, false)
+  assert.match(state.gateError, /connection/)
+  const urls = []
+  globalThis.fetch = async url => { urls.push(url); return response({ meta: { name: 'Second' }, markers: [], categories: [], collections: [], persons: [] }) }
+  globalThis.__testRoute.params.token = 'second'
+  await new Promise(resolve => setTimeout(resolve, 5))
+  assert.match(urls[0], /second\/data/)
+  assert.equal(state.state, 'loaded')
+  assert.equal(state.shareMeta.name, 'Second')
+  app.unmount()
+})
+
+test('typing searches local markers only; Nominatim runs on Enter and repeated lookups are cached', async () => {
+  const calls = []
+  globalThis.fetch = async url => { calls.push(String(url)); return response([{ place_id: 1, display_name: 'Cached town', lat: '1', lon: '2' }]) }
+  const search = useSearch(() => null, () => [{ id: 1, label: 'Cached café', lat: 1, lng: 2 }])
+  search.searchQuery.value = 'cached'
+  search.onSearchInput()
+  await new Promise(resolve => setTimeout(resolve, 450))
+  assert.equal(calls.length, 0)
+  assert.equal(search.searchResults.value[0]._marker, true)
+  await search.onSearchSubmit()
+  assert.equal(calls.length, 1)
+  assert.equal(search.searchResults.value.length, 2)
+  assert.equal(search.searchSubmitted.value, true)
+})
+
+test('Nominatim requests are spaced at least one second apart', async () => {
+  const { nominatim } = await import('../src/utils/nominatim.js')
+  const times = []
+  globalThis.fetch = async () => { times.push(Date.now()); return response([]) }
+  await Promise.all([nominatim('search', { q: 'spacing-a' }), nominatim('search', { q: 'spacing-b' })])
+  assert.equal(times.length, 2)
+  assert.ok(times[1] - times[0] >= 1000)
+})
+
+test('leaving a group view resets the visited filter', () => {
+  const store = useMarkersStore()
+  store.items = [{ id: 1, visited_at: null, categories: [{ id: 3 }], collections: [], persons: [] }]
+  store.setGroupFilter({ type: 'category', id: 3 })
+  store.setVisitedFilter('visited')
+  assert.equal(store.filtered.length, 0)
+  store.clearGroupFilter()
+  assert.equal(store.visitedFilter, 'all')
+  assert.equal(store.filtered.length, 1)
+  store.setGroupFilter({ type: 'category', id: 3 })
+  store.setVisitedFilter('visited')
+  store.setGroupFilter({ type: 'person', id: 9 })
+  assert.equal(store.visitedFilter, 'all')
+})
+
+test('smart lists filter favorites and unvisited planned markers', () => {
+  const store = useMarkersStore()
+  const base = { categories: [], collections: [], persons: [] }
+  store.items = [
+    { ...base, id: 1, is_favorite: 1 },
+    { ...base, id: 2, planned_at: '2027-05-01' },
+    { ...base, id: 3, planned_at: '2025-01-01', visited_at: '2025-01-02' },
+  ]
+  store.setGroupFilter({ type: 'smart', id: 'favorites' })
+  assert.deepEqual(store.filtered.map(m => m.id), [1])
+  store.setGroupFilter({ type: 'smart', id: 'planned' })
+  assert.deepEqual(store.filtered.map(m => m.id), [2])
+})
+
+test('trip summaries format totals and export escaped GPX', async () => {
+  const { formatDistance, formatDuration, summarizeLegs, buildGpx, gpxFilename, haversineMeters } = await import('../src/utils/trip.js')
+  assert.equal(formatDistance(850), '850 m')
+  assert.equal(formatDistance(12345), '12.3 km')
+  assert.equal(formatDuration(45 * 60), '45 min')
+  assert.equal(formatDuration(190 * 60), '3 h 10 min')
+  assert.deepEqual(summarizeLegs([{ distance: 1000, duration: 60 }, { distance: 500, duration: null }]), { distance: 1500, duration: null })
+  assert.ok(Math.abs(haversineMeters({ lat: 52, lng: 5 }, { lat: 53, lng: 5 }) - 111195) < 100)
+  const gpx = buildGpx('Rock & Roll <Tour>', [{ lat: 52, lng: 5, label: 'A&B' }, { lat: 53, lng: 5, label: 'C' }], [{ path: [[52, 5], [52.5, 5.1], [53, 5]] }])
+  assert.match(gpx, /<name>Rock &amp; Roll &lt;Tour&gt;<\/name>/)
+  assert.match(gpx, /<name>1\. A&amp;B<\/name>/)
+  assert.equal((gpx.match(/<trkpt /g) || []).length, 3)
+  assert.equal(gpxFilename('Rock & Roll Tour 2026'), 'rock-roll-tour-2026.gpx')
+})
+
+test('moving a marker saves only its coordinates and reopens it', async () => {
+  mapEnvironment()
+  globalThis.history = { state: null, pushState() {}, back() {} }
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    if (init?.method !== 'PUT') return response([])
+    calls.push({ url, body: JSON.parse(init.body) })
+    return response({ id: 5, lat: 48.1, lng: 11.5, label: 'Moved', categories: [], collections: [], persons: [] })
+  }
+  const pin = { latlng: { lat: 48.1234567, lng: 11.5 }, getLatLng() { return this.latlng }, setLatLng(v) { this.latlng = v; return this }, addTo() { return this }, remove() {} }
+  const baseMap = globalThis.__testLeaflet.map
+  Object.assign(globalThis.__testLeaflet, { map: () => ({ ...baseMap(), panTo() {} }), marker: () => pin, divIcon: () => ({}) })
+  const MapView = await component('MapView', 'views')
+  const { app, state } = mount(MapView)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  useMarkersStore().items = [{ id: 5, lat: 52, lng: 5, label: 'Moved', categories: [], collections: [], persons: [] }]
+  state.startMove({ id: 5, lat: 52, lng: 5, label: 'Moved' })
+  assert.equal(state.moveTarget.id, 5)
+  await state.saveMove()
+  assert.deepEqual(calls.at(-1).body, { lat: 48.123457, lng: 11.5 })
+  assert.equal(state.moveTarget, null)
+  assert.equal(state.editingMarker.lat, 48.1)
+  app.unmount()
+})
+
+test('saving a place uses its own position, website and Wikipedia article', async () => {
+  const LocationPanel = await component('LocationPanel')
+  const saved = []
+  const poi = { name: 'Museum', lat: 52.37, lon: 4.88, tags: { website: 'https://museum.example', wikipedia: 'nl:Rijksmuseum' } }
+  const { app, state } = mount(LocationPanel, { open: true, latlng: { lat: 52.3, lng: 4.8 }, info: { address: { road: 'Museumstraat', country_code: 'nl', country: 'Nederland' } }, poiData: poi, onSaveAsMarker: e => saved.push(e) })
+  state.saveAsMarker()
+  assert.deepEqual(saved[0].latlng, { lat: 52.37, lng: 4.88 })
+  assert.equal(saved[0].suggestedLabel, 'Museum')
+  assert.deepEqual(saved[0].prefill, { external_url: 'https://museum.example', wikipedia: 'nl:Rijksmuseum' })
+  app.unmount()
+  const plain = mount(LocationPanel, { open: true, latlng: { lat: 52.3, lng: 4.8 }, info: { address: { road: 'Museumstraat', house_number: '1', country_code: 'nl', country: 'Nederland' } }, onSaveAsMarker: e => saved.push(e) })
+  plain.state.saveAsMarker()
+  assert.deepEqual(saved[1].latlng, { lat: 52.3, lng: 4.8 })
+  assert.equal(saved[1].prefill.address, '1 Museumstraat, Nederland')
+  assert.equal(saved[1].prefill.country, 'Netherlands')
+  plain.app.unmount()
+})
+
+test('deleting a marker offers undo, which restores it from the trash', async () => {
+  const store = useMarkersStore()
+  store.items = [{ id: 4, label: 'Café', categories: [], collections: [], persons: [] }]
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    calls.push(`${init?.method || 'GET'} ${url}`)
+    if (url === '/api/markers/4') return response({ ok: true, trashed: { id: 4, label: 'Café' } })
+    if (url === '/api/markers/trash/4/restore') return response({ id: 4, label: 'Café', categories: [], collections: [], persons: [] })
+    return response([])
+  }
+  await store.remove(4)
+  assert.equal(store.items.length, 0)
+  assert.deepEqual(store.lastDeleted, { id: 4, label: 'Café' })
+  await store.restoreFromTrash(4)
+  assert.equal(store.items[0].label, 'Café')
+  assert.equal(store.lastDeleted, null)
+  assert.ok(calls.includes('GET /api/persons'))
+})
+
+test('marker search ignores accents, matches all words across fields and ranks label matches first', async () => {
+  const { searchMarkers } = await import('../src/utils/markerSearch.js')
+  const markers = [
+    { id: 1, label: 'Lunch spot', description: 'Great café near the Hôtel de Ville', categories: [{ name: 'Food' }] },
+    { id: 2, label: 'Café de Flore', address: 'Paris', categories: [] },
+    { id: 3, label: 'Museum', country: 'France', persons: [{ name: 'Zoë' }] },
+  ]
+  assert.deepEqual(searchMarkers(markers, 'cafe').map(m => m.id), [2, 1])
+  assert.deepEqual(searchMarkers(markers, 'hotel food').map(m => m.id), [1])
+  assert.deepEqual(searchMarkers(markers, 'zoe france').map(m => m.id), [3])
+  assert.deepEqual(searchMarkers(markers, '   '), [])
+})
+
+test('names sort numerically and ignore case', async () => {
+  const { byName } = await import('../src/utils/byName.js')
+  assert.deepEqual([{ name: 'Trip 10' }, { name: 'trip 9' }, { name: 'Alpha' }].sort(byName).map(x => x.name), ['Alpha', 'trip 9', 'Trip 10'])
+})
+
+test('a via-point clicked on a winding leg goes where it lies along the path', async () => {
+  const { viaInsertIndex } = await import('../src/utils/trip.js')
+  // U-shaped route from (0,0) up to (0,1), across to (1,1) and back down to (1,0); the straight
+  // line between the stops is short, so midpoints would pick the wrong slot.
+  const path = [[0, 0], [1, 0], [1, 1], [0, 1]]
+  const via = [{ lat: 1, lng: 0.5 }]
+  assert.equal(viaInsertIndex(path, via, { lat: 0.5, lng: 0 }), 0)
+  assert.equal(viaInsertIndex(path, via, { lat: 0.5, lng: 1 }), 1)
+  assert.equal(viaInsertIndex(path, [], { lat: 0.5, lng: 1 }), 0)
+})
+
+test('trip order/mode saves bump the route revision; a failed persons refresh does not fail a restore', async () => {
+  const store = useMarkersStore()
+  store.items = [{ id: 1, collections: [{ id: 2, position: 1 }] }]
+  globalThis.fetch = async () => response({ ok: true })
+  await store.updateTripPositions(2, [{ marker_id: 1, position: 1 }], [])
+  assert.equal(store.routeRevision, 1)
+  globalThis.fetch = async url => url.endsWith('/restore') ? response({ id: 4, label: 'Back', categories: [], collections: [], persons: [] }) : new Response('down', { status: 503 })
+  const restored = await store.restoreFromTrash(4)
+  assert.equal(restored.id, 4)
+  assert.equal(store.items[0].id, 4)
+})
+
+test('a 401 on a write keeps the page and explains how to recover; a 401 on a read still signs out', async () => {
+  const calls = []
+  setUnauthorizedHandler(info => calls.push(info))
+  globalThis.fetch = async () => response({ error: 'Unauthorized' }, 401)
+  await assert.rejects(apiFetch('/api/markers/1', { method: 'PUT', body: '{}' }), /session has expired.*new tab/)
+  await assert.rejects(apiFetch('/api/markers'), /Unauthorized/)
+  assert.deepEqual(calls, [{ write: true }, { write: false }])
+})
+
+test('only a real 401 counts as signed out when re-checking the session', async () => {
+  const { useAuthStore } = await import('../src/stores/auth.js')
+  const auth = useAuthStore()
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch') }
+  assert.equal(await auth.checkSession(), true)
+  assert.equal(auth.offline, true)
+  globalThis.fetch = async () => response({ error: 'Unauthorized' }, 401)
+  assert.equal(await auth.checkSession(), false)
+  assert.equal(auth.isAuthenticated, false)
+  globalThis.fetch = async () => response({ ok: true })
+  auth.sessionExpired = true
+  await auth.recheck()
+  assert.equal(auth.sessionExpired, false)
+  assert.equal(auth.offline, false)
+})
+
+test('routing falls back to OSRM when the ORS key is rejected and explains ORS quota errors', async () => {
+  const { fetchSegmentRoute } = await import('../src/composables/useTripRouting.js')
+  globalThis.localStorage = { getItem: () => JSON.stringify({ orsApiKey: 'bad-key' }), setItem() {} }
+  const urls = []
+  globalThis.fetch = async url => {
+    urls.push(String(url))
+    if (String(url).includes('openrouteservice')) return response({ error: 'Access denied' }, 403)
+    return response({ code: 'Ok', routes: [{ geometry: { coordinates: [[5, 52], [5.1, 52.1]] }, distance: 900, duration: 600 }] })
+  }
+  const route = await fetchSegmentRoute({ lat: 52, lng: 5 }, { lat: 52.1, lng: 5.1 }, [], 'walk')
+  assert.deepEqual(route.path, [[52, 5], [52.1, 5.1]])
+  assert.match(route.warning, /rejected the API key/)
+  assert.ok(urls.some(u => u.includes('routing.openstreetmap.de')))
+  globalThis.fetch = async () => response({}, 429)
+  await assert.rejects(fetchSegmentRoute({ lat: 40, lng: 5 }, { lat: 40.1, lng: 5.1 }, [], 'bike'), /quota/)
+})
+
+test('MapView: undo history is per group type, filter chip and search outside the filter', async () => {
+  mapEnvironment()
+  globalThis.history = { state: null, pushState() {}, back() {} }
+  globalThis.fetch = async url => response(url === '/api/categories' ? [{ id: 3, name: 'Food', color: '#ff0000' }] : [])
+  const MapView = await component('MapView', 'views')
+  const { app, state } = mount(MapView)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  const store = useMarkersStore()
+  store.setGroupFilter({ type: 'collection', id: 3 })
+  await nextTick()
+  state.undoStack = [{ colId: 3, fromId: 1, toId: 2, via_points: [] }]
+  store.setGroupFilter({ type: 'category', id: 3 })
+  await nextTick()
+  assert.equal(state.undoStack.length, 0)
+  state.undoStack = [{ colId: 3, fromId: 1, toId: 2, via_points: [] }]
+  store.bumpRouteRevision()
+  await nextTick()
+  assert.equal(state.undoStack.length, 0)
+
+  assert.equal(state.filterChip, null)
+  state.sidebarOpen = false
+  assert.equal(state.filterChip.name, 'Food')
+
+  const hidden = { id: 8, label: 'Elsewhere', lat: 1, lng: 2, categories: [], collections: [], persons: [] }
+  store.items = [hidden]
+  state.handleSearchSelect({ _marker: true, _markerObj: hidden, lat: '1', lon: '2', display_name: 'Elsewhere' })
+  assert.equal(state.modalOpen, true)
+  assert.equal(state.editingMarker.id, 8)
+  app.unmount()
+})
+
+const groupMarker = (id, cats, cols, pers = [], visited = null) => ({ id, lat: 1, lng: 1, visited_at: visited, categories: cats.map(id => ({ id })), collections: cols.map(id => ({ id })), persons: pers.map(id => ({ id })) })
+
+test('refinements: OR within a type (primary included), AND across types, visited on top', () => {
+  const store = useMarkersStore()
+  const m = groupMarker
+  store.items = [m(1, [10], [20]), m(2, [11], [20], [30]), m(3, [10], [21]), m(4, [12], [20], [31], '2024-01-01'), m(5, [], [20])]
+  const ids = () => store.filtered.map(x => x.id)
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  assert.deepEqual(ids(), [1, 2, 4, 5])
+  store.addRefineFilter({ type: 'category', id: 10 })
+  assert.deepEqual(ids(), [1])
+  store.addRefineFilter({ type: 'category', id: 11 })
+  assert.deepEqual(ids(), [1, 2])
+  store.addRefineFilter({ type: 'collection', id: 21 }) // same type as the primary: widens it
+  assert.deepEqual(ids(), [1, 2, 3])
+  store.addRefineFilter({ type: 'person', id: 30 })
+  assert.deepEqual(ids(), [2])
+  store.removeRefineFilter({ type: 'person', id: 30 })
+  store.setVisitedFilter('visited')
+  assert.deepEqual(ids(), [])
+  store.setVisitedFilter('all')
+  // Smart lists, "no group" entries, the primary itself and duplicates are not refinements.
+  for (const r of [{ type: 'smart', id: 'favorites' }, { type: 'person', id: '__none__' }, { type: 'collection', id: 20 }, { type: 'category', id: 10 }]) store.addRefineFilter(r)
+  assert.equal(store.refineFilters.length, 3)
+  // "Uncategorized" as the primary ORs with a category refinement.
+  store.setGroupFilter({ type: 'category', id: '__none__' })
+  store.addRefineFilter({ type: 'category', id: 12 })
+  assert.deepEqual(ids(), [4, 5])
+})
+
+test('refinements are cleared when the primary group changes or is cleared, kept when re-set, dropped with their group', () => {
+  const store = useMarkersStore()
+  store.items = [groupMarker(1, [10], [20])]
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  store.addRefineFilter({ type: 'category', id: 10 })
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  assert.equal(store.refineFilters.length, 1)
+  store.setGroupFilter({ type: 'category', id: 20 }) // same id, other type
+  assert.equal(store.refineFilters.length, 0)
+  store.addRefineFilter({ type: 'collection', id: 20 })
+  store.clearGroupFilter()
+  assert.equal(store.refineFilters.length, 0)
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  store.addRefineFilter({ type: 'category', id: 10 })
+  store.patchEmbeddedCategory(10, { name: 'Renamed' })
+  assert.equal(store.refineFilters.length, 1)
+  store.patchEmbeddedCategory(10, null) // deleted
+  assert.equal(store.refineFilters.length, 0)
+})
+
+test('refinement counts: markers each group would leave, also when adding to a type already filtered on', () => {
+  const store = useMarkersStore()
+  const m = groupMarker
+  store.items = [m(1, [10], [20]), m(2, [10, 11], [20]), m(3, [11], [21]), m(4, [12], [20])]
+  store.setGroupFilter({ type: 'collection', id: 20 })
+  const { category, collection } = store.refineCounts
+  assert.equal(category.base, 0)
+  assert.deepEqual([...category.extra], [[10, 2], [11, 1], [12, 1]])
+  assert.equal(collection.extra.get(21), 1)
+  store.addRefineFilter({ type: 'category', id: 10 })
+  const after = store.refineCounts
+  assert.equal(after.category.base, 2) // markers already shown count for every other category
+  assert.deepEqual([...after.category.extra], [[12, 1]]) // category 11 adds nothing new within collection 20
+  assert.equal(after.collection.base, 2)
+  assert.equal(after.collection.extra.get(21), undefined) // marker 3 is no restaurant
+})
+
+test('filter panel: picker lists groups with what they would leave, list reflects all filters, back clears them', async () => {
+  globalThis.document = { addEventListener() {}, removeEventListener() {} }
+  const store = useMarkersStore()
+  const m = groupMarker
+  store.items = [m(1, [10], [20], [30]), m(2, [11], [20], [31]), m(3, [10], [21])]
+  useCategoriesStore().items = [{ id: 10, name: 'Restaurant', color: '#ff0000' }, { id: 11, name: 'Café', color: '#00ff00' }, { id: 12, name: 'Unused', color: '#000000' }]
+  useCollectionsStore().items = [{ id: 20, name: 'Japan', color: '#0000ff' }, { id: 21, name: 'Italy', color: '#0000ff' }]
+  usePersonsStore().items = [{ id: 30, name: 'Anna Ab', first_name: 'Anna', color: '#123456' }, { id: 31, name: 'Ben Bo', color: '#654321' }]
+  const { app, state } = mount(await component('FilterPanel'), {})
+  state.drillInto({ type: 'collection', id: 20 })
+  await nextTick()
+  state.toggleRefine()
+  assert.equal(state.refineOpen, true)
+  assert.notEqual(state.currentRefineTab.type, 'collection') // opens on a type that narrows down
+  const categories = state.refineTabs.find(t => t.type === 'category')
+  assert.deepEqual(categories.options.map(o => [o.name, o.count]), [['Restaurant', 1], ['Café', 1]]) // "Unused" would leave nothing
+  assert.deepEqual(state.refineTabs.find(t => t.type === 'collection').options.map(o => [o.name, o.count]), [['Italy', 3]])
+  store.addRefineFilter({ type: 'person', id: 30 })
+  store.addRefineFilter({ type: 'person', id: 31 })
+  assert.deepEqual(state.refineChips.map(c => [c.name, c.or]), [['Anna Ab', false], ['Ben Bo', true]])
+  store.addRefineFilter({ type: 'category', id: 11 })
+  assert.deepEqual(state.detailMarkers.map(x => x.id), [2])
+  state.detailQuery = 'nothing'
+  assert.equal(state.detailMarkers.length, 0)
+  state.goBack()
+  await nextTick()
+  assert.equal(store.refineFilters.length, 0)
+  assert.equal(state.refineOpen, false)
+  app.unmount()
+  delete globalThis.document
+})
+
+test('MapView: filter chip counts refinements and its ✕ clears them with the group', async () => {
+  mapEnvironment()
+  globalThis.history = { state: null, pushState() {}, back() {} }
+  globalThis.fetch = async url => response(url === '/api/categories' ? [{ id: 3, name: 'Food', color: '#ff0000' }] : url === '/api/persons' ? [{ id: 4, name: 'Anna', color: '#00ff00' }] : [])
+  const MapView = await component('MapView', 'views')
+  const { app, state } = mount(MapView)
+  await new Promise(resolve => setTimeout(resolve, 5))
+  const store = useMarkersStore()
+  store.setGroupFilter({ type: 'category', id: 3 })
+  store.addRefineFilter({ type: 'person', id: 4 })
+  state.sidebarOpen = false
+  assert.equal(state.filterChip.name, 'Food')
+  assert.equal(state.filterChip.more, 1)
+  assert.match(state.filterChip.title, /Anna/)
+  store.clearGroupFilter() // what the chip's ✕ calls
+  assert.equal(store.refineFilters.length, 0)
+  assert.equal(state.filterChip, null)
+  app.unmount()
+})
+
+test('new marker form preselects the primary and refinement groups, none of them as recent picks', async () => {
+  globalThis.fetch = async () => response({})
+  const markers = useMarkersStore()
+  markers.items = [{ id: 2, lat: 1, lng: 1, categories: [], persons: [], collections: [{ id: 7, position: 3 }] }]
+  useCollectionsStore().items = [{ id: 7, name: 'Trip', is_trip: 1, color: '#10b981' }]
+  useCategoriesStore().items = [{ id: 5, name: 'Food', color: '#ef4444' }, { id: 6, name: 'Art', color: '#3b82f6' }]
+  usePersonsStore().items = [{ id: 9, name: 'Anna', color: '#000000' }]
+  markers.setGroupFilter({ type: 'category', id: 5 })
+  markers.addRefineFilter({ type: 'collection', id: 7 })
+  markers.addRefineFilter({ type: 'person', id: 9 })
+  const { app, state } = mount(await component('MarkerModal'), { latlng: { lat: 52, lng: 5 }, prefill: { address: 'Here', country: 'NL' }, saveMarker: async () => {} })
+  await nextTick()
+  assert.deepEqual(state.form.category_ids, [5])
+  assert.deepEqual(state.form.collection_ids, [7])
+  assert.deepEqual(state.form.person_ids, [9])
+  assert.equal(state.form.collection_positions[7], 4) // next free trip stop
+  assert.equal(state.isDirty(), false)
+  state.form.category_ids = [5, 6]
+  await state.save()
+  const { recentPicks } = await import('../src/utils/recentPicks.js')
+  const recent = recentPicks()
+  assert.ok(recent.category_ids.includes(6))
+  for (const [key, id] of [['category_ids', 5], ['collection_ids', 7], ['person_ids', 9]]) assert.equal(recent[key].includes(id), false)
+  app.unmount()
+})

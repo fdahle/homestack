@@ -1,0 +1,534 @@
+<template>
+  <div class="overlay" @mousedown="onOverlayMousedown" @click="onOverlayClick">
+    <TripOrderModal
+      v-if="tripOrderOpen && props.item"
+      :collection="props.item"
+      @close="tripOrderOpen = false"
+    />
+    <div ref="dialogEl" class="modal" role="dialog" aria-modal="true" aria-labelledby="manage-modal-title" tabindex="-1">
+      <div class="modal-header">
+        <h2 id="manage-modal-title">{{ isEdit ? `Edit ${label}` : `New ${label}` }}</h2>
+        <button class="close-btn" aria-label="Close" @click="requestClose"><AppIcon name="close" /></button>
+      </div>
+
+      <form @submit.prevent="save">
+        <div class="form-body">
+          <div class="row" v-if="type === 'person'">
+            <div class="field">
+              <label for="manage-first-name">First name</label>
+              <input id="manage-first-name" v-model="form.first_name" type="text" placeholder="First name" required />
+            </div>
+            <div class="field">
+              <label for="manage-last-name">Last name</label>
+              <input id="manage-last-name" v-model="form.last_name" type="text" placeholder="Last name" />
+            </div>
+          </div>
+
+          <div class="field" v-else>
+            <label for="manage-name">Name</label>
+            <input id="manage-name" v-model="form.name" type="text" :placeholder="label + ' name'" required />
+          </div>
+
+          <div class="field" v-if="type === 'collection'">
+            <label for="manage-description">Description</label>
+            <textarea id="manage-description" v-model="form.description" rows="2" placeholder="Optional notes" />
+          </div>
+
+          <div class="field" v-if="type === 'collection'">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="form.is_trip" @change="if (!form.is_trip) { form.start_date = ''; form.end_date = ''; form.show_route_line = false }" />
+              This is a trip
+            </label>
+          </div>
+
+          <div class="row" v-if="type === 'collection' && form.is_trip">
+            <div class="field">
+              <label for="manage-start">Start</label>
+              <input id="manage-start" v-model="form.start_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
+            </div>
+            <div class="field">
+              <label for="manage-end">End</label>
+              <input id="manage-end" v-model="form.end_date" type="text" placeholder="e.g. 2024, 06/2024, 15.06.2024" />
+            </div>
+          </div>
+
+          <div class="field" v-if="type === 'collection' && form.is_trip">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="form.show_route_line" />
+              Show straight line between stops
+            </label>
+          </div>
+
+          <div class="field" v-if="type === 'collection' && form.is_trip">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="form.show_exact_route" />
+              Show road-snapped route
+            </label>
+            <p v-if="form.show_exact_route" class="hint-text">Click the route to add waypoints · Click a waypoint to delete it · Drag to move</p>
+          </div>
+
+          <div v-if="type === 'collection' && form.is_trip && isEdit" class="field">
+            <button type="button" class="btn-order" @click="tripOrderOpen = true">
+              <AppIcon name="reorder" /> Manage stop order
+            </button>
+          </div>
+
+          <div class="field" v-if="type === 'person'">
+            <label for="manage-address-marker">Address marker</label>
+            <div class="address-marker-row">
+              <input
+                id="manage-address-marker"
+                v-model="markerSearch"
+                type="text"
+                placeholder="Search markers…"
+                @focus="markerDropdownOpen = true"
+                @blur="onMarkerBlur"
+                autocomplete="off"
+              />
+              <button v-if="form.address_marker_id" type="button" class="clear-btn" @click="form.address_marker_id = null; markerSearch = ''">✕</button>
+            </div>
+            <div v-if="markerDropdownOpen && filteredMarkers.length" class="marker-dropdown">
+              <button
+                v-for="m in filteredMarkers"
+                :key="m.id"
+                type="button"
+                class="marker-option"
+                @mousedown.prevent="selectMarker(m)"
+              >
+                <span class="marker-label">{{ m.label || '(no label)' }}</span>
+                <span v-if="m.address" class="marker-addr">{{ m.address }}</span>
+              </button>
+            </div>
+            <p v-if="form.address_marker_id && selectedMarkerDisplay" class="hint-text">
+              Selected: {{ selectedMarkerDisplay }}
+            </p>
+          </div>
+
+          <div class="field">
+            <label id="manage-color-label">Color</label>
+            <div class="color-row" role="group" aria-labelledby="manage-color-label">
+              <input v-model="form.color" type="color" class="color-input" aria-label="Custom color" />
+              <div class="color-presets">
+                <button
+                  v-for="c in presets"
+                  :key="c"
+                  type="button"
+                  class="preset"
+                  :style="{ background: c, outline: form.color === c ? '2px solid #000' : 'none' }"
+                  @click="form.color = c"
+                />
+                <button type="button" class="preset auto-preset" @click="form.color = generateAutoColor()" title="Pick a color distinct from existing ones">Auto</button>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="error" class="error">{{ error }}</p>
+        </div>
+
+        <p v-if="confirmDelete" class="delete-warning" role="alert">{{ deleteWarning }}</p>
+
+        <div class="modal-actions">
+          <template v-if="isEdit">
+            <button v-if="!confirmDelete" type="button" class="btn-danger" @click="confirmDelete = true" :disabled="saving">Delete</button>
+            <template v-else>
+              <button type="button" class="btn-danger" @click="del" :disabled="saving">Yes, delete</button>
+              <button type="button" class="btn-ghost" :aria-label="`Keep ${label.toLowerCase()}`" :title="`Keep ${label.toLowerCase()}`" @click="confirmDelete = false"><AppIcon name="close" /></button>
+            </template>
+          </template>
+          <div class="spacer" />
+          <button type="button" class="btn-secondary" @click="requestClose">Cancel</button>
+          <button type="submit" class="btn-primary" :disabled="saving">
+            {{ saving ? '...' : 'Save' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { parseDate, normDate } from '../../../shared/dates.js'
+import AppIcon from './AppIcon.vue'
+import { useCategoriesStore } from '../stores/categories.js'
+import { useCollectionsStore } from '../stores/collections.js'
+import { usePersonsStore } from '../stores/persons.js'
+import { useMarkersStore } from '../stores/markers.js'
+import TripOrderModal from './TripOrderModal.vue'
+import { useDialog } from '../composables/useDialog.js'
+
+const props = defineProps({
+  type: { type: String, required: true }, // 'category' | 'collection' | 'person'
+  item: { type: Object, default: null },
+})
+const emit = defineEmits(['close'])
+
+const categoriesStore = useCategoriesStore()
+const collectionsStore = useCollectionsStore()
+const personsStore = usePersonsStore()
+const markersStore = useMarkersStore()
+
+const isEdit = computed(() => !!props.item)
+const label = computed(() => props.type === 'category' ? 'Category' : props.type === 'collection' ? 'Collection' : 'Person')
+const saving = ref(false)
+const error = ref(null)
+const tripOrderOpen = ref(false)
+const confirmDelete = ref(false)
+const markerSearch = ref('')
+
+let initialForm = null
+const isDirty = () => initialForm !== null && JSON.stringify(form.value) !== initialForm
+const dialogEl = ref(null)
+const { requestClose, onOverlayMousedown, onOverlayClick } = useDialog(dialogEl, { close: () => emit('close'), isDirty })
+
+// Deleting cannot be undone, so the confirmation says what it affects.
+const deleteWarning = computed(() => {
+  if (!props.item) return ''
+  const key = { category: 'categories', collection: 'collections', person: 'persons' }[props.type]
+  const count = markersStore.items.filter((m) => m[key]?.some((x) => x.id === props.item.id)).length
+  const kind = label.value.toLowerCase()
+  const usage = count
+    ? `${count} marker${count === 1 ? '' : 's'} ${count === 1 ? 'uses' : 'use'} it; the markers are kept without this ${kind}.`
+    : `No markers use this ${kind}.`
+  const trip = props.item.is_trip ? ' Its stop order and routes are removed.' : ''
+  return `Delete "${props.item.name}"? ${usage}${trip} This cannot be undone.`
+})
+const markerDropdownOpen = ref(false)
+
+const filteredMarkers = computed(() => {
+  const q = markerSearch.value.toLowerCase()
+  return markersStore.items
+    .filter((m) => !q || (m.label || '').toLowerCase().includes(q) || (m.address || '').toLowerCase().includes(q))
+    .slice(0, 20)
+})
+
+const selectedMarkerDisplay = computed(() => {
+  if (!form.value.address_marker_id) return null
+  const m = markersStore.items.find((m) => m.id === form.value.address_marker_id)
+  if (!m) return null
+  return [m.label, m.address].filter(Boolean).join(' — ')
+})
+
+function selectMarker(m) {
+  form.value.address_marker_id = m.id
+  markerSearch.value = ''
+  markerDropdownOpen.value = false
+}
+
+function onMarkerBlur() {
+  setTimeout(() => { markerDropdownOpen.value = false }, 150)
+}
+
+const presets = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100
+  const a = s * Math.min(l, 1 - l)
+  const f = (n) => {
+    const k = (n + h / 30) % 12
+    return Math.round(255 * (l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1))).toString(16).padStart(2, '0')
+  }
+  return `#${f(0)}${f(8)}${f(4)}`
+}
+
+function generateAutoColor() {
+  const items = props.type === 'category' ? categoriesStore.items : props.type === 'collection' ? collectionsStore.items : personsStore.items
+  const hue = Math.round((items.length * 137.508) % 360)
+  return hslToHex(hue, 65, 50)
+}
+
+const form = ref({
+  name: '',
+  first_name: '',
+  last_name: '',
+  address_marker_id: null,
+  description: '',
+  is_trip: false,
+  start_date: '',
+  end_date: '',
+  color: '#3b82f6',
+  show_route_line: false,
+  show_exact_route: false,
+})
+
+onMounted(() => {
+  if (props.item) {
+    form.value = {
+      name: props.item.name || '',
+      first_name: props.item.first_name || '',
+      last_name: props.item.last_name || '',
+      address_marker_id: props.item.address_marker_id || null,
+      description: props.item.description || '',
+      is_trip: !!props.item.is_trip,
+      start_date: props.item.start_date || '',
+      end_date: props.item.end_date || '',
+      color: props.item.color || form.value.color,
+      show_route_line: !!props.item.show_route_line,
+      show_exact_route: !!props.item.show_exact_route,
+    }
+  } else {
+    form.value.color = generateAutoColor()
+  }
+  initialForm = JSON.stringify(form.value)
+})
+
+const store = computed(() => props.type === 'category' ? categoriesStore : props.type === 'collection' ? collectionsStore : personsStore)
+
+function isValidDate(d) { return !d || parseDate(d) !== null }
+
+async function save() {
+  error.value = null
+  if (form.value.is_trip) {
+    if (!isValidDate(form.value.start_date) || !isValidDate(form.value.end_date)) {
+      error.value = 'Accepted: 2024 · 06/2024 · 15.06.2024 · 2024-06-15'
+      return
+    }
+    const startNorm = parseDate(form.value.start_date)
+    const endNorm = parseDate(form.value.end_date)
+    if (startNorm && endNorm && normDate(startNorm, false) > normDate(endNorm, true)) {
+      error.value = 'Start date must be before end date'
+      return
+    }
+    form.value.start_date = startNorm
+    form.value.end_date = endNorm
+  }
+  saving.value = true
+  try {
+    if (isEdit.value) {
+      await store.value.update(props.item.id, form.value)
+    } else {
+      await store.value.create(form.value)
+    }
+    emit('close')
+  } catch (err) {
+    error.value = err.message
+    saving.value = false
+  }
+}
+
+async function del() {
+  saving.value = true
+  try {
+    await store.value.remove(props.item.id)
+    emit('close')
+  } catch (err) {
+    error.value = err.message
+    saving.value = false
+  }
+}
+</script>
+
+<style scoped>
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+
+.modal {
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  /* Long trip forms scroll inside the modal so Save stays reachable in short windows. */
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal:focus { outline: none; }
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+h2 { font-size: 16px; font-weight: 700; }
+
+.close-btn {
+  background: none;
+  color: var(--text-2);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.close-btn:hover { background: var(--surface-2); }
+
+form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+.form-body { padding: 16px 20px 20px; flex: 1; min-height: 0; overflow-y: auto; }
+
+.delete-warning { color: var(--danger); font-size: 13px; padding: 8px 20px 0; flex-shrink: 0; }
+
+.field { margin-bottom: 14px; }
+
+textarea { resize: vertical; }
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.color-input {
+  width: 42px;
+  height: 36px;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+
+.color-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.preset {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  cursor: pointer;
+  outline-offset: 2px;
+}
+
+.auto-preset {
+  border-radius: 4px;
+  width: auto;
+  height: 22px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.auto-preset:hover { background: var(--border); color: var(--text); }
+
+.checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.checkbox-label input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
+.hint-text { font-size: 11px; color: var(--text-2); margin-top: 4px; }
+
+.address-marker-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.address-marker-row input { flex: 1; }
+
+.clear-btn {
+  background: none;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 8px;
+  height: 34px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.clear-btn:hover { background: var(--surface-2); color: var(--danger); }
+
+.marker-dropdown {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 4px;
+  box-shadow: var(--shadow);
+}
+
+.marker-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+}
+.marker-option:last-child { border-bottom: none; }
+.marker-option:hover { background: var(--surface-2); }
+
+.marker-label { font-size: 13px; font-weight: 500; color: var(--text); }
+.marker-addr { font-size: 11px; color: var(--text-2); margin-top: 1px; }
+
+.btn-order {
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  transition: background 0.1s;
+}
+.btn-order:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+
+.error { color: var(--danger); font-size: 13px; margin-bottom: 10px; }
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 20px 20px;
+  flex-shrink: 0;
+}
+
+.spacer { flex: 1; }
+
+.btn-ghost { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--border); color: var(--text); }
+
+.btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+.btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--border); }
+
+.btn-danger { background: none; color: var(--danger); border: 1px solid var(--danger); }
+.btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+
+@media (max-width: 640px) {
+  .overlay { align-items: stretch; padding: 0; }
+  .modal {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  .modal-header { padding-top: calc(16px + var(--sat, 0px)); }
+  .form-body { padding-bottom: 8px; }
+  .modal-actions { padding-bottom: calc(20px + var(--sab, 0px)); }
+}
+</style>

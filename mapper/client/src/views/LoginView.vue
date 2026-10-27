@@ -1,0 +1,207 @@
+<template>
+  <div class="login-page">
+    <div class="login-card">
+      <h1>🗺 Mapper</h1>
+
+      <form @submit.prevent="submit">
+        <div class="field">
+          <label>{{ authStore.setupRequired ? 'Create Password' : 'Password' }}</label>
+          <div class="input-wrap">
+            <input
+              :type="showPassword ? 'text' : 'password'"
+              v-model="password"
+              placeholder="Enter password"
+              :autocomplete="authStore.setupRequired ? 'new-password' : 'current-password'"
+              required
+            />
+            <button
+              type="button"
+              class="toggle-pw"
+              @mousedown.prevent
+              @touchstart.prevent="showPassword = !showPassword"
+              @click="showPassword = !showPassword"
+              :aria-label="showPassword ? 'Hide password' : 'Show password'"
+            >
+              <AppIcon :name="showPassword ? 'eyeOff' : 'eye'" />
+            </button>
+          </div>
+        </div>
+
+        <p v-if="error" class="error">{{ error }}</p>
+        <p v-if="configError && !loading" class="error">
+          Could not reach the server. <button type="button" class="retry-link" @click="loadConfig">Retry</button>
+        </p>
+
+        <button type="submit" class="btn-primary" :disabled="loading">
+          {{ loading ? '...' : authStore.setupRequired ? 'Create Account' : 'Sign In' }}
+        </button>
+      </form>
+
+      <p v-if="authStore.setupRequired" class="hint">
+        First time setup — set a password to protect your map.
+      </p>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth.js'
+import AppIcon from '../components/AppIcon.vue'
+
+const authStore = useAuthStore()
+const router = useRouter()
+const route = useRoute()
+// Only paths within the app: "//other.site" would leave it.
+const redirect = typeof route.query.redirect === 'string' && /^\/(?!\/)/.test(route.query.redirect) ? route.query.redirect : '/'
+
+const password = ref('')
+const showPassword = ref(false)
+const error = ref(null)
+const loading = ref(true)
+const configError = ref(false)
+
+async function loadConfig() {
+  loading.value = true
+  try {
+    await authStore.fetchConfig()
+    configError.value = false
+  } catch {
+    configError.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadConfig)
+
+async function submit() {
+  error.value = null
+  // Without the config we do not know whether this is setup or sign-in.
+  if (configError.value) {
+    await loadConfig()
+    if (configError.value) return
+  }
+  loading.value = true
+  try {
+    if (authStore.setupRequired) {
+      await authStore.setup(password.value)
+    } else {
+      await authStore.login(password.value)
+    }
+    router.push(redirect)
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<style scoped>
+.retry-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+</style>
+
+<style scoped>
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 16px;
+  padding-top: calc(16px + var(--sat, 0px));
+  padding-bottom: calc(16px + var(--sab, 0px));
+}
+
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 40px;
+  width: min(340px, 100%);
+  box-shadow: var(--shadow-lg);
+}
+
+@media (max-width: 400px) {
+  .login-card {
+    padding: 28px 20px;
+  }
+}
+
+h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.input-wrap {
+  position: relative;
+}
+
+.input-wrap input {
+  width: 100%;
+  padding-right: 40px;
+  box-sizing: border-box;
+}
+
+.toggle-pw {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 38px;
+  background: none;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.toggle-pw svg {
+  pointer-events: none;
+}
+
+.toggle-pw:hover { color: var(--text); background: none; }
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.btn-primary {
+  width: 100%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 10px;
+}
+
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+.hint {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: center;
+}
+</style>

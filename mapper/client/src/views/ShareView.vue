@@ -1,0 +1,723 @@
+<template>
+  <div class="map-shell">
+
+    <!-- Password gate -->
+    <div v-if="state === 'password'" class="gate">
+      <div class="gate-card">
+        <div class="gate-logo">MapMarker</div>
+        <h2>{{ shareMeta?.name || 'Shared map' }}</h2>
+        <p class="gate-hint">This link is password protected.</p>
+        <form @submit.prevent="submitPassword">
+          <div class="gate-field">
+            <input
+              v-model="passwordInput"
+              :type="showPw ? 'text' : 'password'"
+              placeholder="Enter password"
+              class="gate-input"
+              autofocus
+              autocomplete="current-password"
+            />
+            <button type="button" class="pw-toggle" @click="showPw = !showPw">
+              <AppIcon :name="showPw ? 'eyeOff' : 'eye'" />
+            </button>
+          </div>
+          <p v-if="gateError" class="gate-error">{{ gateError }}</p>
+          <button type="submit" class="gate-btn" :disabled="loading">
+            {{ loading ? '…' : 'View map' }}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Error states -->
+    <div v-else-if="state === 'error'" class="gate">
+      <div class="gate-card">
+        <div class="gate-logo">MapMarker</div>
+        <p class="gate-error-big">{{ errorMessage }}</p>
+        <!-- A missing or expired link stays that way; retrying only helps with transient failures. -->
+        <button v-if="errorRetryable" class="gate-btn" @click="requestShare()">Retry</button>
+      </div>
+    </div>
+
+    <!-- Map -->
+    <template v-else-if="state === 'loaded'">
+      <div class="map-area">
+        <div class="map-container" ref="mapEl" />
+
+        <!-- Search bar -->
+        <div class="top-bar">
+          <div class="search-wrapper">
+            <input
+              class="search-input"
+              v-model="searchQuery"
+              @input="onSearchInput"
+              @keydown.enter.prevent="onSearchSubmit"
+              @focus="searchOpen = true"
+              @blur="onSearchBlur"
+              placeholder="Search address or marker…"
+              autocomplete="off"
+              type="text"
+            />
+            <span v-if="searchLoading" class="search-spinner" aria-label="Searching" />
+            <button
+              v-else-if="searchQuery"
+              class="search-clear"
+              type="button"
+              @mousedown.prevent="clearSearch"
+              aria-label="Clear search"
+            >✕</button>
+            <div class="search-results" v-if="searchOpen && (searchResults.length || (!searchLoading && searchQuery.trim()))">
+              <button
+                v-for="r in searchResults"
+                :key="r.place_id"
+                type="button"
+                class="search-result-item"
+                :class="{ 'is-marker-result': r._marker }"
+                @mousedown.prevent="handleSearchSelect(r)"
+              >
+                <span v-if="r._marker" class="result-pin">◉</span>{{ r.display_name }}
+              </button>
+              <div v-if="!searchSubmitted && !searchLoading && !searchResults[0]?._coord" class="search-no-results">
+                Press Enter to search places
+              </div>
+              <div v-else-if="!searchResults.length && !searchLoading" class="search-no-results">
+                No results found
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile switcher -->
+        <div class="tile-control" ref="tileControlRef">
+          <button class="tile-trigger" @click.stop="tileMenuOpen = !tileMenuOpen">
+            <span class="tile-trigger-label">{{ TILE_LABELS[currentTile] ?? 'OSM' }}</span>
+            <AppIcon name="chevronDown" class="tile-chevron" :class="{ open: tileMenuOpen }" />
+          </button>
+          <div v-if="tileMenuOpen" class="tile-dropdown">
+            <button
+              v-for="(_, key) in TILES"
+              :key="key"
+              class="tile-option"
+              :class="{ active: currentTile === key }"
+              @click="switchTile(key); tileMenuOpen = false"
+            >{{ TILE_LABELS[key] }}</button>
+          </div>
+        </div>
+
+        <!-- Sidebar toggle -->
+        <button v-show="!sidebarOpen" class="sidebar-open-btn" @click="sidebarOpen = true" title="Open panel">
+          <AppIcon name="hamburger" />
+        </button>
+
+        <TripSummaryChip v-if="tripSummary" :summary="tripSummary" />
+        <div v-if="routeError" class="map-status" role="alert">{{ routeError }} <button @click="routeError = ''">Dismiss</button></div>
+
+      </div>
+
+      <!-- Mobile backdrop -->
+      <div class="mobile-overlay" v-if="sidebarOpen" @click="sidebarOpen = false" />
+
+      <!-- Sidebar -->
+      <Transition name="panel">
+        <FilterPanel
+          v-show="sidebarOpen"
+          class="safe-sidebar"
+          :read-only="true"
+          @fly-to="(m) => map && map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 14))"
+          @open-marker="openMarker"
+          @close="sidebarOpen = false"
+        />
+      </Transition>
+
+      <!-- Marker detail modal (read-only) -->
+      <MarkerModal
+        v-if="openedMarker"
+        :marker="openedMarker"
+        :read-only="true"
+        @close="openedMarker = null"
+      />
+    </template>
+
+    <!-- Loading -->
+    <div v-else class="gate">
+      <div class="gate-card">
+        <div class="gate-logo">MapMarker</div>
+        <p class="loading-text">Loading…</p>
+      </div>
+    </div>
+
+  </div>
+</template>
+
+<script setup>
+import { ref, watch, onUnmounted, nextTick } from 'vue'
+import { tileOptions, TILES, validTileKey } from '../utils/mapStyle.js'
+import { loadSettings } from '../utils/settings.js'
+import { useStyleStore } from '../stores/style.js'
+import { useRoute } from 'vue-router'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import AppIcon from '../components/AppIcon.vue'
+import FilterPanel from '../components/FilterPanel.vue'
+import MarkerModal from '../components/MarkerModal.vue'
+import { useMarkerLayer } from '../composables/useMarkerLayer.js'
+import { useTripRouteLayer } from '../composables/useTripRouteLayer.js'
+import TripSummaryChip from '../components/TripSummaryChip.vue'
+import { useSearch } from '../composables/useSearch.js'
+import { useMarkersStore } from '../stores/markers.js'
+import { useCategoriesStore } from '../stores/categories.js'
+import { useCollectionsStore } from '../stores/collections.js'
+import { usePersonsStore } from '../stores/persons.js'
+import { byName } from '../utils/byName.js'
+
+const TILE_LABELS = Object.fromEntries(Object.entries(TILES).map(([key, tile]) => [key, tile.label]))
+const styleStore = useStyleStore()
+const route = useRoute()
+const markersStore = useMarkersStore()
+const categoriesStore = useCategoriesStore()
+const collectionsStore = useCollectionsStore()
+const personsStore = usePersonsStore()
+
+const state = ref('loading')  // 'loading' | 'password' | 'loaded' | 'error'
+const shareMeta = ref(null)
+const errorMessage = ref('')
+const errorRetryable = ref(true)
+const passwordInput = ref('')
+const showPw = ref(false)
+const gateError = ref('')
+const loading = ref(false)
+const sidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 640 : true)
+const openedMarker = ref(null)
+
+const mapEl = ref(null)
+let map = null
+let tileLayer = null
+
+// Trip routes come with the share payload: { collectionId: { 'fromId-toId': segment } }
+let sharedSegments = {}
+const { tripSummary, routeError, render: renderTripRoute, dispose: disposeTripRoute } = useTripRouteLayer(() => map, {
+  getSegments: async (collectionId) => sharedSegments[collectionId] ?? {},
+})
+
+// Tile switcher
+const currentTile = ref('osm')
+const tileMenuOpen = ref(false)
+const tileControlRef = ref(null)
+watch(tileMenuOpen, (open) => {
+  const handler = (e) => { if (tileControlRef.value && !tileControlRef.value.contains(e.target)) tileMenuOpen.value = false }
+  if (open) document.addEventListener('click', handler, { once: true })
+})
+
+function switchTile(key) {
+  currentTile.value = key
+  if (!map) return
+  const t = tileOptions(key)
+  if (tileLayer) tileLayer.remove()
+  tileLayer = L.tileLayer(t.url, t).addTo(map)
+  // setMaxZoom (unlike assigning options.maxZoom) clamps the view and updates the zoom buttons.
+  map.setMaxZoom(t.maxZoom)
+}
+
+const getMap = () => map
+const { renderMarkers, initClusterGroup, clearAll } = useMarkerLayer(getMap, (marker) => {
+  openedMarker.value = marker
+})
+
+// Search
+const { searchQuery, searchResults, searchOpen, searchLoading, searchSubmitted, clearSearch, onSearchInput, onSearchSubmit, onSearchBlur, selectResult, cleanup: cleanupSearch } = useSearch(
+  getMap,
+  () => markersStore.items,
+  (marker) => { openedMarker.value = marker },
+)
+
+function handleSearchSelect(r) {
+  selectResult(r)
+}
+
+let requestId = 0
+let requestAbort = null
+async function fetchData(password, signal) {
+  // Passwords go in a JSON body: headers cannot carry characters outside Latin-1.
+  const init = password
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }), signal }
+    : { signal }
+  let res
+  try { res = await fetch(`/api/public/share/${route.params.token}/data`, init) } catch (err) {
+    if (err.name === 'AbortError') throw err
+    throw new Error('Could not reach the server. Check your connection and retry.', { cause: err })
+  }
+  // A proxy or a restarting server can answer with an HTML page instead of JSON.
+  let data = null
+  try { data = await res.json() } catch { /* handled by the status checks */ }
+  return { status: res.status, data }
+}
+
+async function loadMap(data, id) {
+  shareMeta.value = data.meta
+  clearAll()
+  disposeTripRoute()
+  if (map) { map.remove(); map = null }
+  sharedSegments = {}
+  for (const s of data.segments ?? []) (sharedSegments[s.collection_id] ??= {})[`${s.from_marker_id}-${s.to_marker_id}`] = s
+  // Links carry only the groups their filter selects (and fewer marker fields), so lists may be absent.
+  markersStore.items = (data.markers ?? []).map((m) => ({ ...m, categories: m.categories ?? [], collections: m.collections ?? [], persons: m.persons ?? [] }))
+  markersStore.clearGroupFilter() // also the visited filter and refinements of a previous link
+  categoriesStore.items = [...data.categories ?? []].sort(byName)
+  collectionsStore.items = [...data.collections ?? []].sort(byName)
+  personsStore.items = [...data.persons ?? []].sort(byName)
+
+  state.value = 'loaded'
+  await nextTick()
+  if (id !== requestId) return
+
+  const s = loadSettings()
+  map = L.map(mapEl.value, { zoomControl: false, maxZoom: 21 }).setView([s?.lat ?? 20, s?.lng ?? 0], s?.zoom ?? 2)
+  if (window.innerWidth > 640) L.control.zoom({ position: 'bottomright' }).addTo(map)
+
+  const tileKey = validTileKey(s?.tile)
+  currentTile.value = tileKey
+  switchTile(tileKey)
+
+  initClusterGroup(s?.cluster !== false)
+  renderMarkers(markersStore.filtered)
+  renderTripRoute()
+
+  if (markersStore.items.length > 0) {
+    const bounds = L.latLngBounds(markersStore.items.map((m) => [m.lat, m.lng]))
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 })
+  }
+}
+
+async function requestShare(password = null) {
+  const id = ++requestId
+  requestAbort?.abort()
+  requestAbort = new AbortController()
+  loading.value = true
+  gateError.value = ''
+  try {
+    const { status, data } = await fetchData(password, requestAbort.signal)
+    if (id !== requestId) return
+    if (status === 401 && data?.requiresPassword) { shareMeta.value = data.meta; state.value = 'password'; return }
+    if (status === 403) { gateError.value = 'Incorrect password. Try again.'; state.value = 'password'; return }
+    if (status === 429 && password) { gateError.value = data?.error || 'Too many attempts. Try again later.'; return }
+    if (status === 404 || status === 410) {
+      errorMessage.value = status === 404 ? 'This share link does not exist.' : 'This share link has expired.'
+      errorRetryable.value = false
+      state.value = 'error'
+      return
+    }
+    if (status !== 200 || !data) throw new Error(status === 429 ? 'Too many requests. Wait a moment, then retry.' : 'Failed to load shared map. Please retry.')
+    await loadMap(data, id)
+  } catch (err) {
+    if (id !== requestId || err.name === 'AbortError') return
+    if (password) gateError.value = 'Could not load the map. Check your connection and retry.'
+    else {
+      errorMessage.value = err.message
+      errorRetryable.value = true
+      state.value = 'error'
+    }
+  } finally { if (id === requestId) loading.value = false }
+}
+
+watch(() => route.params.token, () => {
+  state.value = 'loading'
+  openedMarker.value = null
+  passwordInput.value = ''
+  clearAll()
+  disposeTripRoute()
+  if (map) { map.remove(); map = null }
+  markersStore.$reset()
+  categoriesStore.items = []; collectionsStore.items = []; personsStore.items = []
+  requestShare()
+}, { immediate: true })
+
+onUnmounted(() => {
+  requestId++
+  requestAbort?.abort()
+  clearAll()
+  disposeTripRoute()
+  if (map) { map.remove(); map = null }
+  cleanupSearch()
+  markersStore.$reset()
+  categoriesStore.items = []; collectionsStore.items = []; personsStore.items = []
+})
+
+async function submitPassword() {
+  if (passwordInput.value && !loading.value) await requestShare(passwordInput.value)
+}
+
+watch(() => styleStore.colorMode, () => { if (map) renderMarkers(markersStore.filtered) })
+
+function openMarker(marker) {
+  openedMarker.value = marker
+}
+
+watch(() => markersStore.filtered, (markers) => {
+  if (map) renderMarkers(markers)
+})
+
+watch(sidebarOpen, async () => {
+  await nextTick()
+  if (map) map.invalidateSize()
+})
+</script>
+
+<style scoped>
+.map-shell {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.map-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.map-container {
+  position: absolute;
+  inset: 0;
+}
+
+/* Gate (password/error/loading) */
+.gate {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2, #f5f5f5);
+}
+
+.gate-card {
+  background: var(--surface, #fff);
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+  padding: 32px 28px 28px;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+}
+
+.gate-logo {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent, #3b82f6);
+  margin-bottom: 16px;
+}
+
+.gate-card h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text, #111);
+}
+
+.gate-hint {
+  font-size: 13px;
+  color: var(--text-2, #666);
+  margin-bottom: 20px;
+}
+
+.gate-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.gate-input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+}
+.gate-input:focus { outline: 2px solid var(--accent, #3b82f6); border-color: transparent; }
+
+.pw-toggle {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 6px;
+  color: var(--text-2, #666);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.pw-toggle:hover { background: var(--surface-2, #f5f5f5); }
+
+.gate-error { font-size: 13px; color: #ef4444; margin-bottom: 10px; }
+.gate-error-big { font-size: 15px; color: #ef4444; margin-bottom: 12px; }
+
+.map-status {
+  position: absolute;
+  top: calc(56px + var(--sat, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  width: max-content;
+  max-width: calc(100% - 32px - var(--sal, 0px) - var(--sar, 0px));
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.map-status button { padding: 2px 8px; margin-left: 6px; background: var(--surface-2); color: var(--text); }
+
+/* Landscape notches: keep the sidebar content and Leaflet's own controls clear of them. */
+.safe-sidebar { padding-right: var(--sar, 0px); }
+@media (max-width: 640px) {
+  .safe-sidebar { padding-left: var(--sal, 0px); }
+}
+.map-area :deep(.leaflet-left) { left: var(--sal, 0px); }
+.map-area :deep(.leaflet-right) { right: var(--sar, 0px); }
+.map-area :deep(.leaflet-bottom) { bottom: var(--sab, 0px); }
+
+.gate-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.gate-btn:hover:not(:disabled) { background: var(--accent-hover, #2563eb); }
+.gate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.loading-text { font-size: 14px; color: var(--text-2, #666); }
+
+/* ── Search bar ──────────────────────────────────────────────────────────── */
+.top-bar {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.search-wrapper {
+  width: 420px;
+  max-width: calc(100% - 130px);
+  position: relative;
+  pointer-events: auto;
+}
+
+.search-input {
+  width: 100%;
+  padding: 9px 36px 9px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  color: var(--text);
+}
+.search-input:focus { border-color: var(--accent); outline: none; }
+
+.search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 50%;
+}
+.search-clear:hover { color: var(--text); }
+
+.search-spinner {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: search-spin 0.6s linear infinite;
+}
+@keyframes search-spin { to { transform: translateY(-50%) rotate(360deg); } }
+
+.search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 1001;
+}
+
+.search-result-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-result-item:last-child { border-bottom: none; }
+.search-result-item:hover { background: var(--surface-2); }
+.is-marker-result { border-left: 2px solid var(--accent); }
+.result-pin { color: var(--accent); font-size: 10px; margin-right: 4px; }
+
+.search-no-results {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* ── Tile switcher ───────────────────────────────────────────────────────── */
+.tile-control {
+  position: absolute;
+  top: 10px;
+  left: calc(10px + var(--sal, 0px));
+  z-index: 1000;
+}
+
+.tile-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.tile-trigger:hover { background: var(--surface-2); color: var(--text); }
+
+.tile-trigger-label { color: var(--accent); font-weight: 600; }
+
+.tile-chevron { transition: transform 0.15s; flex-shrink: 0; }
+.tile-chevron.open { transform: rotate(180deg); }
+
+.tile-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  min-width: 110px;
+}
+
+.tile-option {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.tile-option:last-child { border-bottom: none; }
+.tile-option:hover { background: var(--surface-2); color: var(--text); }
+.tile-option.active { color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+
+/* ── Map UI ──────────────────────────────────────────────────────────────── */
+.sidebar-open-btn {
+  position: absolute;
+  top: 12px;
+  right: calc(12px + var(--sar, 0px));
+  z-index: 500;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 8px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.12);
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--text, #111);
+}
+.sidebar-open-btn:hover { background: var(--surface-2, #f5f5f5); }
+
+.mobile-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 900;
+}
+
+@media (max-width: 640px) {
+  .mobile-overlay { display: block; }
+
+  /* Full-width search bar on mobile */
+  .top-bar {
+    top: calc(10px + var(--sat, 0px));
+    padding: 0 calc(10px + var(--sar, 0px)) 0 calc(10px + var(--sal, 0px));
+  }
+  .search-wrapper {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Tile switcher to bottom-left on mobile */
+  .tile-control {
+    top: auto;
+    bottom: calc(22px + var(--sab, 0px));
+    left: calc(10px + var(--sal, 0px));
+  }
+
+  /* Move hamburger to bottom-right on mobile so it doesn't clash with search */
+  .sidebar-open-btn {
+    top: auto;
+    bottom: calc(22px + var(--sab, 0px));
+    right: calc(10px + var(--sar, 0px));
+  }
+}
+
+/* Panel transition (mirrors MapView.vue) */
+.panel-enter-active, .panel-leave-active { transition: transform 0.22s ease; }
+.panel-enter-from, .panel-leave-to { transform: translateX(100%); }
+@media (max-width: 640px) {
+  .panel-enter-from, .panel-leave-to { transform: translateY(100%); }
+}
+</style>
