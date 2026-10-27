@@ -1,4 +1,4 @@
-# `docker compose up -d --build` runs the app on 127.0.0.1:8080 — only the
+# `docker compose up -d --build` runs the app on 127.0.0.1:3065 — only the
 # host itself can reach it, so the reverse proxy in front (see deploy/) is the
 # only way in, and the one that says who is logged in.
 #
@@ -12,7 +12,7 @@ services:
         # off leaves the country flags (and their small font) out of the build.
         STAMMBAUM_FLAGS: ${STAMMBAUM_FLAGS:-on}
     ports:
-      - "127.0.0.1:${PORT:-8080}:8080"
+      - "127.0.0.1:${PORT:-3065}:8080"
     volumes:
       # `FAMILY_DIR=./sample` to try it with the made-up family.
       - ${FAMILY_DIR:-./data}:/data

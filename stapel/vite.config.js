@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [vue()],
   build: { outDir: '../dist', emptyOutDir: true },
   server: {
-    // `npm run dev` (API on :3000) + `npm run dev:web` (this, with hot reload)
-    proxy: { '/api': 'http://localhost:3000', '/covers': 'http://localhost:3000' },
+    port: 5167,
+    // `npm run dev` (API on :3067) + `npm run dev:web` (this, with hot reload)
+    proxy: { '/api': 'http://localhost:3067', '/covers': 'http://localhost:3067' },
   },
 });

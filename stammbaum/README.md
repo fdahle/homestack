@@ -67,7 +67,7 @@ opens on whoever is looking; an ancestor or descendant tree on its person.
 
 ```sh
 npm install
-npm run dev          # http://localhost:5173 — editing works here too
+npm run dev          # http://localhost:5165 — editing works here too
 npm test             # parser, writer, server, graph and layout tests
 npm run build        # dist/ and dist-server/ — the app and its small server
 npm start            # serves dist/ with the family from ./data (DATA_DIR=…)
@@ -75,7 +75,7 @@ npm run build:single # dist-single/index.html — ONE self-contained file, works
 ```
 
 To host it, `docker compose up -d --build` builds the app and runs its server
-on `127.0.0.1:8080` (`PORT=…` to change it). The family is not part of the
+on `127.0.0.1:3065` (`PORT=…` to change it). The family is not part of the
 image: the container mounts `./data` and reads `family.md` and the photos from
 there live, so an edit — in the app or by hand — shows without a rebuild. That
 folder holds the whole family, so keep the server private: the port is only

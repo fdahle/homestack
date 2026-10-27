@@ -20,7 +20,7 @@ session_timeout = 2592000
 ; CORS is effectively unused — set `origins` to your deployment URL if you ever
 ; expose CouchDB directly, otherwise leave it as the dev origin.
 [cors]
-origins = http://localhost:5173
+origins = http://localhost:5170
 credentials = true
 methods = GET, PUT, POST, HEAD, DELETE
 headers = accept, authorization, content-type, origin, referer

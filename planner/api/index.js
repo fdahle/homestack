@@ -10,7 +10,7 @@ const pushRoutes   = require('./routes/push')
 const adminRoutes  = require('./routes/admin')
 const { couch, ensurePushDb, getAllPushSubscriptions, updateSentKeys, deletePushSubscription, getUserDbId } = require('./lib/couchdb')
 
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 3070
 
 // Last-resort safety net: a stray rejection (e.g. a transient CouchDB DNS blip
 // on an unguarded code path) must not take the whole process down. Log it and

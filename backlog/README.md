@@ -21,7 +21,7 @@ cp .env.example .env        # set APP_PASSWORD
 docker compose up -d --build
 ```
 
-The app listens on `127.0.0.1:3000`. Put nginx in front of it with HTTPS. HTTPS is needed to install the app on a phone.
+The app listens on `127.0.0.1:3066`. Put nginx in front of it with HTTPS. HTTPS is needed to install the app on a phone.
 
 ```nginx
 server {
@@ -30,7 +30,7 @@ server {
     # ssl_certificate / ssl_certificate_key, e.g. from certbot
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3066;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -106,7 +106,7 @@ Needs Node 24 or newer (it uses the built-in `node:sqlite`).
 
 ```sh
 npm install
-APP_PASSWORD=test DATA_DIR=./data npm start   # http://localhost:3000
+APP_PASSWORD=test DATA_DIR=./data npm start   # http://localhost:3066
 ```
 
 Code map: `src/discover.js` finds posts (one function per strategy), `src/scanner.js` queues and schedules scans and runs the background post visits, `src/suggest.js` builds the Discover suggestions, `src/db.js` holds all SQL, `src/views.js` holds the HTML, `public/app.js` holds the client-side interactions. `npm run icons` regenerates the app icons.

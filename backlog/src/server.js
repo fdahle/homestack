@@ -8,7 +8,7 @@ import { isScanning, queueScan, startHarvester, startScheduler } from './scanner
 import { aiEnabled, discoveryRunning, runDiscovery, startDiscoveryScheduler } from './suggest.js';
 import { hostOf, normalizeUrl } from './urls.js';
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 3066);
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 
 const app = express();

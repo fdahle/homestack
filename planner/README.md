@@ -31,8 +31,8 @@ npm run dev          # CouchDB in Docker + API and client with hot reload
 npm run stop         # stop the CouchDB container
 ```
 
-- Client: http://localhost:5173
-- API: http://localhost:3000
+- Client: http://localhost:5170
+- API: http://localhost:3070
 - CouchDB: http://localhost:5984 (bound to loopback only)
 
 ### Tests

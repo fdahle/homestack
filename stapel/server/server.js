@@ -7,7 +7,7 @@ import { downloadCover, importSeries, loadDetails, requestCovers, saveCoverUploa
 import { GcdBusyError, GcdNotFoundError, usage } from './gcd.js';
 import { lookupIsbn, parseCode } from './isbn.js';
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 3067);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
 const app = express();

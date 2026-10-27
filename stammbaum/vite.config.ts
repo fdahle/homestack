@@ -68,6 +68,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   server: {
+    port: 5165,
     // A FAMILY_DIR outside the project still has to be served in dev.
     fs: { allow: [searchForWorkspaceRoot(process.cwd()), familyDir] },
   },

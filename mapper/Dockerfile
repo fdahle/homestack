@@ -13,7 +13,8 @@ RUN npm run --prefix client build
 # ── Stage 2: run the API (which serves the built client) ─────────────────────
 FROM node:22-alpine AS runner
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    PORT=3000
 
 WORKDIR /app
 

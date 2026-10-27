@@ -11,7 +11,7 @@ import { decode, familyApi, parseAddress, sendFile } from './api';
  * checks passwords; the proxy in front does, and passes on who logged in.
  *
  *   DATA_DIR                the folder with family.md and photos/  (./data)
- *   PORT, HOST              where to listen                        (8080, 127.0.0.1)
+ *   PORT, HOST              where to listen                        (3065, 127.0.0.1)
  *   STAMMBAUM_USER_HEADER   the header naming the login            (Remote-User)
  *   STAMMBAUM_EDITORS       logins that may edit, comma-separated  (everyone)
  *   STAMMBAUM_READONLY=1    nobody may edit
@@ -20,7 +20,7 @@ import { decode, familyApi, parseAddress, sendFile } from './api';
  */
 const dataDir = path.resolve(process.env.DATA_DIR ?? 'data');
 const staticDir = path.resolve(process.env.STATIC_DIR ?? fileURLToPath(new URL('../dist', import.meta.url)));
-const port = Number(process.env.PORT ?? 8080);
+const port = Number(process.env.PORT ?? 3065);
 const host = process.env.HOST ?? '127.0.0.1';
 const userHeader = (process.env.STAMMBAUM_USER_HEADER ?? 'remote-user').toLowerCase();
 const editors = (process.env.STAMMBAUM_EDITORS ?? '')

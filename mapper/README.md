@@ -112,7 +112,7 @@ docker compose up -d --build
 | Variable | Required | Description |
 |---|---|---|
 | `SESSION_SECRET` | Yes | Random string ≥ 32 characters, used to sign JWT tokens |
-| `PORT` | No | Port the app listens on without Docker (default: `3000`; the container always uses 3000) |
+| `PORT` | No | Port the app listens on without Docker (default: `3063`; the container always uses 3000) |
 | `NODE_ENV` | No | Set to `production` in production (Secure cookie, so HTTPS is required) |
 | `BIND_ADDRESS` | No | Host address docker-compose publishes port 3063 on (default: `127.0.0.1`) |
 | `TRUST_PROXY` | No | Number of reverse proxies in front of the app, `false` when there is none, or a list of proxy addresses such as `loopback, 10.0.0.0/8` (default: `1`) |

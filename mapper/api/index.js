@@ -31,7 +31,7 @@ import backupRoutes from './routes/backup.js'
 import linkRoutes from './routes/links.js'
 
 const app = express()
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 3063
 
 // Number of reverse proxies in front of the app (default 1, e.g. nginx). Only correct when the
 // app port is not reachable directly — docker-compose binds it to 127.0.0.1 for that reason.

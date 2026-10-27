@@ -51,7 +51,7 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 | `GCD_EMAIL` / `GCD_PASSWORD` | – | GCD account for higher rate limits (recommended) |
 | `GCD_PER_MINUTE` / `_HOUR` / `_DAY` | 20 / 200 / 2000 | GCD limits Stapel stays under |
 | `RESYNC_DAYS` | 7 | How often collected series are checked for new issues |
-| `PORT` | 3000 | |
+| `PORT` | 3067 | |
 | `DATA_DIR` | `/data` | Where `stapel.db` and `covers/` live |
 
 ## Developing
@@ -60,8 +60,8 @@ Needs Node 24 or newer (it uses the built-in `node:sqlite`).
 
 ```sh
 npm install
-ADMIN_PASSWORD=testtest DATA_DIR=./data npm run dev   # API on :3000
-npm run dev:web                                       # Vue with hot reload on :5173
+ADMIN_PASSWORD=testtest DATA_DIR=./data npm run dev   # API on :3067
+npm run dev:web                                       # Vue with hot reload on :5167
 ```
 
 `npm run build` builds the frontend into `dist/`, which the server serves when it exists.

@@ -28,10 +28,10 @@ export default defineConfig({
   ],
   server: {
     host: false,
-    port: 5173,
+    port: 5170,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:3070',
         // Strip the Basic-auth challenge so a 401 never pops the browser's
         // native sign-in dialog (mirrors the /db handling + prod nginx).
         configure(proxy) {
