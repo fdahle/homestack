@@ -1,0 +1,31 @@
+# `docker compose up -d --build` runs the app on 127.0.0.1:8080 — only the
+# host itself can reach it, so the reverse proxy in front (see deploy/) is the
+# only way in, and the one that says who is logged in.
+#
+# The family stays in ./data on the host: family.md, photos/, and history/
+# with every earlier version. Back that folder up and you have everything.
+services:
+  web:
+    build:
+      context: .
+      args:
+        # off leaves the country flags (and their small font) out of the build.
+        STAMMBAUM_FLAGS: ${STAMMBAUM_FLAGS:-on}
+    ports:
+      - "127.0.0.1:${PORT:-8080}:8080"
+    volumes:
+      # `FAMILY_DIR=./sample` to try it with the made-up family.
+      - ${FAMILY_DIR:-./data}:/data
+    # A small init as PID 1, so `docker stop` reaches the server and it can finish a save.
+    init: true
+    # Writes as your own user, so the files in data/ stay yours to edit and back up.
+    user: "${STAMMBAUM_UID:-1000}:${STAMMBAUM_GID:-1000}"
+    environment:
+      # Logins that may edit, comma-separated; empty means everyone who can log in.
+      STAMMBAUM_EDITORS: ${STAMMBAUM_EDITORS:-}
+      # 1 makes the family read-only for everyone.
+      STAMMBAUM_READONLY: ${STAMMBAUM_READONLY:-}
+      # The proxy's X-Stammbaum-Proxy header has to carry this, or nothing is
+      # answered — see deploy/. Empty: whatever reaches the port is trusted.
+      STAMMBAUM_PROXY_SECRET: ${STAMMBAUM_PROXY_SECRET:-}
+    restart: unless-stopped

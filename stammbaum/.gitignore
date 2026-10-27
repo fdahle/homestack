@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-server/
+dist-single/
+*.local
+.DS_Store
+
+# The real family: its own private repo, never part of this one.
+data/
