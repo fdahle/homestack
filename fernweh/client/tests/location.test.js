@@ -221,6 +221,109 @@ test('the address is kept when the click is inside the result’s bounding box, 
   panel.closeLocationPanel()
 })
 
+test('a place shared from Google Maps matches its OSM place by a translated name, with "&" for "and"', async () => {
+  const lat = 37.9753, lon = 23.7446
+  globalThis.fetch = async url => {
+    if (url.startsWith('https://overpass-api.de')) return response({ elements: [] })
+    if (url.startsWith('https://photon.komoot.io')) {
+      return response({ features: [
+        { properties: { osm_type: 'N', osm_id: 1, osm_key: 'amenity', osm_value: 'cafe', name: 'Ilissia bistrot & cafe' }, geometry: { coordinates: [lon, lat + 0.0001] } },
+        { properties: { osm_type: 'W', osm_id: 2, osm_key: 'tourism', osm_value: 'museum', name: 'Βυζαντινό και Χριστιανικό Μουσείο' }, geometry: { coordinates: [lon, lat - 0.0003] } },
+      ] })
+    }
+    if (url.includes('/lookup?')) {
+      assert.match(url, /namedetails=1/)
+      return response([{ osm_type: 'way', osm_id: 2, namedetails: { name: 'Βυζαντινό και Χριστιανικό Μουσείο', 'name:en': 'Byzantine and Christian Museum' } }])
+    }
+    if (url.includes('/reverse?')) return response({ error: 'Unable to geocode' })
+    throw new Error('unexpected ' + url)
+  }
+  const panel = useLocationPanel(() => null)
+  panel.openLocationPanel({ lat, lng: lon }, { name: 'Byzantine & Christian Museum', approximate: false })
+  await until(() => panel.poiData.value)
+  assert.equal(panel.poiData.value.id, 2)
+  panel.closeLocationPanel()
+})
+
+test('the area Nominatim finds at the click is a place, and a busy Overpass is retried', async () => {
+  const lat = 37.6384, lon = 21.6302
+  const reverse = {
+    osm_type: 'way', osm_id: 970719090, category: 'historic', type: 'archaeological_site', name: 'Archaeological Site of Olympia',
+    lat: '37.6409', lon: '21.6349', boundingbox: ['37.6344', '37.6458', '21.6264', '21.6423'], namedetails: { name: 'Archaeological Site of Olympia' },
+    geojson: { type: 'Polygon', coordinates: [[[21.6264, 37.6344], [21.6423, 37.6344], [21.6423, 37.6458], [21.6264, 37.6458], [21.6264, 37.6344]]] },
+  }
+  const overpass = []
+  globalThis.fetch = async url => {
+    if (url.startsWith('https://overpass-api.de')) {
+      overpass.push(url)
+      return overpass.length < 3 ? response({}, overpass.length === 1 ? 502 : 504) : response({ elements: [] })
+    }
+    if (url.startsWith('https://photon.komoot.io')) return response({ features: [] })
+    if (url.includes('/reverse?')) { assert.match(url, /namedetails=1/); return response(reverse) }
+    throw new Error('unexpected ' + url)
+  }
+  const panel = useLocationPanel(() => null)
+  panel.openLocationPanel({ lat, lng: lon })
+  await until(() => panel.poiData.value)
+  assert.equal(panel.poiData.value.name, 'Archaeological Site of Olympia')
+  assert.equal(panel.poiData.value.containing, true)
+  await until(() => overpass.length === 3 && !panel.poiLoading.value)
+  assert.equal(panel.poiError.value, null)
+  assert.equal(panel.poiData.value.id, 970719090)
+  panel.closeLocationPanel()
+})
+
+test('large areas around the click come from Photon, confirmed by their outline', async () => {
+  const lat = 40.768, lon = -73.976
+  const square = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+  const lookups = []
+  globalThis.fetch = async url => {
+    if (url.startsWith('https://overpass-api.de')) return response({}, 502)
+    if (url.startsWith('https://photon.komoot.io')) {
+      if (!url.includes('leisure%3Apark')) return response({ features: [] })
+      return response({ features: [
+        { properties: { osm_type: 'W', osm_id: 1, osm_key: 'leisure', osm_value: 'park', name: 'Central Park', extent: [lon - 0.01, lat + 0.03, lon + 0.01, lat - 0.001] }, geometry: { coordinates: [lon, lat + 0.014] } },
+        // An L-shaped park: its box contains the click, its outline does not.
+        { properties: { osm_type: 'W', osm_id: 2, osm_key: 'leisure', osm_value: 'park', name: 'Bent Park', extent: [lon - 0.002, lat + 0.002, lon + 0.002, lat - 0.002] }, geometry: { coordinates: [lon + 0.0015, lat] } },
+        { properties: { osm_type: 'N', osm_id: 3, osm_key: 'leisure', osm_value: 'park', name: 'Far Park' }, geometry: { coordinates: [lon, lat + 0.02] } },
+      ] })
+    }
+    if (url.includes('/lookup?')) {
+      lookups.push(url)
+      assert.match(url, /osm_ids=W1%2CW2&/)
+      assert.match(url, /polygon_geojson=1/)
+      return response([
+        { osm_type: 'way', osm_id: 1, geojson: { type: 'Polygon', coordinates: [square(lon - 0.01, lat - 0.001, lon + 0.01, lat + 0.03)] }, extratags: { wikipedia: 'en:Central Park' } },
+        { osm_type: 'way', osm_id: 2, geojson: { type: 'MultiPolygon', coordinates: [[square(lon + 0.001, lat - 0.002, lon + 0.002, lat + 0.002)], [square(lon - 0.002, lat + 0.001, lon + 0.002, lat + 0.002)]] } },
+      ])
+    }
+    if (url.includes('/reverse?')) return response({ error: 'Unable to geocode' })
+    throw new Error('unexpected ' + url)
+  }
+  const panel = useLocationPanel(() => null)
+  panel.openLocationPanel({ lat, lng: lon })
+  await until(() => panel.poiData.value)
+  assert.equal(panel.poiData.value.name, 'Central Park')
+  assert.equal(panel.poiData.value.containing, true)
+  assert.equal(panel.poiData.value.tags.wikipedia, 'en:Central Park')
+  assert.deepEqual(panel.poiAlternatives.value.map(p => p.id), [1])
+  assert.equal(lookups.length, 1)
+  panel.closeLocationPanel()
+})
+
+test('a place Nominatim finds beyond the radius is not picked', async () => {
+  const lat = 52.7, lon = 5.7
+  const reverse = { osm_type: 'node', osm_id: 5, category: 'shop', type: 'bakery', name: 'Bakery', lat: String(lat + 0.001), lon: String(lon), address: { road: 'Main Street' } }
+  services({ lat, lon, overpass: { elements: [] }, reverse })
+  globalThis.fetch = (fetch => (url, init) => url.startsWith('https://photon') ? Promise.resolve(response({ features: [] })) : fetch(url, init))(globalThis.fetch)
+  const panel = useLocationPanel(() => null)
+  panel.openLocationPanel({ lat, lng: lon })
+  await until(() => !panel.locationLoading.value && !panel.poiLoading.value)
+  assert.equal(panel.locationInfo.value?.address.road, 'Main Street')
+  assert.equal(panel.poiData.value, null)
+  panel.closeLocationPanel()
+})
+
 const { default: LocationPanel } = await loadModule('../src/components/LocationPanel.vue')
 
 test('website links accept bare hosts and the first of several, and stay http(s)-only', () => {
