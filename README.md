@@ -5,6 +5,7 @@ Small self-hosted apps I run for myself and my family. Each folder is a separate
 | Folder | App |
 |---|---|
 | [backlog/](backlog/) | Tracks which blog posts you have read |
+| [bande/](bande/) | Friends: who they are, what you did together, what you have planned; WhatsApp import, reminders, calendar feed |
 | [fernweh/](fernweh/) | Map bookmarks: save places, sort them into collections, plan trips, share views |
 | [stammbaum/](stammbaum/) | A pocket who-is-who for family gatherings |
 | [stapel/](stapel/) | Tracks a comic collection: owned, read, missing |
@@ -20,6 +21,7 @@ Each app has its own port, so all of them can run side by side on one machine, i
 | stammbaum | 3065 | 3065 | 5165 |
 | backlog | 3066 | 3066 | – |
 | stapel | 3067 | 3067 | 5167 |
+| bande | 3068 | 3068 | 5168 |
 | zettel | 3070 (CouchDB 5984) | 3070 | 5170 |
 
 `PORT` in an app's `.env` overrides its Docker port.

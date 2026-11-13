@@ -1,0 +1,593 @@
+import express from 'express';
+import { existsSync } from 'node:fs';
+import { unlink, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import * as store from './db.js';
+import { checkPassword, ensureAdmin, hashPassword, login, LoginLimitError, logout, requireLogin, setSessionCookie } from './auth.js';
+import { overdueFriends, upcomingBirthdays } from './friends.js';
+import { buildCalendar } from './ics.js';
+import {
+  dueReminders, isValidPushEndpoint, pushPublicKey, reminderSettings, sendPush, setupPush, startReminders, text as pushText,
+} from './reminders.js';
+import { chatFromZip, chatNameFromFile, draftFromText, matchFriend, normalizeName, parseChat, planCandidates } from './whatsapp.js';
+
+const PORT = Number(process.env.PORT || 3068);
+const distDir = fileURLToPath(new URL('../dist', import.meta.url));
+
+const app = express();
+// One proxy (nginx) in front: req.ip is the address nginx saw, not a client-supplied X-Forwarded-For
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(express.json({ limit: '2mb' }));
+app.use((req, res, next) => {
+  req.body ??= {}; // Express 5 leaves it undefined for body-less requests
+  next();
+});
+
+// Async route errors go to the error handler at the bottom
+const route = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const id = (v) => (Number.isInteger(Number(v)) ? Number(v) : NaN);
+const LANGS = ['de', 'en'];
+
+// Optional text: trimmed, cut to max, '' → null. undefined stays undefined (= not changed).
+const text = (v, max = 500) => (v === undefined ? undefined : String(v ?? '').trim().slice(0, max) || null);
+const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
+const isTime = (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+
+class BadRequest extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+}
+
+// --- login ---
+
+app.post('/api/login', route(async (req, res) => {
+  let user;
+  try {
+    user = await login(req.body.username, req.body.password, req.ip);
+  } catch (err) {
+    if (err instanceof LoginLimitError) return res.status(429).json({ error: 'too_many_attempts', retryAt: err.retryAt });
+    throw err;
+  }
+  if (!user) return res.status(401).json({ error: 'wrong_login' });
+  setSessionCookie(req, res, user);
+  res.json({ ok: true });
+}));
+
+app.post('/api/logout', (req, res) => {
+  logout(req, res);
+  res.json({ ok: true });
+});
+
+// The calendar feed is opened by calendar apps, which have no login: the secret URL is the key
+app.get('/ics/:file', (req, res) => {
+  const token = String(req.params.file).replace(/\.ics$/, '');
+  const expected = store.icsToken();
+  if (token.length !== expected.length || token !== expected) return res.status(404).end();
+  const today = store.localDate();
+  const twoYearsAgo = `${Number(today.slice(0, 4)) - 2}${today.slice(4)}`;
+  const events = [...store.upcoming(today, 1000), ...store.timeline({ limit: 5000, today }).filter((e) => e.status === 'done' && e.date >= twoYearsAgo)];
+  const calendar = buildCalendar({ events, friends: store.listFriends(today), lang: store.ownerLang(), origin: `${req.protocol}://${req.get('host')}` });
+  res.type('text/calendar; charset=utf-8').set('Cache-Control', 'private, no-store').send(calendar);
+});
+
+// Share target without the service worker (it normally catches this POST, see web/public/sw.js)
+app.post('/share', (req, res) => res.redirect(303, '/share?lost=1'));
+
+app.use(['/api', '/photos'], requireLogin);
+
+const publicUser = ({ password_hash, session_version, ...u }) => u;
+
+app.get('/api/me', (req, res) => res.json(publicUser(req.user)));
+
+app.patch('/api/me', route(async (req, res) => {
+  const { lang, displayName, currentPassword, newPassword } = req.body;
+  if (lang !== undefined && !LANGS.includes(lang)) return res.status(400).json({ error: 'bad_lang' });
+  if (newPassword !== undefined) {
+    if (!(await checkPassword(req.user, currentPassword))) return res.status(400).json({ error: 'wrong_password' });
+    if (String(newPassword).length < 8) return res.status(400).json({ error: 'password_too_short' });
+  }
+  store.updateUser(req.user.id, {
+    lang,
+    displayName: displayName !== undefined ? String(displayName).trim() || req.user.username : undefined,
+    passwordHash: newPassword !== undefined ? await hashPassword(String(newPassword)) : undefined,
+  });
+  const user = store.getUser(req.user.id);
+  if (newPassword !== undefined) setSessionCookie(req, res, user); // keep this device logged in
+  res.json(publicUser(user));
+}));
+
+// --- overview ---
+
+app.get('/api/home', (req, res) => {
+  const today = store.localDate();
+  const friends = store.listFriends(today);
+  res.json({
+    today,
+    friendCount: friends.filter((f) => !f.archived).length,
+    upcoming: store.upcoming(today, 10),
+    pastPlans: store.pastPlans(today),
+    birthdays: upcomingBirthdays(friends, today, 30),
+    overdue: overdueFriends(friends, today).slice(0, 8),
+    onThisDay: store.onThisDay(today),
+    recent: store.recentEvents(today, 5),
+    ideas: store.ideas().slice(0, 5),
+  });
+});
+
+// --- friends ---
+
+function friendFields(body) {
+  const f = {};
+  for (const key of ['name', 'nickname', 'city', 'phone', 'email']) f[key] = text(body[key], 200);
+  for (const key of ['met_story', 'notes']) f[key] = text(body[key], 10_000);
+  if (body.birthday !== undefined) {
+    f.birthday = text(body.birthday, 10);
+    if (f.birthday && !/^(\d{4}|-)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(f.birthday)) throw new BadRequest('bad_date');
+  }
+  if (body.met_on !== undefined) {
+    f.met_on = text(body.met_on, 10);
+    if (f.met_on && !/^\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$/.test(f.met_on)) throw new BadRequest('bad_date');
+  }
+  if (body.contact_weeks !== undefined) {
+    const weeks = Number(body.contact_weeks);
+    f.contact_weeks = body.contact_weeks === null || body.contact_weeks === '' || !weeks ? null : Math.max(1, Math.min(520, Math.round(weeks)));
+  }
+  if (body.archived !== undefined) f.archived = body.archived ? 1 : 0;
+  return f;
+}
+
+const circleNames = (v) =>
+  Array.isArray(v) ? [...new Map(v.map((n) => String(n).trim().slice(0, 60)).filter(Boolean).map((n) => [n.toLowerCase(), n])).values()].slice(0, 30) : undefined;
+
+const friendOr404 = (req, res) => {
+  const friend = store.getFriend(id(req.params.id));
+  if (!friend) res.status(404).json({ error: 'not_found' });
+  return friend;
+};
+
+app.get('/api/friends', (req, res) => res.json(store.listFriends()));
+
+app.post('/api/friends', (req, res) => {
+  const fields = friendFields(req.body);
+  if (!fields.name) return res.status(400).json({ error: 'name_required' });
+  const friendId = store.createFriend(fields);
+  const circles = circleNames(req.body.circles);
+  if (circles) store.setFriendCircles(friendId, circles);
+  res.json(store.getFriend(friendId));
+});
+
+app.get('/api/friends/:id', (req, res) => {
+  const friend = friendOr404(req, res);
+  if (!friend) return;
+  res.json({
+    friend,
+    facts: store.factsOf(friend.id),
+    gifts: store.giftsOf(friend.id),
+    events: store.eventsOfFriend(friend.id),
+    chatMonths: store.chatMonthsOf(friend.id),
+    chats: store.chatsOf(friend.id),
+    aliases: store.aliasesOf(friend.id),
+  });
+});
+
+app.patch('/api/friends/:id', (req, res) => {
+  const friend = friendOr404(req, res);
+  if (!friend) return;
+  const fields = friendFields(req.body);
+  if (fields.name === null) return res.status(400).json({ error: 'name_required' });
+  store.updateFriend(friend.id, fields);
+  const circles = circleNames(req.body.circles);
+  if (circles) store.setFriendCircles(friend.id, circles);
+  res.json(store.getFriend(friend.id));
+});
+
+app.delete('/api/friends/:id', route(async (req, res) => {
+  const friend = friendOr404(req, res);
+  if (!friend) return;
+  store.deleteFriend(friend.id);
+  await removePhoto(friend.photo_file);
+  res.json({ ok: true });
+}));
+
+// Photos are made small and square in the browser; here only the type is checked
+function imageType(buffer) {
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpg';
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+  if (buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'webp';
+  return null;
+}
+
+const removePhoto = (file) => (file ? unlink(join(store.PHOTO_DIR, basename(file))).catch(() => {}) : null);
+
+app.put('/api/friends/:id/photo', express.raw({ type: 'image/*', limit: '10mb' }), route(async (req, res) => {
+  const friend = friendOr404(req, res);
+  if (!friend) return;
+  const type = Buffer.isBuffer(req.body) ? imageType(req.body) : null;
+  if (!type) return res.status(400).json({ error: 'image_required' });
+  const file = `${friend.id}-${randomBytes(6).toString('base64url')}.${type}`;
+  await writeFile(join(store.PHOTO_DIR, file), req.body);
+  store.setFriendPhoto(friend.id, file);
+  await removePhoto(friend.photo_file);
+  res.json(store.getFriend(friend.id));
+}));
+
+app.delete('/api/friends/:id/photo', route(async (req, res) => {
+  const friend = friendOr404(req, res);
+  if (!friend) return;
+  store.setFriendPhoto(friend.id, null);
+  await removePhoto(friend.photo_file);
+  res.json(store.getFriend(friend.id));
+}));
+
+app.get('/api/circles', (req, res) => res.json(store.listCircles()));
+app.get('/api/fact-labels', (req, res) => res.json(store.factLabels()));
+
+// --- facts & gifts ---
+
+function factFields(body) {
+  const value = text(body.value, 2000);
+  if (!value) throw new BadRequest('value_required');
+  return { label: text(body.label, 100) || '', value };
+}
+
+app.post('/api/friends/:id/facts', (req, res) => {
+  const friend = friendOr404(req, res);
+  if (!friend) return;
+  store.addFact(friend.id, factFields(req.body));
+  res.json(store.factsOf(friend.id));
+});
+
+app.patch('/api/facts/:id', (req, res) => {
+  const fact = store.getFact(id(req.params.id));
+  if (!fact) return res.status(404).json({ error: 'not_found' });
+  store.updateFact(fact.id, factFields({ ...fact, ...req.body }));
+  res.json(store.factsOf(fact.friend_id));
+});
+
+app.delete('/api/facts/:id', (req, res) => {
+  const fact = store.getFact(id(req.params.id));
+  if (!fact) return res.status(404).json({ error: 'not_found' });
+  store.deleteFact(fact.id);
+  res.json(store.factsOf(fact.friend_id));
+});
+
+function giftFields(body) {
+  const title = text(body.title, 300);
+  if (!title) throw new BadRequest('title_required');
+  const givenOn = text(body.given_on, 10);
+  if (givenOn && !isDate(givenOn)) throw new BadRequest('bad_date');
+  return { title, occasion: text(body.occasion, 100) ?? null, given_on: givenOn ?? null };
+}
+
+app.post('/api/friends/:id/gifts', (req, res) => {
+  const friend = friendOr404(req, res);
+  if (!friend) return;
+  store.addGift(friend.id, giftFields(req.body));
+  res.json(store.giftsOf(friend.id));
+});
+
+app.patch('/api/gifts/:id', (req, res) => {
+  const gift = store.getGift(id(req.params.id));
+  if (!gift) return res.status(404).json({ error: 'not_found' });
+  store.updateGift(gift.id, giftFields({ ...gift, ...req.body }));
+  res.json(store.giftsOf(gift.friend_id));
+});
+
+app.delete('/api/gifts/:id', (req, res) => {
+  const gift = store.getGift(id(req.params.id));
+  if (!gift) return res.status(404).json({ error: 'not_found' });
+  store.deleteGift(gift.id);
+  res.json(store.giftsOf(gift.friend_id));
+});
+
+// --- events ---
+
+// Checks an event against what it replaces (existing) and returns the fields to store.
+// Ideas have no date; plans and what happened need one.
+function eventFields(body, existing = {}) {
+  const f = {};
+  if (body.title !== undefined) f.title = text(body.title, 300);
+  if (body.kind !== undefined) {
+    if (!store.KINDS.includes(body.kind)) throw new BadRequest('bad_request');
+    f.kind = body.kind;
+  }
+  if (body.status !== undefined) {
+    if (!store.STATUSES.includes(body.status)) throw new BadRequest('bad_request');
+    f.status = body.status;
+  }
+  for (const key of ['date', 'end_date']) {
+    if (body[key] === undefined) continue;
+    f[key] = text(body[key], 10);
+    if (f[key] && !isDate(f[key])) throw new BadRequest('bad_date');
+  }
+  if (body.time !== undefined) {
+    f.time = text(body.time, 5);
+    if (f.time && !isTime(f.time)) throw new BadRequest('bad_time');
+  }
+  f.place = text(body.place, 300);
+  f.notes = text(body.notes, 20_000);
+  if (body.source !== undefined) f.source = body.source === 'whatsapp' ? 'whatsapp' : null;
+
+  const merged = { ...existing, ...Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined)) };
+  if (!merged.title) throw new BadRequest('title_required');
+  if (merged.status !== 'idea' && !merged.date) throw new BadRequest('date_required');
+  if (merged.status === 'idea') Object.assign(f, { date: null, time: null, end_date: null });
+  else if (merged.end_date && merged.end_date <= merged.date) f.end_date = null;
+  return f;
+}
+
+function friendIdsFrom(body) {
+  if (body.friendIds === undefined) return undefined;
+  const ids = [...new Set((Array.isArray(body.friendIds) ? body.friendIds : []).map(id).filter(Number.isInteger))].slice(0, 500);
+  if (store.existingFriendIds(ids).length !== ids.length) throw new BadRequest('not_found');
+  return ids;
+}
+
+const eventOr404 = (req, res) => {
+  const event = store.getEvent(id(req.params.id));
+  if (!event) res.status(404).json({ error: 'not_found' });
+  return event;
+};
+
+app.get('/api/timeline', (req, res) => {
+  const today = store.localDate();
+  const offset = Math.max(0, id(req.query.offset) || 0);
+  const filters = {
+    friend: id(req.query.friend) || null,
+    circle: id(req.query.circle) || null,
+    kind: store.KINDS.includes(req.query.kind) ? req.query.kind : null,
+    q: String(req.query.q || '').trim().slice(0, 100) || null,
+  };
+  const limit = 100;
+  const items = store.timeline({ ...filters, offset, limit: limit + 1, today });
+  // Plans are shown above the past on the first page, filtered the same way (few enough to filter here)
+  const members = filters.circle ? new Set(store.friendIdsInCircle(filters.circle)) : null;
+  const matches = (e) =>
+    (!filters.friend || e.friends.some((f) => f.id === filters.friend))
+    && (!members || e.friends.some((f) => members.has(f.id)))
+    && (!filters.kind || e.kind === filters.kind)
+    && (!filters.q || [e.title, e.place, e.notes].some((v) => v?.toLowerCase().includes(filters.q.toLowerCase())));
+  const upcoming = offset ? [] : store.upcoming(today, 500).filter(matches);
+  res.json({ today, upcoming, items: items.slice(0, limit), more: items.length > limit });
+});
+
+app.post('/api/events', (req, res) => {
+  const fields = eventFields({ status: 'done', kind: 'meet', ...req.body });
+  const eventId = store.createEvent(fields, friendIdsFrom(req.body) ?? []);
+  res.json(store.getEvent(eventId));
+});
+
+app.get('/api/events/:id', (req, res) => {
+  const event = eventOr404(req, res);
+  if (event) res.json(event);
+});
+
+app.patch('/api/events/:id', (req, res) => {
+  const event = eventOr404(req, res);
+  if (!event) return;
+  store.updateEvent(event.id, eventFields(req.body, event), friendIdsFrom(req.body));
+  res.json(store.getEvent(event.id));
+});
+
+app.delete('/api/events/:id', (req, res) => {
+  const event = eventOr404(req, res);
+  if (!event) return;
+  store.deleteEvent(event.id);
+  res.json({ ok: true });
+});
+
+// --- WhatsApp ---
+
+const meNames = () => store.jsonSetting('whatsapp_me', []);
+
+// Shared or pasted text → a draft event to check and save
+app.post('/api/share/parse', (req, res) => {
+  const draft = draftFromText({
+    text: String(req.body.text || '').slice(0, 100_000),
+    title: String(req.body.title || '').slice(0, 300),
+    friends: store.listFriends(),
+    aliases: store.listAliases(),
+    meNames: meNames(),
+  });
+  res.json(draft);
+});
+
+// A chat export waits here between reading it and assigning its senders (never stored on disk)
+const pendingChats = new Map(); // id → { name, messages, expires }
+
+app.post('/api/whatsapp/preview', express.raw({ type: () => true, limit: '60mb' }), (req, res) => {
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'file_required' });
+  const filename = String(req.query.name || '');
+  let content;
+  try {
+    content = req.body.readUInt32LE(0) === 0x04034b50 ? chatFromZip(req.body) : req.body.toString('utf8');
+  } catch (err) {
+    console.warn(`Chat import: ${err.message}`);
+    return res.status(400).json({ error: 'bad_chat' });
+  }
+  const { messages } = parseChat(content);
+  if (!messages.length) return res.status(400).json({ error: 'bad_chat' });
+
+  const name = text(req.query.chat, 200) || chatNameFromFile(filename) || `Chat ${messages[0].at.slice(0, 10)}`;
+  const friends = store.listFriends();
+  const aliases = store.listAliases();
+  const me = new Set(meNames().map(normalizeName));
+  const senders = new Map();
+  for (const m of messages) {
+    const s = senders.get(m.sender) || { name: m.sender, count: 0, first: m.at, last: m.at };
+    s.count++;
+    s.last = m.at;
+    senders.set(m.sender, s);
+  }
+  const list = [...senders.values()].sort((a, b) => b.count - a.count);
+  for (const s of list) s.guess = me.has(normalizeName(s.name)) ? 'me' : matchFriend(s.name, friends, aliases);
+  // One-to-one chat named after the other person: whoever else writes is me
+  if (list.length === 2 && !list.some((s) => s.guess === 'me')) {
+    const other = list.find((s) => normalizeName(s.name) === normalizeName(name));
+    const self = list.find((s) => s !== other);
+    if (other && self && !self.guess) self.guess = 'me';
+  }
+
+  for (const [key, chat] of pendingChats) if (chat.expires < Date.now()) pendingChats.delete(key);
+  while (pendingChats.size >= 5) pendingChats.delete(pendingChats.keys().next().value);
+  const pendingId = randomBytes(12).toString('base64url');
+  pendingChats.set(pendingId, { name, messages, expires: Date.now() + 30 * 60_000 });
+
+  res.json({ id: pendingId, name, messages: messages.length, first: messages[0].at, last: messages.at(-1).at, senders: list });
+});
+
+// Assigns the senders (sender → friend id, 'me' or null) and stores the counts.
+// Returns the messages that look like plans, to pick from.
+app.post('/api/whatsapp/import', (req, res) => {
+  const chat = pendingChats.get(String(req.body.id || ''));
+  if (!chat) return res.status(400).json({ error: 'import_expired' });
+  const mapping = req.body.mapping && typeof req.body.mapping === 'object' ? req.body.mapping : {};
+  const owners = new Map();
+  for (const [sender, target] of Object.entries(mapping)) {
+    if (target === 'me') owners.set(sender, 'me');
+    else if (Number.isInteger(target) && store.friendExists(target)) owners.set(sender, target);
+  }
+  const friendIds = [...new Set([...owners.values()].filter((o) => o !== 'me'))];
+  if (!friendIds.length) return res.status(400).json({ error: 'no_friend_assigned' });
+
+  const senders = new Set(chat.messages.map((m) => m.sender));
+  const isGroup = senders.size > 2 || friendIds.length > 1;
+  const partnerId = isGroup ? null : friendIds[0];
+  const months = new Map(friendIds.map((f) => [f, new Map()]));
+  const members = new Map();
+  for (const m of chat.messages) {
+    const owner = owners.get(m.sender);
+    // One-to-one: every message counts for the other person. Group: only their own.
+    const friendId = partnerId ?? (owner !== 'me' ? owner : undefined);
+    if (!friendId) continue;
+    const byMonth = months.get(friendId);
+    const month = m.at.slice(0, 7);
+    byMonth.set(month, (byMonth.get(month) || 0) + 1);
+    members.set(friendId, m.at);
+  }
+  store.saveChat({
+    name: chat.name, isGroup, messages: chat.messages.length, firstAt: chat.messages[0].at, lastAt: chat.messages.at(-1).at, months, members,
+  });
+
+  // Remember the names for the next import and for shared messages
+  const me = new Set(meNames());
+  for (const [sender, owner] of owners) {
+    if (owner === 'me') me.add(sender);
+    else store.setAlias(sender, owner);
+  }
+  store.setJsonSetting('whatsapp_me', [...me].slice(-20));
+  pendingChats.delete(String(req.body.id));
+
+  res.json({ plans: planCandidates(chat.messages, { owners, partnerId }), isGroup, friendIds });
+});
+
+app.get('/api/chats', (req, res) => res.json(store.listChats()));
+
+app.delete('/api/chats/:id', (req, res) => {
+  store.deleteChat(id(req.params.id));
+  res.json(store.listChats());
+});
+
+app.delete('/api/aliases/:name', (req, res) => {
+  store.deleteAlias(String(req.params.name));
+  res.json({ ok: true });
+});
+
+// --- settings, reminders, calendar ---
+
+function settingsJson() {
+  return {
+    reminders: reminderSettings(),
+    reminderHour: Number(process.env.REMINDER_HOUR ?? 9),
+    pushKey: pushPublicKey(),
+    pushDevices: store.countPushSubscriptions(),
+    icsPath: `/ics/${store.icsToken()}.ics`,
+    whatsappMe: meNames(),
+  };
+}
+
+app.get('/api/settings', (req, res) => res.json(settingsJson()));
+
+app.patch('/api/settings', (req, res) => {
+  if (req.body.reminders && typeof req.body.reminders === 'object') {
+    const current = reminderSettings();
+    for (const key of Object.keys(current)) if (typeof req.body.reminders[key] === 'boolean') current[key] = req.body.reminders[key];
+    store.setJsonSetting('reminders', current);
+  }
+  if (Array.isArray(req.body.whatsappMe)) {
+    store.setJsonSetting('whatsapp_me', req.body.whatsappMe.map((n) => String(n).trim().slice(0, 100)).filter(Boolean).slice(0, 20));
+  }
+  res.json(settingsJson());
+});
+
+// A new secret URL; the old one stops working
+app.post('/api/settings/ics-token', (req, res) => {
+  store.setSetting('ics_token', store.newToken());
+  res.json(settingsJson());
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  const { endpoint, keys } = req.body;
+  if (typeof endpoint !== 'string' || typeof keys?.p256dh !== 'string' || typeof keys?.auth !== 'string') return res.status(400).json({ error: 'bad_request' });
+  if (!isValidPushEndpoint(endpoint)) return res.status(400).json({ error: 'bad_push_endpoint' });
+  store.savePushSubscription({ endpoint, p256dh: keys.p256dh.slice(0, 200), auth: keys.auth.slice(0, 100) });
+  res.json(settingsJson());
+});
+
+app.post('/api/push/unsubscribe', (req, res) => {
+  if (typeof req.body.endpoint === 'string') store.deletePushSubscription(req.body.endpoint);
+  res.json(settingsJson());
+});
+
+app.post('/api/push/test', route(async (req, res) => {
+  const delivered = await sendPush({ title: pushText().test, body: '', url: '/settings' });
+  res.json({ delivered });
+}));
+
+// What would go out today (for checking the reminders without waiting)
+app.get('/api/reminders/due', (req, res) => res.json(dueReminders()));
+
+app.get('/api/export.json', (req, res) => {
+  res.attachment(`bande-${new Date().toISOString().slice(0, 10)}.json`)
+    .json({ app: 'bande', exportedAt: store.now(), ...store.exportAll() });
+});
+
+// --- static files ---
+
+// private: photos are behind the login, so shared caches (Cloudflare) must not keep them
+app.use('/photos', express.static(store.PHOTO_DIR, {
+  cacheControl: false,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'private, max-age=31536000, immutable'),
+}));
+app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
+
+if (existsSync(distDir)) {
+  app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => {
+    if (/[\\/]assets[\\/]/.test(path)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    if (/sw\.js$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
+  } }));
+  // Everything else is a page of the single-page app
+  app.get('/{*path}', (req, res) => res.sendFile('index.html', { root: distDir, headers: { 'Cache-Control': 'no-cache' } }));
+}
+
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err instanceof BadRequest) return res.status(400).json({ error: err.code });
+  // Body parser errors (bad JSON, too large) carry their own 4xx status
+  const status = err.status ?? err.statusCode;
+  if (status >= 400 && status < 500) return res.status(status).json({ error: err.type === 'entity.too.large' ? 'too_large' : 'bad_request' });
+  console.error(err);
+  res.status(500).json({ error: 'server_error' });
+});
+
+await ensureAdmin();
+setupPush();
+app.listen(PORT, () => {
+  console.log(`Bande listening on :${PORT}`);
+  startReminders();
+});

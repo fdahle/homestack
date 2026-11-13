@@ -1,0 +1,21 @@
+services:
+  bande:
+    build: .
+    container_name: bande
+    restart: unless-stopped
+    # Only reachable through nginx on the same machine (see deploy/)
+    ports:
+      - "127.0.0.1:${PORT:-3068}:3000"
+    # A small init as PID 1, so `docker stop` shuts the server down cleanly
+    init: true
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      REMINDER_HOUR: ${REMINDER_HOUR:-9}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - bande-data:/data
+
+volumes:
+  bande-data:
