@@ -1,0 +1,28 @@
+{
+  "name": "regal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted list of your books with covers: what you read, are reading and want to read, kept in step with your Calibre library",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/server.js",
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server/server.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "test": "node --disable-warning=ExperimentalWarning --test \"server/*.test.js\" \"server/kit/*.test.js\"",
+    "icons": "node scripts/make-icons.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "barcode-detector": "^3.2.3",
+    "vite": "^8.3.5",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  }
+}

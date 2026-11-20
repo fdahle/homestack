@@ -1,0 +1,19 @@
+{
+  "name": "Regal",
+  "short_name": "Regal",
+  "description": "Deine Bücher: was du liest, gelesen hast und noch lesen willst",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f2f3ee",
+  "theme_color": "#f2f3ee",
+  "shortcuts": [
+    { "name": "Buch hinzufügen", "short_name": "Hinzufügen", "url": "/add" },
+    { "name": "ISBN scannen", "short_name": "Scannen", "url": "/add?scan=1" }
+  ],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

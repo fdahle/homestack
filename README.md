@@ -11,6 +11,7 @@ The newer apps share a look and some code through the [design kit](design/): one
 | [checkpoint/](checkpoint/) | Games you play: playing, finished, dropped, backlog; ratings, stats and a pick for what to play next |
 | [fernweh/](fernweh/) | Map bookmarks: save places, sort them into collections, plan trips, share views |
 | [flimmer/](flimmer/) | Films and series, kept apart: watchlist, what you watched, episodes, what's next |
+| [regal/](regal/) | Your books with covers: want to read, reading, read; synced from Calibre |
 | [stammbaum/](stammbaum/) | A pocket who-is-who for family gatherings |
 | [stapel/](stapel/) | Tracks a comic collection: owned, read, missing |
 | [zettel/](zettel/) | Notes and tasks as a PWA: works offline, optional end-to-end encryption, push reminders |
@@ -29,6 +30,7 @@ Each app has its own port, so all of them can run side by side on one machine, i
 | checkpoint | 3069 | 3069 | 5169 |
 | zettel | 3070 (CouchDB 5984) | 3070 | 5170 |
 | flimmer | 3071 | 3071 | 5171 |
+| regal | 3072 | 3072 | 5172 |
 
 `PORT` in an app's `.env` overrides its Docker port.
 

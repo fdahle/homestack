@@ -1,0 +1,139 @@
+/* Regal on top of the homestack kit (kit/tokens.css, kit/base.css): its colours,
+   its statuses and the pages only it has. Book covers are 2:3, the kit's default. */
+
+:root {
+  --bg: #f2f3ee;
+  --surface: #fdfdfa;
+  --text: #1c1f1a;
+  --muted: #676d62;
+  --line: #dfe2d8;
+  --accent: #3d7a3a;
+  --accent-text: #ffffff;
+  --accent-soft: #e1eddc;
+  --bar: #5a9a55;
+  /* Statuses: icon color and a soft background */
+  --s-want: #2f6aa8;
+  --s-want-soft: #e0eaf6;
+  --s-reading: #a8620a;
+  --s-reading-soft: #f8e9d2;
+  --s-read: #2f7a3a;
+  --s-read-soft: #dcefdc;
+  --s-dropped: #8a5a55;
+  --s-dropped-soft: #efe4e2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151714;
+    --surface: #1e211d;
+    --text: #e9ebe5;
+    --muted: #9ea596;
+    --line: #31352f;
+    --accent: #8fca86;
+    --accent-text: #0f240e;
+    --accent-soft: #233722;
+    --bar: #79b872;
+    --s-want: #8ab8ea;
+    --s-want-soft: #1f2e42;
+    --s-reading: #f0b860;
+    --s-reading-soft: #42331a;
+    --s-read: #7cc98a;
+    --s-read-soft: #1f3a24;
+    --s-dropped: #c9a39e;
+    --s-dropped-soft: #3a2c2a;
+  }
+}
+
+.st-want { --st: var(--s-want); --st-soft: var(--s-want-soft); }
+.st-reading { --st: var(--s-reading); --st-soft: var(--s-reading-soft); }
+.st-read { --st: var(--s-read); --st-soft: var(--s-read-soft); }
+.st-dropped { --st: var(--s-dropped); --st-soft: var(--s-dropped-soft); }
+
+/* --- tiles --- */
+
+.tile-author { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -2px; }
+/* A small e-book mark on covers of books in Calibre */
+.ebook-pin {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
+.ebook-pin .icon { width: 14px; height: 14px; }
+.tile-progress { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tile-progress .progress { flex: 1; }
+
+/* --- book page --- */
+
+.status-picker { --n: 4; }
+.authors { margin: 0; font-size: 1rem; }
+.authors a { color: var(--text); font-weight: 550; }
+.authors a:hover { color: var(--accent); }
+.subtitle { margin: -2px 0 0; color: var(--muted); font-size: 0.98rem; }
+.series-line { margin: 0; font-size: 0.9rem; }
+.series-line a { color: var(--muted); }
+.series-line a:hover { color: var(--accent); }
+.tag.ebook { color: var(--accent); border-color: currentColor; }
+.tag.gone { color: var(--warn); border-color: currentColor; }
+
+.reading-progress { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--st-soft); }
+.reading-progress .progress { height: 8px; background: color-mix(in srgb, var(--st) 18%, var(--surface)); }
+.page-row { display: flex; align-items: center; gap: 6px; }
+.page-row input { width: 5.2em; flex: none; text-align: center; }
+.page-row .icon-btn { width: 38px; height: 38px; }
+.progress-line { display: flex; align-items: center; gap: 10px; }
+.progress-line .progress { flex: 1; }
+.progress-line .percent { font-weight: 700; color: var(--st); font-variant-numeric: tabular-nums; }
+.manual { margin-top: 16px; }
+.edit-note { margin: 0; }
+
+/* --- add page --- */
+
+.search-box .scan-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
+.search-box.with-scan input { padding-right: 52px; }
+.result-row .meta .lang { text-transform: uppercase; font-size: 0.75rem; }
+.tag.source { font-weight: 550; }
+
+.scanner { margin-bottom: 14px; }
+.camera {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  max-height: 46vh;
+  width: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+}
+.camera video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.camera-off { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.aim { position: absolute; left: 12%; right: 12%; top: 33%; bottom: 33%; border: 2px solid rgb(255 255 255 / 0.85); border-radius: 12px; box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.25); }
+.camera-close { position: absolute; top: 8px; right: 8px; background: rgb(0 0 0 / 0.45); color: #fff; }
+.camera-close:hover { background: rgb(0 0 0 / 0.65); }
+.scanner p { margin: 8px 0 0; }
+
+/* --- stats --- */
+
+.goal { display: flex; flex-direction: column; gap: 8px; }
+.goal-numbers { display: flex; align-items: baseline; gap: 8px; }
+.goal-numbers strong { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+.goal .progress { height: 10px; }
+.goal p { margin: 0; }
+
+/* --- settings --- */
+
+.sync-result { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 0.9rem; }
+.sync-result ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 0.85rem; }
+.setting-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.setting-row input { width: 7em; }
+
+@media (min-width: 1024px) {
+  /* Book covers are taller than game covers: a little narrower tiles fit more in a row */
+  .grid { --tile-min: 132px; }
+}
+
