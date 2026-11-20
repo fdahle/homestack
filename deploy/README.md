@@ -67,28 +67,30 @@ Authelia's session cookie is set for `fdahle.de`, so it covers every subdomain: 
 2. `install -m 644 deploy/nginx/homestack-authelia.conf /etc/nginx/snippets/` (next to Authelia's own `authelia-location.conf` and `authelia-authrequest.conf`, which Stammbaum already uses).
 3. `install -d -m 750 -o root -g www-data /etc/nginx/homestack-secrets`
 
-**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal, Leute) or follows it (Fernweh, conf `fernweh/deploy/places.fdahle.de.conf`), shown for Checkpoint:
+**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal, Leute) or follows it (Fernweh), shown for Leute:
 
 ```sh
 secret=$(openssl rand -hex 32)
-echo "AUTH_PROXY_SECRET=$secret" >> /srv/docker/homestack/checkpoint/.env
-echo "proxy_set_header X-Auth-Proxy-Secret \"$secret\";" > /etc/nginx/homestack-secrets/checkpoint.conf
-chmod 640 /etc/nginx/homestack-secrets/checkpoint.conf
-cp checkpoint/deploy/games.fdahle.de.conf /etc/nginx/sites-available/   # the Authelia version
+echo "AUTH_PROXY_SECRET=$secret" >> /srv/docker/homestack/leute/.env
+echo "proxy_set_header X-Auth-Proxy-Secret \"$secret\";" > /etc/nginx/homestack-secrets/leute.conf
+chmod 640 /etc/nginx/homestack-secrets/leute.conf
+cp leute/deploy/friends.fdahle.de.conf /etc/nginx/sites-available/   # the Authelia version
 nginx -t && systemctl reload nginx
-cd /srv/docker/homestack/checkpoint && docker compose up -d
+cd /srv/docker/homestack/leute && docker compose up -d
 ```
 
 The app then has no login page of its own: it takes the user from Authelia and makes an account for them the first time. The apps are for one person and their data doesn't belong to an account, so nothing is lost when you switch; only the language setting starts again at German. Fernweh simply treats whoever Authelia lets in as its one user. When the Authelia login runs out, the app reloads itself and lands on Authelia's login page.
 
 **Where each app stands:**
 
-| App | Behind Authelia |
+| App | Login |
 |---|---|
-| Checkpoint, Flimmer, Regal, Leute, Fernweh | Ready: only Authelia's login (steps above) |
-| Stammbaum | Already, with its own `STAMMBAUM_PROXY_SECRET` |
-| Stapel, Backlog | Possible now, but they still ask for their own password once per device afterwards (their sessions last 400 days). Gone once they move to the design kit |
-| Zettel | Authelia in front for the second factor; Zettel keeps its own login on purpose, since that unlocks your notes database and encryption key |
+| Leute | Behind Authelia with a second factor (only you, group `admin`) |
+| Stammbaum | Behind Authelia, with its own `STAMMBAUM_PROXY_SECRET` |
+| Checkpoint, Flimmer, Regal | Their own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above whenever you want |
+| Fernweh | Its own password; ready for Authelia too (`AUTH_PROXY_SECRET`, conf in its `deploy/`) |
+| Stapel, Backlog | Their own password; behind Authelia they would ask for it once more per device until they move to the design kit |
+| Zettel | Its own login, which also unlocks your notes database and encryption key; Authelia could sit in front for a second factor |
 
 ## Apps that talk to each other
 
