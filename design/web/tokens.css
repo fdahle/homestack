@@ -1,0 +1,46 @@
+/* The homestack palette and sizes. Each app sets its own --accent (and may tint
+   --bg/--surface) in its style.css, which is loaded after this file. */
+:root {
+  --bg: #f4f3f1;
+  --surface: #fefdfc;
+  --text: #1e1d1b;
+  --muted: #706c66;
+  --line: #e3e0da;
+  --accent: #4a5bc4;
+  --accent-text: #ffffff;
+  --accent-soft: #e4e7f8;
+  --ok: #2e7d4f;
+  --ok-soft: #dcefe3;
+  --warn: #9a5c00;
+  --warn-soft: #fbecd2;
+  --danger: #b3261e;
+  --star: #e0a100;
+  --bar: var(--accent);
+  --radius: 14px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
+  --nav-h: 60px;
+  --side-w: 232px;
+  --content-w: 1180px;
+  --pane-w: 460px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171716;
+    --surface: #21201f;
+    --text: #ecebe8;
+    --muted: #a19d97;
+    --line: #353330;
+    --accent: #9eaaf0;
+    --accent-text: #141833;
+    --accent-soft: #2a2f4d;
+    --ok: #6cc48d;
+    --ok-soft: #1f3a2a;
+    --warn: #f0b84a;
+    --warn-soft: #43321a;
+    --danger: #f28b82;
+    --star: #f5c542;
+    --shadow: none;
+  }
+}

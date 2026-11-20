@@ -1,0 +1,81 @@
+# The parts of Authelia's configuration.yml for one login across the homestack apps.
+# Merge them into the existing file; don't replace it. See README.md#one-login-for-all-apps.
+#
+# Domains marked "yours" are guesses: put in the ones you actually use.
+
+session:
+  cookies:
+    # One cookie for fdahle.de covers every subdomain: log in once, every app knows you.
+    - domain: fdahle.de
+      authelia_url: https://auth.fdahle.de              # yours
+      default_redirection_url: https://games.fdahle.de
+      # Without "remember me": logged out after 2 hours without using any app, at the latest after a day
+      inactivity: 2h
+      expiration: 1d
+      # With "remember me" ticked, the login lasts a year. Tick it on your own devices only.
+      remember_me: 1y
+
+access_control:
+  default_policy: deny
+  rules:
+    # --- what has to work without the login cookie ---
+
+    # Calendar apps fetch Bande's feed on their own; the link carries its own secret token.
+    - domain: friends.fdahle.de
+      resources: ['^/ics/']
+      policy: bypass
+
+    # Fernweh's shared map views are for people without an account (the link is the key).
+    - domain: map.fdahle.de                             # yours
+      resources: ['^/share/', '^/api/public/share', '^/assets/']
+      policy: bypass
+
+    # Phones fetch the icon and manifest when you add an app to the home screen,
+    # sometimes without cookies. Nothing private in them.
+    - domain:
+        - games.fdahle.de
+        - watch.fdahle.de
+        - books.fdahle.de
+        - comics.fdahle.de
+        - read.fdahle.de
+        - friends.fdahle.de
+        - map.fdahle.de                                 # yours
+        - notes.fdahle.de                               # yours
+        - stammbaum.fdahle.de                           # yours
+      resources: ['^/(manifest\.webmanifest|icon[^/]*\.(png|svg)|favicon\.ico|sw\.js)$']
+      policy: bypass
+
+    # --- sensitive: a second factor (asked once per login, so rarely with "remember me") ---
+
+    # Notes, friends (addresses, phone numbers, what you know about them), saved places
+    - domain:
+        - notes.fdahle.de                               # yours
+        - friends.fdahle.de
+        - map.fdahle.de                                 # yours
+      subject: 'group:me'
+      policy: two_factor
+
+    # The family, for every relative with an account (see stammbaum/deploy/authelia.yml)
+    - domain: stammbaum.fdahle.de                       # yours
+      subject: ['group:me', 'group:family']
+      policy: two_factor
+
+    # --- lists of games, films, books, comics, posts: the password is enough ---
+    - domain:
+        - games.fdahle.de
+        - watch.fdahle.de
+        - books.fdahle.de
+        - comics.fdahle.de
+        - read.fdahle.de
+      subject: 'group:me'
+      policy: one_factor
+
+# You are a user in the `me` group (users_database.yml, hash with
+# `authelia crypto hash generate argon2`):
+#
+# users:
+#   felix:
+#     displayname: "Felix"
+#     password: "$argon2id$..."
+#     email: you@example.com
+#     groups: [me, family]

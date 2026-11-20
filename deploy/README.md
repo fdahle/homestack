@@ -56,3 +56,36 @@ Make a key pair just for this (`ssh-keygen -t ed25519 -N '' -f deploy-key`). The
 - `journalctl -u homestack-deploy` shows what was deployed and why something failed.
 - Re-run a failed workflow on GitHub to try the same commit again, or run `homestack-deploy --all` on the server to rebuild every app (after a base image update, for example).
 - nginx configs (each app's `deploy/`) aren't applied automatically. Copy them yourself when they change.
+
+## One login for all apps
+
+Authelia's session cookie is set for `fdahle.de`, so it covers every subdomain: log in once and each app behind it knows you. With "remember me" the login lasts a year (`remember_me` in [authelia.yml](authelia.yml)); the sensitive apps ask for the second factor once per login, not every time.
+
+**Server, once:**
+
+1. Merge [authelia.yml](authelia.yml) into Authelia's configuration (adjust the domains marked "yours") and put yourself into the `me` group. Restart Authelia.
+2. `install -m 644 deploy/nginx/homestack-authelia.conf /etc/nginx/snippets/` (next to Authelia's own `authelia-location.conf` and `authelia-authrequest.conf`, which Stammbaum already uses).
+3. `install -d -m 750 -o root -g www-data /etc/nginx/homestack-secrets`
+
+**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal):
+
+```sh
+secret=$(openssl rand -hex 32)
+echo "AUTH_PROXY_SECRET=$secret" >> /srv/docker/homestack/checkpoint/.env
+echo "proxy_set_header X-Auth-Proxy-Secret \"$secret\";" > /etc/nginx/homestack-secrets/checkpoint.conf
+chmod 640 /etc/nginx/homestack-secrets/checkpoint.conf
+cp checkpoint/deploy/games.fdahle.de.conf /etc/nginx/sites-available/   # the Authelia version
+nginx -t && systemctl reload nginx
+cd /srv/docker/homestack/checkpoint && docker compose up -d
+```
+
+The app then has no login page of its own: it takes the user from Authelia and makes an account for them the first time. Checkpoint, Flimmer and Regal are for one person and their lists don't belong to an account, so nothing is lost when you switch; only the language setting starts again at German. When the Authelia login runs out, the app reloads itself and lands on Authelia's login page.
+
+**Where each app stands:**
+
+| App | Behind Authelia |
+|---|---|
+| Checkpoint, Flimmer, Regal | Ready: only Authelia's login (steps above) |
+| Stammbaum | Already, with its own `STAMMBAUM_PROXY_SECRET` |
+| Bande, Stapel, Backlog, Fernweh | Possible now, but they still ask for their own password once per device afterwards (their sessions last 400 days). Gone once they move to the design kit |
+| Zettel | Authelia in front for the second factor; Zettel keeps its own login on purpose, since that unlocks your notes database and encryption key |

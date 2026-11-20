@@ -1,6 +1,8 @@
 # Apps
 
-Small self-hosted apps I run for myself and my family. Each folder is a separate, self-contained app with its own `package.json`, Dockerfile, `docker-compose.yml` and README, so you can use any one of them on its own. They share no code.
+Small self-hosted apps I run for myself and my family. Each folder is a separate, self-contained app with its own `package.json`, Dockerfile, `docker-compose.yml` and README, so you can use any one of them on its own.
+
+The newer apps share a look and some code through the [design kit](design/): one set of colours, components, login and icon style, made for the phone and for a computer. The kit is copied into each app that uses it (`node design/sync.mjs`), so every app still builds from its own folder.
 
 | Folder | App |
 |---|---|
