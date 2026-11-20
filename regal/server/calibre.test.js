@@ -26,7 +26,7 @@ test('reads a Calibre library from a copy of metadata.db', async (t) => {
     {
       title: 'Die Farben der Magie', authors: ['Terry Pratchett'], series: 'Scheibenwelt', seriesIndex: 1, pubdate: '1991-12-31 23:00:00+00:00',
       isbn: '3-442-41541-1', google: 'abcDEF123', comments: '<p>Rincewind &amp; Zweiblum.</p>', publisher: 'Goldmann', lang: 'deu',
-      tags: ['Fantasy', 'Humor'], formats: ['EPUB', 'PDF'], pages: 288, cover: fakeJpeg(1), uuid: 'u-1',
+      tags: ['Fantasy', 'Humor'], formats: ['EPUB', 'PDF'], pages: 288, read: true, cover: fakeJpeg(1), uuid: 'u-1',
     },
     { title: 'Good Omens', authors: ['Terry Pratchett', 'Neil Gaiman'], uuid: 'u-2', seriesIndex: 1 },
   ]);
@@ -49,6 +49,7 @@ test('reads a Calibre library from a copy of metadata.db', async (t) => {
     formats: ['EPUB', 'PDF'],
     google_id: 'abcDEF123',
     cover: undefined,
+    read: true,
   });
   assert.equal(a.cover, join(lib, 'Terry Pratchett', 'Die Farben der Magie (1)', 'cover.jpg'));
   // Authors in Calibre's order; no series means no series number either
@@ -57,6 +58,8 @@ test('reads a Calibre library from a copy of metadata.db', async (t) => {
   assert.equal(b.series_index, null);
   assert.equal(b.year, null);
   assert.equal(b.cover, null);
+  // Not marked in Calibre's read column
+  assert.equal(b.read, false);
   assert.deepEqual(b.isbns, []);
   // The copy is gone again; the library itself is untouched
   assert.deepEqual(readdirSync(work), []);
@@ -136,4 +139,17 @@ test('a book deleted and added again in Calibre (new uuid) finds its old entry b
   assert.equal(plan.add.length, 0);
   assert.deepEqual(plan.gone, []);
   assert.equal(plan.update[0].fields.calibre_uuid, 'u-new');
+});
+
+test("Calibre's read mark: new books come in as read, and a book you only wanted to read becomes read", () => {
+  const added = planSync([calibreBook({ read: true })], [], { defaultStatus: 'want' });
+  assert.equal(added.add[0].status, 'read');
+  assert.ok(!('read' in added.add[0]));
+  assert.equal(planSync([calibreBook({ read: false })], [], { defaultStatus: 'want' }).add[0].status, 'want');
+
+  const mine = (status) => ({ ...calibreBook(), id: 7, in_calibre: 1, status });
+  assert.deepEqual(planSync([calibreBook({ read: true })], [mine('want')]).update[0].fields, { status: 'read' });
+  // Reading, dropped or read already: Calibre doesn't change it, and an unread mark never takes "read" away
+  for (const status of ['reading', 'dropped', 'read']) assert.equal(planSync([calibreBook({ read: true })], [mine(status)]).unchanged, 1);
+  assert.equal(planSync([calibreBook({ read: false })], [mine('read')]).unchanged, 1);
 });

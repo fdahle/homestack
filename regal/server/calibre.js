@@ -48,7 +48,18 @@ function pageCounts(db) {
   return new Map(rows.filter((r) => r.value > 0).map((r) => [r.book, Math.round(r.value)]));
 }
 
-// Every book in an open metadata.db, as Regal's fields (plus where its cover is)
+// Calibre's "read" yes/no column (#read, which Calibre-Web uses for its read status), if the
+// library has one: book id → true/false
+function readFlags(db) {
+  if (!hasTable(db, 'custom_columns')) return new Map();
+  const col = db.prepare("SELECT id FROM custom_columns WHERE lower(label) IN ('read', 'gelesen') AND datatype = 'bool' ORDER BY id").get();
+  if (!col || !hasTable(db, `custom_column_${col.id}`)) return new Map();
+  const rows = db.prepare(`SELECT book, value FROM custom_column_${col.id}`).all();
+  return new Map(rows.map((r) => [r.book, !!r.value]));
+}
+
+// Every book in an open metadata.db, as Regal's fields (plus where its cover is and whether
+// Calibre has it as read)
 export function readBooks(db, libraryDir) {
   const all = (sql) => db.prepare(sql).all();
   const authors = grouped(all('SELECT l.book, a.name AS value FROM books_authors_link l JOIN authors a ON a.id = l.author ORDER BY l.id'));
@@ -64,6 +75,7 @@ export function readBooks(db, libraryDir) {
   const tags = hasTable(db, 'books_tags_link') ? grouped(all('SELECT l.book, t.name AS value FROM books_tags_link l JOIN tags t ON t.id = l.tag ORDER BY t.name')) : new Map();
   const formats = hasTable(db, 'data') ? grouped(all('SELECT book, upper(format) AS value FROM data ORDER BY format')) : new Map();
   const pages = pageCounts(db);
+  const read = readFlags(db);
   const root = resolve(libraryDir);
 
   return all('SELECT id, title, pubdate, series_index, isbn, path, uuid, has_cover FROM books ORDER BY id').map((b) => {
@@ -89,6 +101,7 @@ export function readBooks(db, libraryDir) {
       formats: [...new Set(formats.get(b.id) || [])],
       google_id: id.google || null,
       cover,
+      read: read.get(b.id) === true,
     };
   });
 }
@@ -152,7 +165,11 @@ export function calibreChanges(book, c) {
 // A Calibre book is found in Regal by its uuid. If it isn't there yet, a book you added
 // yourself (not linked to Calibre, or linked to a Calibre book that is gone) with the same
 // ISBN is linked to it, else one with the same title and first author; only then is it
-// added, with defaultStatus. Books that disappear from Calibre stay, marked as gone.
+// added: as read when Calibre has it as read, else with defaultStatus. Books that disappear
+// from Calibre stay, marked as gone.
+//
+// Calibre's read mark only ever moves a book from "want" to "read": a book you're reading,
+// dropped or already marked yourself keeps its status.
 export function planSync(calibreBooks, regalBooks, { defaultStatus = 'want' } = {}) {
   const present = new Set(calibreBooks.map((c) => c.calibre_uuid));
   const byUuid = new Map(regalBooks.filter((b) => b.calibre_uuid).map((b) => [b.calibre_uuid, b]));
@@ -176,13 +193,14 @@ export function planSync(calibreBooks, regalBooks, { defaultStatus = 'want' } = 
         || [byTitle.get(titleKey(c.title, c.authors))].find((b) => b && !used.has(b.id) && !(b.isbns?.length && c.isbns.length));
       linked = !!book;
     }
-    const { cover, ...fields } = c;
+    const { cover, read, ...fields } = c;
     if (!book) {
-      plan.add.push({ ...fields, in_calibre: 1, source: 'calibre', status: defaultStatus });
+      plan.add.push({ ...fields, in_calibre: 1, source: 'calibre', status: read ? 'read' : defaultStatus });
       continue;
     }
     used.add(book.id);
     const changes = calibreChanges(book, fields);
+    if (read && book.status === 'want') changes.status = 'read';
     if (Object.keys(changes).length) plan.update.push({ id: book.id, fields: changes, linked });
     else plan.unchanged++;
   }

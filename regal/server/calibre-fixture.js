@@ -2,7 +2,7 @@
 // Calibre's own table layout, and a cover.jpg in each book's folder that has one.
 //
 //   makeCalibreLibrary(dir, [{ title, authors, series, seriesIndex, pubdate, isbn, uuid, comments,
-//                              publisher, lang, tags, formats, pages, google, cover: Buffer }])
+//                              publisher, lang, tags, formats, pages, read, google, cover: Buffer }])
 
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -46,6 +46,11 @@ export function makeCalibreLibrary(dir, books) {
     db.exec("INSERT INTO custom_columns (id, label, name, datatype, normalized) VALUES (1, 'pages', 'Pages', 'int', 0)");
     db.exec('CREATE TABLE custom_column_1 (id INTEGER PRIMARY KEY AUTOINCREMENT, book INTEGER, value INT NOT NULL, UNIQUE(book))');
   }
+  // Calibre's yes/no "read" column, as Calibre-Web uses it
+  if (books.some((b) => b.read !== undefined)) {
+    db.exec("INSERT INTO custom_columns (id, label, name, datatype, normalized) VALUES (2, 'read', 'Read', 'bool', 0)");
+    db.exec('CREATE TABLE custom_column_2 (id INTEGER PRIMARY KEY AUTOINCREMENT, book INTEGER, value BOOL NOT NULL, UNIQUE(book))');
+  }
   // name → id in a lookup table (authors, series, …)
   const idOf = (table, column, name) => {
     db.prepare(`INSERT OR IGNORE INTO ${table} (${column}) VALUES (?)`).run(name);
@@ -68,6 +73,7 @@ export function makeCalibreLibrary(dir, books) {
     for (const t of b.tags || []) db.prepare('INSERT INTO books_tags_link (book, tag) VALUES (?, ?)').run(id, idOf('tags', 'name', t));
     for (const f of b.formats || []) db.prepare('INSERT INTO data (book, format, uncompressed_size, name) VALUES (?, ?, 1000, ?)').run(id, f, b.title);
     if (b.pages) db.prepare('INSERT INTO custom_column_1 (book, value) VALUES (?, ?)').run(id, b.pages);
+    if (b.read !== undefined) db.prepare('INSERT INTO custom_column_2 (book, value) VALUES (?, ?)').run(id, b.read ? 1 : 0);
     if (b.cover) {
       mkdirSync(join(dir, path), { recursive: true });
       writeFileSync(join(dir, path, 'cover.jpg'), b.cover);
