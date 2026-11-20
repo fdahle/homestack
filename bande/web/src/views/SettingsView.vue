@@ -3,13 +3,12 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, session } from '../api.js';
 import { t } from '../i18n.js';
-import { errorText, formatDate, showToast } from '../util.js';
+import { errorText, showToast } from '../util.js';
 import TopBar from '../components/TopBar.vue';
 import Icon from '../components/Icon.vue';
 
 const router = useRouter();
 const settings = ref(null);
-const chats = ref([]);
 const profile = ref({ displayName: session.user.display_name, lang: session.user.lang });
 const pw = ref({ currentPassword: '', newPassword: '' });
 const myNames = ref('');
@@ -19,7 +18,6 @@ const pushBusy = ref(false);
 onMounted(async () => {
   settings.value = await api('/settings');
   myNames.value = settings.value.whatsappMe.join(', ');
-  chats.value = await api('/chats');
   await checkPush();
 });
 
@@ -125,11 +123,6 @@ async function saveMyNames() {
   showToast(t('saved'));
 }
 
-async function deleteChat(chat) {
-  if (!confirm(t('settings.chatDeleteConfirm', { name: chat.name }))) return;
-  chats.value = await api(`/chats/${chat.id}`, { method: 'DELETE' });
-}
-
 async function logout() {
   await api('/logout', { method: 'POST' });
   session.user = null;
@@ -180,18 +173,6 @@ async function logout() {
         <p class="muted small">{{ t('settings.myNamesHint') }}</p>
         <button class="btn small">{{ t('save') }}</button>
       </form>
-      <h3>{{ t('settings.chats') }}</h3>
-      <ul v-if="chats.length" class="plain-list">
-        <li v-for="c in chats" :key="c.id" class="user-row">
-          <span>
-            <strong>{{ c.name }}</strong>
-            <span class="muted small"> · {{ t('import.messages', { n: c.messages }) }}<template v-if="c.last_at">, {{ t('settings.chatUntil', { date: formatDate(c.last_at.slice(0, 10), { weekday: false }) }) }}</template></span>
-          </span>
-          <button class="link-btn danger" @click="deleteChat(c)">{{ t('delete') }}</button>
-        </li>
-      </ul>
-      <p v-else class="muted small">{{ t('settings.noChats') }}</p>
-      <RouterLink class="btn small" to="/import"><Icon name="upload" /> {{ t('share.toImport') }}</RouterLink>
     </section>
 
     <form class="card form" @submit.prevent="saveProfile">

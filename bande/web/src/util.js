@@ -79,8 +79,43 @@ export function avatarHue(name) {
   return h;
 }
 
-export const initials = (name) =>
-  String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => [...w][0].toUpperCase()).join('');
+// The first letter of the first name, for avatars without a photo
+export const initial = (name) => ([...String(name || '?').trim()][0] || '?').toUpperCase();
+
+// Address and city as one text, without the city twice
+export function fullAddress({ address, city }) {
+  const lines = [address?.trim()].filter(Boolean);
+  if (city && !lines.some((l) => l.toLowerCase().includes(city.toLowerCase()))) lines.push(city);
+  return lines.join('\n');
+}
+
+// "Musterstraße 1\n20095 Hamburg" → "Hamburg", for the list when no city is filled in
+export const cityFromAddress = (address) => /(?:^|\n|,)\s*(?:[A-Z]{1,2}-)?\d{4,5}\s+([^\n,]+)\s*$/.exec(String(address || '').trim())?.[1].trim() || '';
+
+// A Google Maps search (opens the Maps app on phones)
+export const mapsLink = (text) =>
+  text?.trim() ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(text.trim().replace(/\s*\n\s*/g, ', '))}` : null;
+
+// Groups for "good to know", and words that point to one in a label or value
+export const FACT_CATEGORIES = ['family', 'work', 'likes', 'food', 'other'];
+const CATEGORY_WORDS = [
+  ['family', /partner|freundin\b|\bfreund\b|\bfrau\b|\bmann\b|ehemann|ehefrau|verheiratet|verlobt|kind|sohn|tochter|eltern|mutter|vater|mama|papa|bruder|schwester|geschwister|oma\b|opa\b|haustier|hund|katze|husband|wife|girlfriend|boyfriend|married|child|kids|\bson\b|daughter|parents|mother|father|brother|sister|sibling|\bpets?\b|\bdog\b|\bcat\b/],
+  ['work', /\bjob|beruf|arbeit|firma|chef|kolleg|studium|studiert|\buni\b|schule|ausbildung|\bwork|company|\bboss|employer|stud(y|ies)|school|degree/],
+  ['food', /essen|ernährung|vegetar|vegan|allerg|unverträglich|laktose|gluten|getränk|trinkt|kaffee|\btee\b|\bbier|wein\b|\bfood|diet|drinks?\b|coffee|\btea\b|\bbeer|\bwine/],
+  ['likes', /hobby|hobbies|\bmag\b|liebt|lieblings|musik|\bband\b|buch|bücher|film|serie|sport|verein|spiel|\blikes?\b|\bloves?\b|favou?rite|music|book|movie|series|\bteam\b|\bgames?\b/],
+];
+
+// The group a fact most likely belongs in: as the label was used before, else from its words
+export function guessCategory(label, value, known = []) {
+  const l = String(label || '').trim().toLowerCase();
+  const before = l && known.find((k) => k.label.toLowerCase() === l)?.category;
+  if (before) return before;
+  for (const text of [l, String(value || '').toLowerCase()]) {
+    const hit = text && CATEGORY_WORDS.find(([, re]) => re.test(text));
+    if (hit) return hit[0];
+  }
+  return 'other';
+}
 
 // A square, small JPEG from a photo, cut from the middle
 export async function squarePhoto(file, size = 512) {

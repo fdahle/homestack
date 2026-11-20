@@ -1,19 +1,19 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import {
-  daysBetween, duration, errorText, formatBirthday, formatDate, formatPartial, isoDate, relativeDay, showToast, whatsappLink,
+  daysBetween, duration, errorText, FACT_CATEGORIES, formatBirthday, formatDate, formatPartial, fullAddress, guessCategory, isoDate, mapsLink,
+  relativeDay, showToast, whatsappLink,
 } from '../util.js';
 import TopBar from '../components/TopBar.vue';
 import Icon from '../components/Icon.vue';
 import Avatar from '../components/Avatar.vue';
 import TimelineList from '../components/TimelineList.vue';
-import ChatBars from '../components/ChatBars.vue';
 
 const props = defineProps({ id: { type: String, required: true } });
 const data = ref(null);
-const labels = ref([]);
+const labels = ref([]); // [{ label, category }] used before
 const today = isoDate();
 
 onMounted(async () => {
@@ -22,6 +22,7 @@ onMounted(async () => {
 });
 
 const friend = computed(() => data.value?.friend);
+const address = computed(() => fullAddress(friend.value));
 const ideas = computed(() => data.value.events.filter((e) => e.status === 'idea'));
 const upcoming = computed(() => data.value.events.filter((e) => e.status === 'planned' && e.date >= today).reverse());
 const past = computed(() => data.value.events.filter((e) => e.status !== 'idea' && !(e.status === 'planned' && e.date >= today)));
@@ -44,14 +45,29 @@ const contactState = computed(() => {
 
 // --- facts ---
 
-const newFact = ref({ label: '', value: '' });
+const newFact = ref({ label: '', value: '', category: 'other' });
+const groupTouched = ref(false); // picked by hand: stop guessing
 const editingFact = ref(null);
+
+watch(() => [newFact.value.label, newFact.value.value], ([label, value]) => {
+  if (!groupTouched.value) newFact.value.category = guessCategory(label, value, labels.value);
+});
+
+const factGroups = computed(() =>
+  FACT_CATEGORIES.map((key) => ({ key, facts: data.value.facts.filter((f) => f.category === key) })).filter((g) => g.facts.length));
+// Only "other": no heading needed
+const showGroupTitles = computed(() => factGroups.value.length > 1 || factGroups.value[0]?.key !== 'other');
+const labelOptions = computed(() =>
+  [...new Set([...labels.value.map((l) => l.label), ...t('factGroups.suggestions').split(', ')])]);
 
 async function addFact() {
   if (!newFact.value.value.trim()) return;
   try {
     data.value.facts = await api(`/friends/${props.id}/facts`, { method: 'POST', body: newFact.value });
-    newFact.value = { label: '', value: '' };
+    const { label, category } = newFact.value;
+    if (label.trim() && !labels.value.some((l) => l.label.toLowerCase() === label.trim().toLowerCase())) labels.value.push({ label: label.trim(), category });
+    newFact.value = { label: '', value: '', category: 'other' };
+    groupTouched.value = false;
   } catch (err) {
     showToast(errorText(err));
   }
@@ -61,7 +77,7 @@ async function saveFact() {
   const f = editingFact.value;
   try {
     data.value.facts = f.value.trim()
-      ? await api(`/facts/${f.id}`, { method: 'PATCH', body: { label: f.label, value: f.value } })
+      ? await api(`/facts/${f.id}`, { method: 'PATCH', body: { label: f.label, value: f.value, category: f.category } })
       : await api(`/facts/${f.id}`, { method: 'DELETE' });
     editingFact.value = null;
   } catch (err) {
@@ -99,8 +115,6 @@ async function markGiven(gift) {
 async function deleteGift(gift) {
   data.value.gifts = await api(`/gifts/${gift.id}`, { method: 'DELETE' });
 }
-
-const totalMessages = computed(() => data.value.chatMonths.reduce((s, m) => s + m.n, 0));
 </script>
 
 <template>
@@ -126,17 +140,30 @@ const totalMessages = computed(() => data.value.chatMonths.reduce((s, m) => s + 
       <a v-if="friend.phone" class="btn" :href="`tel:${friend.phone.replace(/[^\d+]/g, '')}`"><Icon name="phone" /> {{ t('friend.call') }}</a>
     </div>
 
+    <template v-if="birthday || address || friend.phone || friend.email">
+      <h2 class="section">{{ t('friend.contact') }}</h2>
+      <dl class="facts card">
+        <template v-if="birthday">
+          <dt><Icon name="cake" /> {{ t('friend.birthday') }}</dt>
+          <dd>
+            {{ formatBirthday(friend.birthday) }}
+            <span class="muted">· {{ birthday.days === 0 ? t('friend.birthdayToday') : relativeDay(birthday.next, today) }}<template v-if="birthday.age">, {{ t('home.turns', { age: birthday.age }) }}</template></span>
+          </dd>
+        </template>
+        <template v-if="address">
+          <dt><Icon name="pin" /> {{ friend.address ? t('friend.address') : t('friend.city') }}</dt>
+          <dd class="address">
+            <span>{{ address }}</span>
+            <a class="map-link" :href="mapsLink(address)" target="_blank" rel="noopener"><Icon name="map" /> {{ t('friend.openMap') }}</a>
+          </dd>
+        </template>
+        <template v-if="friend.phone"><dt><Icon name="phone" /> {{ t('friend.phone') }}</dt><dd>{{ friend.phone }}</dd></template>
+        <template v-if="friend.email"><dt>@ {{ t('friend.email') }}</dt><dd><a :href="`mailto:${friend.email}`">{{ friend.email }}</a></dd></template>
+      </dl>
+    </template>
+
+    <h2 class="section">{{ t('friend.together') }}</h2>
     <dl class="facts card">
-      <template v-if="birthday">
-        <dt><Icon name="cake" /> {{ t('friend.birthday') }}</dt>
-        <dd>
-          {{ formatBirthday(friend.birthday) }}
-          <span class="muted">· {{ birthday.days === 0 ? t('friend.birthdayToday') : relativeDay(birthday.next, today) }}<template v-if="birthday.age">, {{ t('home.turns', { age: birthday.age }) }}</template></span>
-        </dd>
-      </template>
-      <template v-if="friend.city"><dt><Icon name="pin" /> {{ t('friend.city') }}</dt><dd>{{ friend.city }}</dd></template>
-      <template v-if="friend.phone"><dt><Icon name="phone" /> {{ t('friend.phone') }}</dt><dd>{{ friend.phone }}</dd></template>
-      <template v-if="friend.email"><dt>@ {{ t('friend.email') }}</dt><dd><a :href="`mailto:${friend.email}`">{{ friend.email }}</a></dd></template>
       <dt><Icon name="users" /> {{ t('friend.lastSeen') }}</dt>
       <dd>
         {{ friend.last_seen ? `${formatDate(friend.last_seen)} · ${relativeDay(friend.last_seen, today)}` : t('friend.never') }}
@@ -159,26 +186,41 @@ const totalMessages = computed(() => data.value.chatMonths.reduce((s, m) => s + 
 
     <h2 class="section">{{ t('friend.facts') }}</h2>
     <div class="card">
-      <ul v-if="data.facts.length" class="fact-list">
-        <li v-for="fact in data.facts" :key="fact.id">
-          <form v-if="editingFact?.id === fact.id" class="fact-edit" @submit.prevent="saveFact">
-            <input v-model="editingFact.label" :placeholder="t('friend.factLabel')" list="fact-labels" />
-            <input v-model="editingFact.value" :placeholder="t('friend.factValue')" autofocus />
-            <button class="icon-btn" :aria-label="t('save')"><Icon name="check" /></button>
-            <button type="button" class="icon-btn danger" :aria-label="t('delete')" @click="deleteFact(fact)"><Icon name="trash" /></button>
-          </form>
-          <button v-else class="fact" @click="editingFact = { ...fact }">
-            <span v-if="fact.label" class="fact-label">{{ fact.label }}</span>
-            <span class="fact-value">{{ fact.value }}</span>
-          </button>
-        </li>
-      </ul>
-      <form class="fact-edit" @submit.prevent="addFact">
-        <input v-model="newFact.label" :placeholder="t('friend.factLabel')" list="fact-labels" />
-        <input v-model="newFact.value" :placeholder="t('friend.factPlaceholder')" />
-        <button class="icon-btn" :aria-label="t('add')" :disabled="!newFact.value.trim()"><Icon name="plus" /></button>
+      <div v-for="g in factGroups" :key="g.key" class="fact-group">
+        <h3 v-if="showGroupTitles">{{ t(`factGroups.${g.key}`) }}</h3>
+        <ul class="fact-list">
+          <li v-for="fact in g.facts" :key="fact.id">
+            <form v-if="editingFact?.id === fact.id" class="fact-form" @submit.prevent="saveFact">
+              <div class="fact-edit">
+                <input v-model="editingFact.label" :placeholder="t('friend.factLabel')" list="fact-labels" />
+                <input v-model="editingFact.value" :placeholder="t('friend.factValue')" autofocus />
+                <button class="icon-btn" :aria-label="t('save')"><Icon name="check" /></button>
+                <button type="button" class="icon-btn danger" :aria-label="t('delete')" @click="deleteFact(fact)"><Icon name="trash" /></button>
+              </div>
+              <label class="fact-group-select">
+                <span>{{ t('friend.factGroup') }}</span>
+                <select v-model="editingFact.category"><option v-for="c in FACT_CATEGORIES" :key="c" :value="c">{{ t(`factGroups.${c}`) }}</option></select>
+              </label>
+            </form>
+            <button v-else class="fact" @click="editingFact = { ...fact }">
+              <span v-if="fact.label" class="fact-label">{{ fact.label }}</span>
+              <span class="fact-value">{{ fact.value }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+      <form class="fact-form" @submit.prevent="addFact">
+        <div class="fact-edit">
+          <input v-model="newFact.label" :placeholder="t('friend.factLabel')" list="fact-labels" />
+          <input v-model="newFact.value" :placeholder="t('friend.factPlaceholder')" />
+          <button class="icon-btn" :aria-label="t('add')" :disabled="!newFact.value.trim()"><Icon name="plus" /></button>
+        </div>
+        <label v-if="newFact.label.trim() || newFact.value.trim()" class="fact-group-select">
+          <span>{{ t('friend.factGroup') }}</span>
+          <select v-model="newFact.category" @change="groupTouched = true"><option v-for="c in FACT_CATEGORIES" :key="c" :value="c">{{ t(`factGroups.${c}`) }}</option></select>
+        </label>
       </form>
-      <datalist id="fact-labels"><option v-for="l in labels" :key="l" :value="l" /></datalist>
+      <datalist id="fact-labels"><option v-for="l in labelOptions" :key="l" :value="l" /></datalist>
     </div>
 
     <template v-if="upcoming.length">
@@ -210,14 +252,6 @@ const totalMessages = computed(() => data.value.chatMonths.reduce((s, m) => s + 
         <button class="icon-btn" :aria-label="t('add')" :disabled="!newGift.trim()"><Icon name="plus" /></button>
       </form>
     </div>
-
-    <template v-if="totalMessages">
-      <h2 class="section">{{ t('chat.title') }}</h2>
-      <div class="card">
-        <ChatBars :months="data.chatMonths" />
-        <p class="muted small">{{ t('chat.from', { chats: data.chats.map((c) => c.name).join(', ') }) }}</p>
-      </div>
-    </template>
 
     <h2 class="section">{{ t('friend.timeline') }}</h2>
     <TimelineList v-if="past.length" :events="past" group :hide-friend="friend.id" />

@@ -15,7 +15,6 @@ export const router = createRouter({
     { path: '/event/:id', name: 'event', component: () => import('./views/EventView.vue'), props: true },
     { path: '/timeline', name: 'timeline', component: () => import('./views/TimelineView.vue') },
     { path: '/share', name: 'share', component: () => import('./views/ShareView.vue') },
-    { path: '/import', name: 'import', component: () => import('./views/ImportView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

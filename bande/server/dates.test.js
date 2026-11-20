@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findDateTime, looksLikePlan } from './dates.js';
+import { findDateTime } from './dates.js';
 
 // Friday, 13 November 2026, 17:00
 const ref = new Date(2026, 10, 13, 17, 0);
@@ -66,12 +66,4 @@ test('times', () => {
   assert.equal(found('7:30 am').time, '07:30');
   assert.equal(found('12 pm').time, '12:00');
   assert.equal(found('nur so').time, null);
-});
-
-test('plans need a day and a reason', () => {
-  assert.ok(looksLikePlan('Wollen wir Samstag grillen?', ref));
-  assert.ok(looksLikePlan('Hast du morgen Zeit?', ref));
-  assert.ok(looksLikePlan('Freitag 20 Uhr?', ref));
-  assert.ok(!looksLikePlan('Ich war Samstag beim Arzt', ref));
-  assert.ok(!looksLikePlan('Lust auf Kino?', ref));
 });

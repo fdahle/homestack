@@ -37,7 +37,6 @@ const yearsAgo = (date) => Number(data.value.today.slice(0, 4)) - Number(date.sl
       <p>{{ t('home.empty') }}</p>
       <div class="row-buttons">
         <RouterLink class="btn primary" to="/friend/new"><Icon name="userPlus" /> {{ t('home.addFriend') }}</RouterLink>
-        <RouterLink class="btn" to="/import"><Icon name="chat" /> {{ t('home.importChat') }}</RouterLink>
       </div>
     </div>
 
@@ -46,6 +45,7 @@ const yearsAgo = (date) => Number(data.value.today.slice(0, 4)) - Number(date.sl
         <RouterLink class="btn primary" to="/event/new"><Icon name="plus" /> {{ t('home.addEvent') }}</RouterLink>
         <RouterLink class="btn" to="/share"><Icon name="chat" /> {{ t('home.fromWhatsapp') }}</RouterLink>
       </div>
+      <p class="muted small pointer-only">{{ t('home.pasteHint') }}</p>
 
       <template v-if="data.pastPlans.length">
         <h2 class="section">{{ t('home.didItHappen') }}</h2>

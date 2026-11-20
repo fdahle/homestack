@@ -163,12 +163,3 @@ export function findDateTime(text, ref = new Date()) {
   const date = findDate(lower, ref);
   return { date: date ? iso(date) : null, time: findTime(lower) };
 }
-
-// Words that make a message with a date look like a plan, not just small talk
-const PLAN_WORDS = /\b(treffen|treff|essen|kochen|grillen|kino|konzert|party|feier|feiern|geburtstag|bier|kaffee|fruehstueck|brunch|abendessen|mittagessen|ausflug|urlaub|reise|wandern|laufen|klettern|bouldern|spieleabend|zocken|besuch|besuchen|vorbeikommen|vorbei|zeit|lust|dabei|wollen wir|sollen wir|lass uns|lasst uns|kommst du|kommt ihr|treffpunkt|dinner|lunch|breakfast|coffee|drinks?|beer|meet|movie|cinema|concert|birthday|trip|visit|hike|free|up for|let's|lets|wanna|join|hang out)\b/;
-
-export function looksLikePlan(text, ref = new Date()) {
-  const lower = normalize(text);
-  if (!findDate(lower, ref)) return false;
-  return PLAN_WORDS.test(lower) || (lower.includes('?') && Boolean(findTime(lower)));
-}

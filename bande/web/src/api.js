@@ -63,13 +63,10 @@ export const takeDraft = () => {
   return d;
 };
 
-// A shared chat file on its way from the share page to the import page
-let sharedFile = null;
-export const setSharedFile = (f) => {
-  sharedFile = f;
-};
-export const takeSharedFile = () => {
-  const f = sharedFile;
-  sharedFile = null;
-  return f;
-};
+// Shared or pasted text → a draft for the event form, with what Bande could guess.
+// friendId: add this friend (pasted on their page).
+export async function draftFromText(text, { title = '', friendId = null } = {}) {
+  const d = await api('/share/parse', { method: 'POST', body: { text, title } });
+  if (friendId && !d.friendIds.includes(friendId)) d.friendIds.push(friendId);
+  setDraft(d);
+}

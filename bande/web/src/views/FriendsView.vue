@@ -52,7 +52,7 @@ const shown = computed(() => {
   const list = (friends.value || [])
     .filter((f) => (circle.value === 'archived' ? f.archived : !f.archived))
     .filter((f) => !circle.value || circle.value === 'archived' || f.circles.includes(circle.value))
-    .filter((f) => !q || norm(f.name).includes(q) || norm(f.nickname).includes(q) || norm(f.city).includes(q));
+    .filter((f) => !q || norm(f.name).includes(q) || norm(f.nickname).includes(q) || norm(f.city).includes(q) || norm(f.address).includes(q));
   if (sort.value === 'seen') return [...list].sort((a, b) => (a.last_seen || '').localeCompare(b.last_seen || '') * -1);
   if (sort.value === 'birthday') return [...list].sort((a, b) => birthdayIn(a) - birthdayIn(b));
   return list;

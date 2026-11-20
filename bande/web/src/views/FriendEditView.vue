@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, refreshFriends } from '../api.js';
 import { t } from '../i18n.js';
-import { errorText, showToast, squarePhoto } from '../util.js';
+import { cityFromAddress, errorText, showToast, squarePhoto } from '../util.js';
 import TopBar from '../components/TopBar.vue';
 import Icon from '../components/Icon.vue';
 import Avatar from '../components/Avatar.vue';
@@ -26,11 +26,11 @@ const CONTACT_WEEKS = [1, 2, 3, 4, 6, 8, 12, 26, 52];
 onMounted(async () => {
   allCircles.value = (await api('/circles')).map((c) => c.name);
   if (isNew.value) {
-    form.value = { name: '', nickname: '', birthday: '', city: '', phone: '', email: '', circles: [], contact_weeks: '', met_on: '', met_story: '', notes: '', archived: false, photo_file: null };
+    form.value = { name: '', nickname: '', birthday: '', city: '', address: '', phone: '', email: '', circles: [], contact_weeks: '', met_on: '', met_story: '', notes: '', archived: false, photo_file: null };
   } else {
     const { friend } = await api(`/friends/${props.id}`);
     form.value = { ...friend, contact_weeks: friend.contact_weeks || '' };
-    for (const k of ['nickname', 'birthday', 'city', 'phone', 'email', 'met_on', 'met_story', 'notes']) form.value[k] ??= '';
+    for (const k of ['nickname', 'birthday', 'city', 'address', 'phone', 'email', 'met_on', 'met_story', 'notes']) form.value[k] ??= '';
   }
 });
 
@@ -59,7 +59,8 @@ async function save() {
   if (circleInput.value.trim()) addCircle();
   busy.value = true;
   try {
-    const body = { ...form.value, contact_weeks: form.value.contact_weeks || null };
+    // The list shows the city; without one, take it from the address
+    const body = { ...form.value, contact_weeks: form.value.contact_weeks || null, city: form.value.city.trim() || cityFromAddress(form.value.address) };
     const saved = isNew.value
       ? await api('/friends', { method: 'POST', body })
       : await api(`/friends/${props.id}`, { method: 'PATCH', body });
@@ -102,17 +103,21 @@ async function remove() {
         <button v-if="(form.photo_file && !removePhoto) || photo" type="button" class="link-btn danger" @click="photo = null; photoPreview = null; removePhoto = true">{{ t('friendEdit.removePhoto') }}</button>
       </div>
 
-      <label><span>{{ t('friendEdit.name') }}</span><input v-model="form.name" required autofocus autocomplete="off" /></label>
       <div class="two">
+        <label><span>{{ t('friendEdit.name') }}</span><input v-model="form.name" required autofocus autocomplete="off" /></label>
         <label><span>{{ t('friendEdit.nickname') }}</span><input v-model="form.nickname" autocomplete="off" /></label>
-        <label><span>{{ t('friendEdit.city') }}</span><input v-model="form.city" autocomplete="off" /></label>
       </div>
       <label><span>{{ t('friendEdit.birthday') }}</span><PartialDate v-model="form.birthday" birthday /></label>
+
+      <h3 class="form-group">{{ t('friendEdit.contact') }}</h3>
       <div class="two">
         <label><span>{{ t('friendEdit.phone') }}</span><input v-model="form.phone" type="tel" autocomplete="off" /></label>
         <label><span>{{ t('friendEdit.email') }}</span><input v-model="form.email" type="email" autocomplete="off" /></label>
       </div>
+      <label><span>{{ t('friendEdit.address') }}</span><textarea v-model="form.address" rows="2" :placeholder="t('friendEdit.addressPlaceholder')"></textarea></label>
+      <label><span>{{ t('friendEdit.city') }}</span><input v-model="form.city" autocomplete="off" :placeholder="cityFromAddress(form.address)" /></label>
 
+      <h3 class="form-group">{{ t('friendEdit.friendship') }}</h3>
       <div>
         <label for="circle-input"><span>{{ t('friendEdit.circles') }}</span></label>
         <div class="picker-chips">
@@ -135,7 +140,9 @@ async function remove() {
 
       <label><span>{{ t('friendEdit.metOn') }}</span><PartialDate v-model="form.met_on" /></label>
       <label><span>{{ t('friendEdit.metStory') }}</span><textarea v-model="form.met_story" rows="2" :placeholder="t('friendEdit.metStoryPlaceholder')"></textarea></label>
-      <label><span>{{ t('friendEdit.notes') }}</span><textarea v-model="form.notes" rows="4"></textarea></label>
+
+      <h3 class="form-group">{{ t('friendEdit.notes') }}</h3>
+      <textarea v-model="form.notes" rows="4" :aria-label="t('friendEdit.notes')"></textarea>
 
       <label v-if="!isNew" class="check-label"><input v-model="form.archived" type="checkbox" /> {{ t('friendEdit.archived') }}</label>
       <p v-if="!isNew" class="muted small">{{ t('friendEdit.archivedHint') }}</p>

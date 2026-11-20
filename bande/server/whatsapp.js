@@ -1,15 +1,26 @@
-// Reads WhatsApp chats: exported chats (.txt, or the .zip WhatsApp makes of it) and messages
-// copied out of a chat. Both start each message with date, time and sender:
-//   Android export   13.11.26, 17:05 - Max: Hallo
-//   English Android  11/13/26, 5:05 PM - Max: Hi
-//   iPhone export    [13.11.26, 17:05:12] Max: Hallo
-//   copied messages  [13.11.26, 17:05] Max: Hallo
+// Reads messages copied out of a WhatsApp chat (or pasted from an exported one). Each message
+// starts with date, time and sender:
+//   copied on Android      [13.11.26, 17:05] Max: Hallo
+//   copied in Web/Desktop  [17:05, 13.11.2026] Max: Hallo
+//   Android export         13.11.26, 17:05 - Max: Hallo
+//   English Android        11/13/26, 5:05 PM - Max: Hi
+//   iPhone export          [13.11.26, 17:05:12] Max: Hallo
 // Lines without such a start continue the message before.
 
-import { inflateRawSync } from 'node:zlib';
-import { findDateTime, looksLikePlan } from './dates.js';
+import { findDateTime } from './dates.js';
 
 const HEADER = /^\u200e?\[?(\d{1,4})[./-](\d{1,2})[./-](\d{2,4}),?\s+(\d{1,2})[:.](\d{2})(?:[:.]\d{2})?(?:[\s\u202f]*([ap])\.?\s?m\.?)?\]?\s*(?:[-–]\s+)?(.*)$/i;
+
+// Copied in WhatsApp Web or Desktop the time comes first: [17:05, 13.11.2026] Max: Hallo
+const TIME_FIRST = /^\[(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?\s?m\.?)?,\s*(\d{1,4})[./-](\d{1,2})[./-](\d{2,4})\]\s*(.*)$/i;
+
+// The start of a message as [line, date parts a, b, c, hour, minute, am/pm, rest], or null
+function header(line) {
+  const m = HEADER.exec(line);
+  if (m) return m;
+  const t = TIME_FIRST.exec(line);
+  return t && [t[0], t[4], t[5], t[6], t[1], t[2], t[3], t[7]];
+}
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -18,7 +29,7 @@ const NO_CONTENT = /^\u200e|^<.*>$|^(Diese Nachricht wurde gelöscht|Du hast die
 
 export function parseChat(text) {
   const lines = String(text || '').replace(/^\ufeff/, '').split(/\r?\n/);
-  const heads = lines.map((line) => HEADER.exec(line));
+  const heads = lines.map(header);
   const found = heads.filter(Boolean);
   if (!found.length) return { messages: [] };
 
@@ -89,13 +100,11 @@ export const phoneKey = (phone) => {
   return digits.length >= 6 ? digits.slice(-9) : null;
 };
 
-// Finds the friend a WhatsApp sender name belongs to: a remembered alias, the full name,
+// Finds the friend a WhatsApp sender name belongs to: the full name,
 // the nickname, a first name only one friend has, or the phone number WhatsApp shows for unknown contacts.
-export function matchFriend(name, friends, aliases = []) {
+export function matchFriend(name, friends) {
   const key = normalizeName(name);
   if (!key) return null;
-  const alias = aliases.find((a) => normalizeName(a.name) === key);
-  if (alias) return alias.friend_id;
   const byName = friends.filter((f) => normalizeName(f.name) === key || (f.nickname && normalizeName(f.nickname) === key));
   if (byName.length === 1) return byName[0].id;
   const phone = /^[+\d\s()/-]{6,}$/.test(name) ? phoneKey(name) : null;
@@ -125,42 +134,6 @@ export function mentionedFriends(text, friends) {
     const first = full.split(' ')[0];
     return firstCounts.get(first) === 1 || words.includes(` ${full} `) || (f.nickname && words.includes(` ${normalizeName(f.nickname)} `));
   });
-}
-
-// --- zip ---
-
-// The chat text from a WhatsApp .zip export (it holds _chat.txt and, with media, the files).
-// Just enough of the zip format for that: the central directory, stored or deflated entries.
-export function chatFromZip(buffer, maxSize = 50 * 1024 * 1024) {
-  const end = buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
-  if (end < 0) throw new Error('not a zip file');
-  const count = buffer.readUInt16LE(end + 10);
-  let pos = buffer.readUInt32LE(end + 16);
-  const entries = [];
-  for (let i = 0; i < count && pos + 46 <= buffer.length; i++) {
-    if (buffer.readUInt32LE(pos) !== 0x02014b50) break;
-    const method = buffer.readUInt16LE(pos + 10);
-    const compressedSize = buffer.readUInt32LE(pos + 20);
-    const size = buffer.readUInt32LE(pos + 24);
-    const nameLength = buffer.readUInt16LE(pos + 28);
-    const extraLength = buffer.readUInt16LE(pos + 30);
-    const commentLength = buffer.readUInt16LE(pos + 32);
-    const offset = buffer.readUInt32LE(pos + 42);
-    const name = buffer.toString('utf8', pos + 46, pos + 46 + nameLength);
-    entries.push({ method, compressedSize, size, offset, name });
-    pos += 46 + nameLength + extraLength + commentLength;
-  }
-  const texts = entries.filter((e) => /\.txt$/i.test(e.name) && !e.name.includes('/'));
-  const entry = texts.find((e) => /_chat\.txt$/i.test(e.name)) || texts.find((e) => /whatsapp/i.test(e.name)) || texts[0];
-  if (!entry) throw new Error('no chat in the zip file');
-  if (entry.size > maxSize) throw new Error('chat too large');
-  const local = entry.offset;
-  if (buffer.readUInt32LE(local) !== 0x04034b50) throw new Error('broken zip file');
-  const start = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
-  const data = buffer.subarray(start, start + entry.compressedSize);
-  if (entry.method === 0) return data.toString('utf8');
-  if (entry.method === 8) return inflateRawSync(data, { maxOutputLength: maxSize }).toString('utf8');
-  throw new Error('unsupported zip compression');
 }
 
 // --- event drafts ---
@@ -193,7 +166,7 @@ export function guessKind(text) {
 // Turns shared or pasted text into a draft event: date and time from the words, friends from
 // senders, the share title (often the chat's name) and names in the text.
 // Copied messages carry their time, so "morgen" counts from when it was written.
-export function draftFromText({ text, title = '', friends, aliases = [], meNames = [], now = new Date() }) {
+export function draftFromText({ text, title = '', friends, meNames = [], now = new Date() }) {
   const { messages } = parseChat(text);
   const me = new Set(meNames.map(normalizeName));
   const friendIds = new Set();
@@ -204,7 +177,7 @@ export function draftFromText({ text, title = '', friends, aliases = [], meNames
   if (messages.length) {
     for (const m of messages) {
       if (me.has(normalizeName(m.sender))) continue;
-      const id = matchFriend(m.sender, friends, aliases);
+      const id = matchFriend(m.sender, friends);
       if (id) friendIds.add(id);
     }
     // The newest message that names a day is most likely the plan
@@ -216,7 +189,7 @@ export function draftFromText({ text, title = '', friends, aliases = [], meNames
     mentionText = said.map((m) => m.text).join('\n');
   }
   if (title) {
-    const id = matchFriend(chatNameFromFile(title), friends, aliases);
+    const id = matchFriend(chatNameFromFile(title), friends);
     if (id) friendIds.add(id);
   }
   for (const id of mentionedFriends(mentionText, friends)) friendIds.add(id);
@@ -234,22 +207,4 @@ export function draftFromText({ text, title = '', friends, aliases = [], meNames
     notes,
     source: 'whatsapp',
   };
-}
-
-// Messages in an imported chat that look like plans, newest first, with the friends they
-// concern: in a one-to-one chat the other person, in a group whoever wrote it.
-// owners: Map sender → friend id or 'me'
-export function planCandidates(messages, { owners, partnerId = null, limit = 60 }) {
-  const out = [];
-  for (let i = messages.length - 1; i >= 0 && out.length < limit; i--) {
-    const m = messages[i];
-    if (m.media) continue;
-    const ref = parseLocal(m.at);
-    if (!looksLikePlan(m.text, ref)) continue;
-    const { date, time } = findDateTime(m.text, ref);
-    const owner = owners.get(m.sender);
-    const friendIds = partnerId ? [partnerId] : owner && owner !== 'me' ? [owner] : [];
-    out.push({ at: m.at, sender: m.sender, text: m.text, title: titleFrom(m.text), kind: guessKind(m.text), date, time, friendIds });
-  }
-  return out;
 }

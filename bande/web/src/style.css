@@ -249,6 +249,9 @@ label > span { display: block; margin-bottom: 4px; font-size: 0.85rem; color: va
 
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
+/* Only where there is a mouse and keyboard (tips like Ctrl+V) */
+.pointer-only { display: none; margin: 8px 0 0; }
+@media (hover: hover) and (pointer: fine) { .pointer-only { display: block; } }
 .center { text-align: center; }
 .error { color: var(--danger); }
 .ok { color: var(--ok); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
@@ -397,19 +400,29 @@ h2.section { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 10p
 .profile h2 { margin: 0; font-size: 1.45rem; }
 .profile p { margin: 2px 0 0; }
 
-.facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 16px 0; font-size: 0.92rem; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; font-size: 0.92rem; }
 .facts dt { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .facts dt .icon { width: 16px; height: 16px; }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
-.notes-text { white-space: pre-wrap; font-size: 0.95rem; }
+.facts .address span { white-space: pre-line; }
+.map-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font-weight: 550; }
+.facts .map-link { display: flex; width: max-content; }
+.map-link .icon { width: 16px; height: 16px; }
+.notes-text { white-space: pre-wrap; font-size: 0.95rem; margin-top: 12px; }
 
+.fact-group h3 { margin: 4px 0 0; font-size: 0.78rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.fact-group + .fact-group h3 { margin-top: 14px; }
 .fact-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; }
 .fact { display: flex; gap: 12px; width: 100%; padding: 8px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; }
 .fact-label { flex: none; min-width: 7em; color: var(--muted); }
 .fact-value { flex: 1; overflow-wrap: anywhere; }
 .fact-edit { display: flex; gap: 6px; align-items: center; }
 .fact-edit input:first-child:not(:only-of-type) { flex: 0 0 36%; }
-.fact-list .fact-edit { padding: 4px 0; }
+.fact-form { display: flex; flex-direction: column; gap: 6px; }
+.fact-list .fact-form { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.fact-group-select { display: flex; align-items: center; gap: 8px; }
+.fact-group-select > span { margin: 0; }
+.fact-group-select select { width: auto; }
 
 .gift-list { margin-bottom: 10px; }
 .gift-list li { display: flex; align-items: center; gap: 8px; }
@@ -422,15 +435,9 @@ h2.section { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 10p
 .plain-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .user-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
-/* Messages per month: thin bars, 2px apart, rounded where the value ends, on a shared baseline */
-.chat-bars { margin: 0 0 8px; }
-.bars { display: flex; align-items: flex-end; gap: 2px; height: 90px; border-bottom: 1px solid var(--line); }
-.bar-slot { flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: default; }
-.bar { width: 100%; background: var(--bar); border-radius: 4px 4px 0 0; min-height: 0; }
-.bar-slot:hover .bar { filter: brightness(1.12); }
-.bars-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
-
 /* --- friend form --- */
+
+.form h3.form-group { margin: 12px 0 -4px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 0.95rem; }
 
 .photo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .avatar-preview { display: inline-flex; }
@@ -441,15 +448,6 @@ h2.section { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 10p
 .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .toolbar input { flex: 1; min-width: 0; }
 .toolbar select { width: auto; max-width: 45%; }
-
-/* --- import --- */
-
-.sender-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
-.sender-list select { width: auto; min-width: 160px; max-width: 100%; }
-.plan-row { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.plan-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.plan-head .icon { width: 18px; height: 18px; color: var(--accent); }
-.plan-text { margin: 0; white-space: pre-wrap; font-size: 0.92rem; }
 
 /* --- toast --- */
 

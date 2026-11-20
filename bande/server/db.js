@@ -39,6 +39,7 @@ db.exec(`
     met_on TEXT,
     met_story TEXT,
     city TEXT,
+    address TEXT,
     phone TEXT,
     email TEXT,
     contact_weeks INTEGER,
@@ -61,12 +62,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS friend_circles_circle ON friend_circles (circle_id);
 
-  -- Free-form things worth remembering: "Partnerin: Anna", "vegetarisch", "Schuhgröße 44"
+  -- Free-form things worth remembering: "Partnerin: Anna", "vegetarisch", "Schuhgröße 44".
+  -- category: family, work, likes, food or other, to show them in groups.
   CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY,
     friend_id INTEGER NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
     label TEXT NOT NULL DEFAULT '',
     value TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'other',
     position INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS facts_friend ON facts (friend_id, position);
@@ -107,42 +110,6 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS gifts_friend ON gifts (friend_id);
 
-  -- Imported WhatsApp chat exports. Only counts are kept, never the messages.
-  CREATE TABLE IF NOT EXISTS chats (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    is_group INTEGER NOT NULL DEFAULT 0,
-    messages INTEGER NOT NULL,
-    first_at TEXT,
-    last_at TEXT,
-    imported_at TEXT NOT NULL
-  );
-
-  -- Messages per month and friend. In a one-to-one chat both sides count, in a group only theirs.
-  CREATE TABLE IF NOT EXISTS chat_months (
-    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-    friend_id INTEGER NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
-    month TEXT NOT NULL,
-    n INTEGER NOT NULL,
-    PRIMARY KEY (chat_id, friend_id, month)
-  );
-  CREATE INDEX IF NOT EXISTS chat_months_friend ON chat_months (friend_id);
-
-  -- Who is in a chat and when they last wrote (one-to-one: the last message from either side)
-  CREATE TABLE IF NOT EXISTS chat_members (
-    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-    friend_id INTEGER NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
-    last_at TEXT,
-    PRIMARY KEY (chat_id, friend_id)
-  );
-  CREATE INDEX IF NOT EXISTS chat_members_friend ON chat_members (friend_id);
-
-  -- Names friends have in WhatsApp, learned when you assign a chat sender to a friend
-  CREATE TABLE IF NOT EXISTS aliases (
-    name TEXT PRIMARY KEY COLLATE NOCASE,
-    friend_id INTEGER NOT NULL REFERENCES friends(id) ON DELETE CASCADE
-  );
-
   CREATE TABLE IF NOT EXISTS push_subscriptions (
     endpoint TEXT PRIMARY KEY,
     p256dh TEXT NOT NULL,
@@ -157,7 +124,13 @@ db.exec(`
   );
 `);
 
+// Columns added after the first version
+const hasColumn = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+if (!hasColumn('friends', 'address')) db.exec('ALTER TABLE friends ADD COLUMN address TEXT');
+if (!hasColumn('facts', 'category')) db.exec("ALTER TABLE facts ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
+
 export const KINDS = ['meet', 'call', 'trip', 'party', 'note'];
+export const FACT_CATEGORIES = ['family', 'work', 'likes', 'food', 'other'];
 export const STATUSES = ['idea', 'planned', 'done', 'cancelled'];
 // Kinds that count as being in touch, and as having seen each other
 const CONTACT_KINDS = "('meet', 'call', 'trip', 'party')";
@@ -223,10 +196,10 @@ export function updateUser(id, { displayName, lang, passwordHash }) {
 
 // --- friends ---
 
-export const FRIEND_FIELDS = ['name', 'nickname', 'birthday', 'met_on', 'met_story', 'city', 'phone', 'email', 'contact_weeks', 'notes', 'archived'];
+export const FRIEND_FIELDS = ['name', 'nickname', 'birthday', 'met_on', 'met_story', 'city', 'address', 'phone', 'email', 'contact_weeks', 'notes', 'archived'];
 
 // One row per friend with what the lists need: circles, last time seen, last contact, next plan.
-// Contact includes calls and one-to-one WhatsApp chats; "seen" only meeting in person.
+// Contact includes calls; "seen" only meeting in person.
 function friendsQuery(where) {
   return `
     SELECT f.*,
@@ -234,9 +207,7 @@ function friendsQuery(where) {
       (SELECT MAX(e.date) FROM events e JOIN event_friends ef ON ef.event_id = e.id
         WHERE ef.friend_id = f.id AND e.status = 'done' AND e.kind IN ${SEEN_KINDS} AND e.date <= :today) AS last_seen,
       (SELECT MAX(e.date) FROM events e JOIN event_friends ef ON ef.event_id = e.id
-        WHERE ef.friend_id = f.id AND e.status = 'done' AND e.kind IN ${CONTACT_KINDS} AND e.date <= :today) AS last_event_contact,
-      (SELECT substr(MAX(cm.last_at), 1, 10) FROM chat_members cm JOIN chats ch ON ch.id = cm.chat_id
-        WHERE cm.friend_id = f.id AND ch.is_group = 0) AS last_chat,
+        WHERE ef.friend_id = f.id AND e.status = 'done' AND e.kind IN ${CONTACT_KINDS} AND e.date <= :today) AS last_contact,
       (SELECT MIN(e.date) FROM events e JOIN event_friends ef ON ef.event_id = e.id
         WHERE ef.friend_id = f.id AND e.status = 'planned' AND e.date >= :today) AS next_plan,
       (SELECT COUNT(*) FROM events e JOIN event_friends ef ON ef.event_id = e.id
@@ -248,10 +219,9 @@ function friendsQuery(where) {
 
 function formatFriend(row) {
   if (!row) return row;
-  const { circle_names, last_event_contact, last_chat, ...f } = row;
+  const { circle_names, ...f } = row;
   f.archived = Boolean(f.archived);
   f.circles = circle_names ? circle_names.split('|').sort((a, b) => a.localeCompare(b)) : [];
-  f.last_contact = [last_event_contact, last_chat].filter(Boolean).sort().at(-1) ?? null;
   return f;
 }
 
@@ -320,16 +290,18 @@ export function setFriendCircles(friendId, names) {
 export const factsOf = (friendId) => db.prepare('SELECT * FROM facts WHERE friend_id = ? ORDER BY position, id').all(friendId);
 export const getFact = (id) => db.prepare('SELECT * FROM facts WHERE id = ?').get(id);
 
-export function addFact(friendId, { label, value }) {
+export function addFact(friendId, { label, value, category }) {
   const position = db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM facts WHERE friend_id = ?').get(friendId).p;
-  db.prepare('INSERT INTO facts (friend_id, label, value, position) VALUES (?, ?, ?, ?)').run(friendId, label, value, position);
+  db.prepare('INSERT INTO facts (friend_id, label, value, category, position) VALUES (?, ?, ?, ?, ?)').run(friendId, label, value, category, position);
 }
 
-export const updateFact = (id, { label, value }) => db.prepare('UPDATE facts SET label = ?, value = ? WHERE id = ?').run(label, value, id);
+export const updateFact = (id, { label, value, category }) =>
+  db.prepare('UPDATE facts SET label = ?, value = ?, category = ? WHERE id = ?').run(label, value, category, id);
 export const deleteFact = (id) => db.prepare('DELETE FROM facts WHERE id = ?').run(id);
-// Labels used before, offered when adding a fact
+// Labels used before, with the group they were last put in, offered when adding a fact
 export const factLabels = () =>
-  db.prepare("SELECT label FROM facts WHERE label <> '' GROUP BY label COLLATE NOCASE ORDER BY COUNT(*) DESC LIMIT 50").all().map((r) => r.label);
+  db.prepare(`SELECT label, (SELECT category FROM facts f2 WHERE f2.label = f.label COLLATE NOCASE ORDER BY id DESC LIMIT 1) AS category
+    FROM facts f WHERE label <> '' GROUP BY label COLLATE NOCASE ORDER BY COUNT(*) DESC LIMIT 50`).all();
 
 // --- gifts ---
 
@@ -437,42 +409,6 @@ export const eventsOfFriend = (friendId) =>
 // Plans on a day, for the reminder the day before
 export const plansOn = (date) => withFriends(db.prepare("SELECT * FROM events WHERE status = 'planned' AND date = ? ORDER BY time, id").all(date));
 
-// --- WhatsApp chats ---
-
-export const listChats = () =>
-  db.prepare(`SELECT ch.*, (SELECT group_concat(f.name, ', ') FROM chat_members cm JOIN friends f ON f.id = cm.friend_id WHERE cm.chat_id = ch.id) AS friend_names
-    FROM chats ch ORDER BY ch.last_at DESC`).all();
-
-export const deleteChat = (id) => db.prepare('DELETE FROM chats WHERE id = ?').run(id);
-
-// Replaces what an earlier import of the same chat stored (an export always holds the whole chat).
-// months: Map friendId → Map 'YYYY-MM' → n; members: Map friendId → last_at
-export function saveChat({ name, isGroup, messages, firstAt, lastAt, months, members }) {
-  transaction(() => {
-    db.prepare('DELETE FROM chats WHERE name = ?').run(name);
-    const { lastInsertRowid } = db.prepare('INSERT INTO chats (name, is_group, messages, first_at, last_at, imported_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(name, isGroup ? 1 : 0, messages, firstAt, lastAt, now());
-    const chatId = Number(lastInsertRowid);
-    for (const [friendId, byMonth] of months) {
-      for (const [month, n] of byMonth) db.prepare('INSERT INTO chat_months (chat_id, friend_id, month, n) VALUES (?, ?, ?, ?)').run(chatId, friendId, month, n);
-    }
-    for (const [friendId, last] of members) db.prepare('INSERT INTO chat_members (chat_id, friend_id, last_at) VALUES (?, ?, ?)').run(chatId, friendId, last);
-  });
-}
-
-// Messages per month with one friend, over all chats
-export const chatMonthsOf = (friendId) =>
-  db.prepare('SELECT month, SUM(n) AS n FROM chat_months WHERE friend_id = ? GROUP BY month ORDER BY month').all(friendId);
-
-export const chatsOf = (friendId) =>
-  db.prepare('SELECT ch.id, ch.name, ch.is_group, cm.last_at FROM chat_members cm JOIN chats ch ON ch.id = cm.chat_id WHERE cm.friend_id = ? ORDER BY cm.last_at DESC').all(friendId);
-
-export const listAliases = () => db.prepare('SELECT name, friend_id FROM aliases').all();
-export const setAlias = (name, friendId) =>
-  db.prepare('INSERT INTO aliases (name, friend_id) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET friend_id = excluded.friend_id').run(name, friendId);
-export const deleteAlias = (name) => db.prepare('DELETE FROM aliases WHERE name = ?').run(name);
-export const aliasesOf = (friendId) => db.prepare('SELECT name FROM aliases WHERE friend_id = ? ORDER BY name').all(friendId).map((r) => r.name);
-
 // --- push & reminders ---
 
 export const listPushSubscriptions = () => db.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions').all();
@@ -500,9 +436,5 @@ export function exportAll() {
     events: all('SELECT * FROM events ORDER BY id'),
     event_friends: all('SELECT * FROM event_friends'),
     gifts: all('SELECT * FROM gifts ORDER BY id'),
-    chats: all('SELECT * FROM chats ORDER BY id'),
-    chat_months: all('SELECT * FROM chat_months'),
-    chat_members: all('SELECT * FROM chat_members'),
-    aliases: all('SELECT * FROM aliases'),
   };
 }

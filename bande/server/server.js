@@ -11,7 +11,7 @@ import { buildCalendar } from './ics.js';
 import {
   dueReminders, isValidPushEndpoint, pushPublicKey, reminderSettings, sendPush, setupPush, startReminders, text as pushText,
 } from './reminders.js';
-import { chatFromZip, chatNameFromFile, draftFromText, matchFriend, normalizeName, parseChat, planCandidates } from './whatsapp.js';
+import { draftFromText } from './whatsapp.js';
 
 const PORT = Number(process.env.PORT || 3068);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
@@ -75,9 +75,6 @@ app.get('/ics/:file', (req, res) => {
   res.type('text/calendar; charset=utf-8').set('Cache-Control', 'private, no-store').send(calendar);
 });
 
-// Share target without the service worker (it normally catches this POST, see web/public/sw.js)
-app.post('/share', (req, res) => res.redirect(303, '/share?lost=1'));
-
 app.use(['/api', '/photos'], requireLogin);
 
 const publicUser = ({ password_hash, session_version, ...u }) => u;
@@ -124,6 +121,7 @@ app.get('/api/home', (req, res) => {
 function friendFields(body) {
   const f = {};
   for (const key of ['name', 'nickname', 'city', 'phone', 'email']) f[key] = text(body[key], 200);
+  f.address = text(body.address, 500);
   for (const key of ['met_story', 'notes']) f[key] = text(body[key], 10_000);
   if (body.birthday !== undefined) {
     f.birthday = text(body.birthday, 10);
@@ -169,9 +167,6 @@ app.get('/api/friends/:id', (req, res) => {
     facts: store.factsOf(friend.id),
     gifts: store.giftsOf(friend.id),
     events: store.eventsOfFriend(friend.id),
-    chatMonths: store.chatMonthsOf(friend.id),
-    chats: store.chatsOf(friend.id),
-    aliases: store.aliasesOf(friend.id),
   });
 });
 
@@ -232,7 +227,7 @@ app.get('/api/fact-labels', (req, res) => res.json(store.factLabels()));
 function factFields(body) {
   const value = text(body.value, 2000);
   if (!value) throw new BadRequest('value_required');
-  return { label: text(body.label, 100) || '', value };
+  return { label: text(body.label, 100) || '', value, category: store.FACT_CATEGORIES.includes(body.category) ? body.category : 'other' };
 }
 
 app.post('/api/friends/:id/facts', (req, res) => {
@@ -384,6 +379,8 @@ app.delete('/api/events/:id', (req, res) => {
 // --- WhatsApp ---
 
 const meNames = () => store.jsonSetting('whatsapp_me', []);
+// How you appear in copied messages: the names set in the settings and your display name
+const ownNames = (user) => [...meNames(), user.display_name];
 
 // Shared or pasted text → a draft event to check and save
 app.post('/api/share/parse', (req, res) => {
@@ -391,111 +388,9 @@ app.post('/api/share/parse', (req, res) => {
     text: String(req.body.text || '').slice(0, 100_000),
     title: String(req.body.title || '').slice(0, 300),
     friends: store.listFriends(),
-    aliases: store.listAliases(),
-    meNames: meNames(),
+    meNames: ownNames(req.user),
   });
   res.json(draft);
-});
-
-// A chat export waits here between reading it and assigning its senders (never stored on disk)
-const pendingChats = new Map(); // id → { name, messages, expires }
-
-app.post('/api/whatsapp/preview', express.raw({ type: () => true, limit: '60mb' }), (req, res) => {
-  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'file_required' });
-  const filename = String(req.query.name || '');
-  let content;
-  try {
-    content = req.body.readUInt32LE(0) === 0x04034b50 ? chatFromZip(req.body) : req.body.toString('utf8');
-  } catch (err) {
-    console.warn(`Chat import: ${err.message}`);
-    return res.status(400).json({ error: 'bad_chat' });
-  }
-  const { messages } = parseChat(content);
-  if (!messages.length) return res.status(400).json({ error: 'bad_chat' });
-
-  const name = text(req.query.chat, 200) || chatNameFromFile(filename) || `Chat ${messages[0].at.slice(0, 10)}`;
-  const friends = store.listFriends();
-  const aliases = store.listAliases();
-  const me = new Set(meNames().map(normalizeName));
-  const senders = new Map();
-  for (const m of messages) {
-    const s = senders.get(m.sender) || { name: m.sender, count: 0, first: m.at, last: m.at };
-    s.count++;
-    s.last = m.at;
-    senders.set(m.sender, s);
-  }
-  const list = [...senders.values()].sort((a, b) => b.count - a.count);
-  for (const s of list) s.guess = me.has(normalizeName(s.name)) ? 'me' : matchFriend(s.name, friends, aliases);
-  // One-to-one chat named after the other person: whoever else writes is me
-  if (list.length === 2 && !list.some((s) => s.guess === 'me')) {
-    const other = list.find((s) => normalizeName(s.name) === normalizeName(name));
-    const self = list.find((s) => s !== other);
-    if (other && self && !self.guess) self.guess = 'me';
-  }
-
-  for (const [key, chat] of pendingChats) if (chat.expires < Date.now()) pendingChats.delete(key);
-  while (pendingChats.size >= 5) pendingChats.delete(pendingChats.keys().next().value);
-  const pendingId = randomBytes(12).toString('base64url');
-  pendingChats.set(pendingId, { name, messages, expires: Date.now() + 30 * 60_000 });
-
-  res.json({ id: pendingId, name, messages: messages.length, first: messages[0].at, last: messages.at(-1).at, senders: list });
-});
-
-// Assigns the senders (sender → friend id, 'me' or null) and stores the counts.
-// Returns the messages that look like plans, to pick from.
-app.post('/api/whatsapp/import', (req, res) => {
-  const chat = pendingChats.get(String(req.body.id || ''));
-  if (!chat) return res.status(400).json({ error: 'import_expired' });
-  const mapping = req.body.mapping && typeof req.body.mapping === 'object' ? req.body.mapping : {};
-  const owners = new Map();
-  for (const [sender, target] of Object.entries(mapping)) {
-    if (target === 'me') owners.set(sender, 'me');
-    else if (Number.isInteger(target) && store.friendExists(target)) owners.set(sender, target);
-  }
-  const friendIds = [...new Set([...owners.values()].filter((o) => o !== 'me'))];
-  if (!friendIds.length) return res.status(400).json({ error: 'no_friend_assigned' });
-
-  const senders = new Set(chat.messages.map((m) => m.sender));
-  const isGroup = senders.size > 2 || friendIds.length > 1;
-  const partnerId = isGroup ? null : friendIds[0];
-  const months = new Map(friendIds.map((f) => [f, new Map()]));
-  const members = new Map();
-  for (const m of chat.messages) {
-    const owner = owners.get(m.sender);
-    // One-to-one: every message counts for the other person. Group: only their own.
-    const friendId = partnerId ?? (owner !== 'me' ? owner : undefined);
-    if (!friendId) continue;
-    const byMonth = months.get(friendId);
-    const month = m.at.slice(0, 7);
-    byMonth.set(month, (byMonth.get(month) || 0) + 1);
-    members.set(friendId, m.at);
-  }
-  store.saveChat({
-    name: chat.name, isGroup, messages: chat.messages.length, firstAt: chat.messages[0].at, lastAt: chat.messages.at(-1).at, months, members,
-  });
-
-  // Remember the names for the next import and for shared messages
-  const me = new Set(meNames());
-  for (const [sender, owner] of owners) {
-    if (owner === 'me') me.add(sender);
-    else store.setAlias(sender, owner);
-  }
-  store.setJsonSetting('whatsapp_me', [...me].slice(-20));
-  pendingChats.delete(String(req.body.id));
-
-  res.json({ plans: planCandidates(chat.messages, { owners, partnerId }), isGroup, friendIds });
-});
-
-app.get('/api/chats', (req, res) => res.json(store.listChats()));
-
-app.delete('/api/chats/:id', (req, res) => {
-  store.deleteChat(id(req.params.id));
-  res.json(store.listChats());
-});
-
-app.delete('/api/aliases/:name', (req, res) => {
-  store.deleteAlias(String(req.params.name));
-  res.json({ ok: true });
 });
 
 // --- settings, reminders, calendar ---

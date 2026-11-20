@@ -4,7 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, takeDraft } from '../api.js';
 import { t } from '../i18n.js';
-import { errorText, isoDate, KIND_ICONS, KINDS, showToast } from '../util.js';
+import { errorText, isoDate, KIND_ICONS, KINDS, mapsLink, showToast } from '../util.js';
 import TopBar from '../components/TopBar.vue';
 import Icon from '../components/Icon.vue';
 import FriendPicker from '../components/FriendPicker.vue';
@@ -111,7 +111,10 @@ async function remove() {
         <label><span>{{ t('event.friends') }}</span></label>
         <FriendPicker v-model="form.friendIds" />
       </div>
-      <label><span>{{ t('event.place') }}</span><input v-model="form.place" /></label>
+      <div>
+        <label><span>{{ t('event.place') }}</span><input v-model="form.place" /></label>
+        <a v-if="form.place.trim()" class="map-link small" :href="mapsLink(form.place)" target="_blank" rel="noopener"><Icon name="map" /> {{ t('event.openMap') }}</a>
+      </div>
       <label><span>{{ t('event.notes') }}</span><textarea v-model="form.notes" rows="5"></textarea></label>
 
       <button class="btn primary" :disabled="busy">{{ t('save') }}</button>
