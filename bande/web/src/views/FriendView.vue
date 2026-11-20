@@ -1,28 +1,39 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, provide, ref, watch } from 'vue';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import {
   daysBetween, duration, errorText, FACT_CATEGORIES, formatBirthday, formatDate, formatPartial, fullAddress, guessCategory, isoDate, mapsLink,
   relativeDay, showToast, whatsappLink,
 } from '../util.js';
-import TopBar from '../components/TopBar.vue';
-import Icon from '../components/Icon.vue';
+import TopBar from '../kit/components/TopBar.vue';
+import Icon from '../kit/components/Icon.vue';
 import Avatar from '../components/Avatar.vue';
 import TimelineList from '../components/TimelineList.vue';
 
 const props = defineProps({ id: { type: String, required: true } });
 const data = ref(null);
+const error = ref('');
 const labels = ref([]); // [{ label, category }] used before
 const today = isoDate();
 
+// Their events open beside the friends list too (on the phone in place of this page)
+provide('eventPath', (eventId) => `/friends/event/${eventId}`);
+
 onMounted(async () => {
-  data.value = await api(`/friends/${props.id}`);
+  try {
+    data.value = await api(`/friends/${props.id}`);
+  } catch (err) {
+    error.value = errorText(err);
+    return;
+  }
   labels.value = await api('/fact-labels').catch(() => []);
 });
 
 const friend = computed(() => data.value?.friend);
 const address = computed(() => fullAddress(friend.value));
+// Them on Fernweh's map, when Fernweh is set up (FERNWEH_URL) and there is somewhere to show
+const fernwehLink = computed(() => (data.value?.fernwehUrl && address.value ? `${data.value.fernwehUrl}/?bande=${friend.value.id}` : null));
 const ideas = computed(() => data.value.events.filter((e) => e.status === 'idea'));
 const upcoming = computed(() => data.value.events.filter((e) => e.status === 'planned' && e.date >= today).reverse());
 const past = computed(() => data.value.events.filter((e) => e.status !== 'idea' && !(e.status === 'planned' && e.date >= today)));
@@ -119,15 +130,16 @@ async function deleteGift(gift) {
 
 <template>
   <TopBar :title="friend?.name || ''" back="/friends">
-    <RouterLink v-if="friend" class="icon-btn" :to="`/friend/${id}/edit`" :aria-label="t('friend.edit')"><Icon name="edit" /></RouterLink>
+    <RouterLink v-if="friend" class="icon-btn" :to="`/friend/${id}/edit`" :aria-label="t('friend.edit')" :title="t('friend.edit')"><Icon name="edit" /></RouterLink>
   </TopBar>
-  <main v-if="data">
+  <main v-if="error"><p class="error">{{ error }}</p></main>
+  <main v-else-if="data">
     <section class="profile">
       <Avatar :friend="friend" :size="88" />
       <div class="profile-body">
         <h2>{{ friend.name }}</h2>
         <p v-if="friend.nickname" class="muted">„{{ friend.nickname }}“</p>
-        <div v-if="friend.circles.length" class="tags">
+        <div v-if="friend.circles.length || friend.archived" class="tags">
           <span v-for="c in friend.circles" :key="c" class="tag">{{ c }}</span>
           <span v-if="friend.archived" class="tag"><Icon name="archive" /> {{ t('friend.archived') }}</span>
         </div>
@@ -154,7 +166,10 @@ async function deleteGift(gift) {
           <dt><Icon name="pin" /> {{ friend.address ? t('friend.address') : t('friend.city') }}</dt>
           <dd class="address">
             <span>{{ address }}</span>
-            <a class="map-link" :href="mapsLink(address)" target="_blank" rel="noopener"><Icon name="map" /> {{ t('friend.openMap') }}</a>
+            <span class="map-links">
+              <a v-if="fernwehLink" class="map-link" :href="fernwehLink" target="_blank" rel="noopener" :title="t('friend.onMapHint')"><Icon name="pin" /> {{ t('friend.onMap') }}</a>
+              <a class="map-link" :href="mapsLink(address)" target="_blank" rel="noopener"><Icon name="map" /> {{ t('friend.openMap') }}</a>
+            </span>
           </dd>
         </template>
         <template v-if="friend.phone"><dt><Icon name="phone" /> {{ t('friend.phone') }}</dt><dd>{{ friend.phone }}</dd></template>

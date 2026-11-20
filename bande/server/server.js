@@ -1,13 +1,14 @@
 import express from 'express';
-import { existsSync } from 'node:fs';
 import { unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import * as store from './db.js';
-import { checkPassword, ensureAdmin, hashPassword, login, LoginLimitError, logout, requireLogin, setSessionCookie } from './auth.js';
+import { createAuth } from './kit/auth.js';
+import { BadRequest, createApp, errorHandler, mountAccount, route, serveFrontend, servePrivateFiles, toId as id } from './kit/http.js';
 import { overdueFriends, upcomingBirthdays } from './friends.js';
 import { buildCalendar } from './ics.js';
+import { mountLinkApi } from './link.js';
 import {
   dueReminders, isValidPushEndpoint, pushPublicKey, reminderSettings, sendPush, setupPush, startReminders, text as pushText,
 } from './reminders.js';
@@ -16,52 +17,29 @@ import { draftFromText } from './whatsapp.js';
 const PORT = Number(process.env.PORT || 3068);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
-const app = express();
-// One proxy (nginx) in front: req.ip is the address nginx saw, not a client-supplied X-Forwarded-For
-app.set('trust proxy', 1);
-app.disable('x-powered-by');
-app.use(express.json({ limit: '2mb' }));
-app.use((req, res, next) => {
-  req.body ??= {}; // Express 5 leaves it undefined for body-less requests
-  next();
-});
-
-// Async route errors go to the error handler at the bottom
-const route = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const id = (v) => (Number.isInteger(Number(v)) ? Number(v) : NaN);
-const LANGS = ['de', 'en'];
+// Fernweh's public address (https://places.example.org): a friend's page links to them on its map
+function webAddress(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:' || url.protocol === 'http:') return url.href.replace(/\/+$/, '');
+  } catch {
+    // reported below
+  }
+  console.warn(`FERNWEH_URL "${value}" is not an http(s) address; the map link stays off.`);
+  return null;
+}
+const FERNWEH_URL = webAddress(process.env.FERNWEH_URL);
 
 // Optional text: trimmed, cut to max, '' → null. undefined stays undefined (= not changed).
 const text = (v, max = 500) => (v === undefined ? undefined : String(v ?? '').trim().slice(0, max) || null);
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 const isTime = (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 
-class BadRequest extends Error {
-  constructor(code) {
-    super(code);
-    this.code = code;
-  }
-}
+const app = createApp({ jsonLimit: '2mb' });
+const auth = createAuth({ users: store.users, cookie: 'bande_session' });
 
-// --- login ---
-
-app.post('/api/login', route(async (req, res) => {
-  let user;
-  try {
-    user = await login(req.body.username, req.body.password, req.ip);
-  } catch (err) {
-    if (err instanceof LoginLimitError) return res.status(429).json({ error: 'too_many_attempts', retryAt: err.retryAt });
-    throw err;
-  }
-  if (!user) return res.status(401).json({ error: 'wrong_login' });
-  setSessionCookie(req, res, user);
-  res.json({ ok: true });
-}));
-
-app.post('/api/logout', (req, res) => {
-  logout(req, res);
-  res.json({ ok: true });
-});
+// --- without the login ---
 
 // The calendar feed is opened by calendar apps, which have no login: the secret URL is the key
 app.get('/ics/:file', (req, res) => {
@@ -75,28 +53,11 @@ app.get('/ics/:file', (req, res) => {
   res.type('text/calendar; charset=utf-8').set('Cache-Control', 'private, no-store').send(calendar);
 });
 
-app.use(['/api', '/photos'], requireLogin);
+// Fernweh asks for your friends' places with its own token (server/link.js)
+mountLinkApi(app, { people: store.linkPeople });
 
-const publicUser = ({ password_hash, session_version, ...u }) => u;
-
-app.get('/api/me', (req, res) => res.json(publicUser(req.user)));
-
-app.patch('/api/me', route(async (req, res) => {
-  const { lang, displayName, currentPassword, newPassword } = req.body;
-  if (lang !== undefined && !LANGS.includes(lang)) return res.status(400).json({ error: 'bad_lang' });
-  if (newPassword !== undefined) {
-    if (!(await checkPassword(req.user, currentPassword))) return res.status(400).json({ error: 'wrong_password' });
-    if (String(newPassword).length < 8) return res.status(400).json({ error: 'password_too_short' });
-  }
-  store.updateUser(req.user.id, {
-    lang,
-    displayName: displayName !== undefined ? String(displayName).trim() || req.user.username : undefined,
-    passwordHash: newPassword !== undefined ? await hashPassword(String(newPassword)) : undefined,
-  });
-  const user = store.getUser(req.user.id);
-  if (newPassword !== undefined) setSessionCookie(req, res, user); // keep this device logged in
-  res.json(publicUser(user));
-}));
+// Login, logout, /api/me; everything under /api and /photos after this needs a login
+mountAccount(app, { auth, users: store.users, protect: ['/api', '/photos'] });
 
 // --- overview ---
 
@@ -167,6 +128,8 @@ app.get('/api/friends/:id', (req, res) => {
     facts: store.factsOf(friend.id),
     gifts: store.giftsOf(friend.id),
     events: store.eventsOfFriend(friend.id),
+    // Where "on the map" links to (Fernweh), null when not set up
+    fernwehUrl: FERNWEH_URL,
   });
 });
 
@@ -454,33 +417,12 @@ app.get('/api/export.json', (req, res) => {
 
 // --- static files ---
 
-// private: photos are behind the login, so shared caches (Cloudflare) must not keep them
-app.use('/photos', express.static(store.PHOTO_DIR, {
-  cacheControl: false,
-  setHeaders: (res) => res.setHeader('Cache-Control', 'private, max-age=31536000, immutable'),
-}));
-app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
+// Photos are behind the login, so shared caches (Cloudflare) must not keep them
+servePrivateFiles(app, '/photos', store.PHOTO_DIR);
+serveFrontend(app, distDir);
+app.use(errorHandler());
 
-if (existsSync(distDir)) {
-  app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => {
-    if (/[\\/]assets[\\/]/.test(path)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    if (/sw\.js$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
-  } }));
-  // Everything else is a page of the single-page app
-  app.get('/{*path}', (req, res) => res.sendFile('index.html', { root: distDir, headers: { 'Cache-Control': 'no-cache' } }));
-}
-
-app.use((err, req, res, next) => {
-  if (res.headersSent) return next(err);
-  if (err instanceof BadRequest) return res.status(400).json({ error: err.code });
-  // Body parser errors (bad JSON, too large) carry their own 4xx status
-  const status = err.status ?? err.statusCode;
-  if (status >= 400 && status < 500) return res.status(status).json({ error: err.type === 'entity.too.large' ? 'too_large' : 'bad_request' });
-  console.error(err);
-  res.status(500).json({ error: 'server_error' });
-});
-
-await ensureAdmin();
+await auth.ensureAdmin();
 setupPush();
 app.listen(PORT, () => {
   console.log(`Bande listening on :${PORT}`);

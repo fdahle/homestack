@@ -1,19 +1,14 @@
-import { ref } from 'vue';
+import { addMessages, lang, t } from './kit/i18n.js';
 
-// UI language (set in the settings). t('a.b', { n: 3 }) fills {n}.
-export const lang = ref('de');
+// Bande's texts; the kit brings the common ones (back, save, login, dates, account, …)
+export { lang, t };
 
 const de = {
-  back: 'Zurück',
-  save: 'Speichern',
-  saved: 'Gespeichert',
   add: 'Hinzufügen',
-  delete: 'Löschen',
   nav: { label: 'Navigation', home: 'Start', friends: 'Freunde', timeline: 'Zeitleiste', add: 'Eintragen', settings: 'Einstellungen' },
-  login: { username: 'Benutzername', password: 'Passwort', submit: 'Anmelden', wrong: 'Benutzername oder Passwort falsch' },
   kind: { meet: 'Treffen', call: 'Telefonat', trip: 'Reise', party: 'Feier', note: 'Notiz' },
   status: { idea: 'Idee', planned: 'Geplant', done: 'War', cancelled: 'Abgesagt' },
-  date: { day: 'Tag', month: 'Monat', year: 'Jahr', yearOptional: 'Jahr (optional)' },
+  account: { logout: 'Abmelden (auf allen Geräten)' },
   home: {
     greeting: 'Hallo {name}',
     empty: 'Noch keine Freunde eingetragen. Fang mit einem an.',
@@ -38,7 +33,7 @@ const de = {
     ideas: 'Ideen',
     recent: 'Zuletzt',
     allTimeline: 'Alles',
-    noEventsYet: 'Trag ein, was du mit deinen Freunden machst: unten auf „Eintragen“ oder aus WhatsApp.',
+    noEventsYet: 'Trag ein, was du mit deinen Freunden machst: mit „Eintragen“ oder aus WhatsApp.',
   },
   friends: {
     add: 'Freund hinzufügen',
@@ -65,7 +60,9 @@ const de = {
     birthdayToday: 'heute! 🎂',
     city: 'Wohnt in',
     address: 'Adresse',
-    openMap: 'Karte',
+    openMap: 'Google Maps',
+    onMap: 'Auf der Karte',
+    onMapHint: 'In Fernweh zeigen',
     phone: 'Telefon',
     email: 'E-Mail',
     contact: 'Kontakt',
@@ -213,47 +210,27 @@ const de = {
     myNames: 'Dein Name in WhatsApp-Chats',
     myNamesPlaceholder: 'z. B. Felix, Felix D.',
     myNamesHint: 'Damit deine eigenen Nachrichten beim Einfügen nicht als Freund zählen. Dein Anzeigename gilt immer, weitere mit Komma trennen.',
-    profile: 'Profil',
-    displayName: 'Anzeigename',
-    language: 'Sprache',
-    password: 'Passwort',
-    currentPassword: 'Aktuelles Passwort',
-    newPassword: 'Neues Passwort (mind. 8 Zeichen)',
-    changePassword: 'Passwort ändern',
-    passwordChanged: 'Passwort geändert',
     export: 'Export',
     exportHint: 'Alles als JSON-Datei: Freunde, Erlebnisse, Geschenke.',
-    logout: 'Abmelden (auf allen Geräten)',
   },
   errors: {
-    generic: 'Das hat nicht geklappt. Bitte noch einmal versuchen.',
-    not_found: 'Nicht gefunden.',
-    wrong_password: 'Das aktuelle Passwort stimmt nicht.',
-    password_too_short: 'Das Passwort braucht mindestens 8 Zeichen.',
     name_required: 'Bitte einen Namen eingeben.',
     title_required: 'Bitte eintragen, was ihr gemacht habt.',
     date_required: 'Bitte ein Datum angeben, oder es als Idee speichern.',
     value_required: 'Bitte etwas eingeben.',
-    bad_date: 'Das Datum stimmt nicht.',
     bad_time: 'Die Uhrzeit stimmt nicht.',
     image_required: 'Das ist kein Bild, das Bande lesen kann.',
     bad_push_endpoint: 'Dieser Browser nutzt einen unbekannten Push-Dienst.',
-    too_large: 'Das ist zu groß.',
     too_many_attempts: 'Zu viele Anmeldeversuche. Bitte in 15 Minuten noch einmal.',
   },
 };
 
 const en = {
-  back: 'Back',
-  save: 'Save',
-  saved: 'Saved',
   add: 'Add',
-  delete: 'Delete',
   nav: { label: 'Navigation', home: 'Home', friends: 'Friends', timeline: 'Timeline', add: 'Add', settings: 'Settings' },
-  login: { username: 'Username', password: 'Password', submit: 'Log in', wrong: 'Wrong username or password' },
   kind: { meet: 'Meetup', call: 'Call', trip: 'Trip', party: 'Party', note: 'Note' },
   status: { idea: 'Idea', planned: 'Planned', done: 'Happened', cancelled: 'Cancelled' },
-  date: { day: 'Day', month: 'Month', year: 'Year', yearOptional: 'Year (optional)' },
+  account: { logout: 'Log out (on all devices)' },
   home: {
     greeting: 'Hi {name}',
     empty: 'No friends yet. Start with one.',
@@ -278,7 +255,7 @@ const en = {
     ideas: 'Ideas',
     recent: 'Recently',
     allTimeline: 'All',
-    noEventsYet: 'Note what you do with your friends: tap “Add” below, or bring it in from WhatsApp.',
+    noEventsYet: 'Note what you do with your friends: with “Add”, or bring it in from WhatsApp.',
   },
   friends: {
     add: 'Add a friend',
@@ -305,7 +282,9 @@ const en = {
     birthdayToday: 'today! 🎂',
     city: 'Lives in',
     address: 'Address',
-    openMap: 'Map',
+    openMap: 'Google Maps',
+    onMap: 'On the map',
+    onMapHint: 'Show in Fernweh',
     phone: 'Phone',
     email: 'Email',
     contact: 'Contact',
@@ -453,40 +432,19 @@ const en = {
     myNames: 'Your name in WhatsApp chats',
     myNamesPlaceholder: 'e.g. Felix, Felix D.',
     myNamesHint: 'So your own messages don’t count as a friend when you paste. Your display name always counts; separate more with commas.',
-    profile: 'Profile',
-    displayName: 'Display name',
-    language: 'Language',
-    password: 'Password',
-    currentPassword: 'Current password',
-    newPassword: 'New password (at least 8 characters)',
-    changePassword: 'Change password',
-    passwordChanged: 'Password changed',
     export: 'Export',
     exportHint: 'Everything as a JSON file: friends, events, gifts.',
-    logout: 'Log out (on all devices)',
   },
   errors: {
-    generic: "That didn't work. Please try again.",
-    not_found: 'Not found.',
-    wrong_password: 'The current password is wrong.',
-    password_too_short: 'The password needs at least 8 characters.',
     name_required: 'Please enter a name.',
     title_required: 'Please say what you did.',
     date_required: 'Please give a date, or save it as an idea.',
     value_required: 'Please enter something.',
-    bad_date: 'That date is not right.',
     bad_time: 'That time is not right.',
     image_required: "That's not an image Bande can read.",
     bad_push_endpoint: 'This browser uses an unknown push service.',
-    too_large: 'That is too large.',
     too_many_attempts: 'Too many login attempts. Please try again in 15 minutes.',
   },
 };
 
-const DICTS = { de, en };
-
-export function t(key, vars) {
-  const value = key.split('.').reduce((node, part) => node?.[part], DICTS[lang.value]) ?? key.split('.').reduce((node, part) => node?.[part], de);
-  if (typeof value !== 'string') return key;
-  return vars ? value.replace(/\{(\w+)\}/g, (m, name) => (vars[name] ?? m)) : value;
-}
+addMessages({ de, en });

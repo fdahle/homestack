@@ -5,7 +5,7 @@ import { api, loadFriends, refreshFriends } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, showToast } from '../util.js';
 import Avatar from './Avatar.vue';
-import Icon from './Icon.vue';
+import Icon from '../kit/components/Icon.vue';
 
 const model = defineModel({ type: Array, default: () => [] });
 const friends = ref([]);

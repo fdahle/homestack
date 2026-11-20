@@ -1,14 +1,12 @@
-import { reactive } from 'vue';
-import { lang, t } from './i18n.js';
+import { ref } from 'vue';
+import { lang } from './i18n.js';
+import { toDate } from './kit/util.js';
+
+// isoDate, formatPartial, relativeDay, toasts, errorText, useShortcut, … come from the kit
+export * from './kit/util.js';
 
 // --- dates (always 'YYYY-MM-DD' strings in local time) ---
 
-const pad = (n) => String(n).padStart(2, '0');
-export const isoDate = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const toDate = (iso) => {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-};
 export const daysBetween = (a, b) => Math.round((toDate(b) - toDate(a)) / 86_400_000);
 
 // "Sa., 14. Nov." (with the year when it isn't this year)
@@ -21,16 +19,6 @@ export function formatDate(iso, { weekday = true, long = false } = {}) {
   return new Intl.DateTimeFormat(lang.value, opts).format(date);
 }
 
-// '2015' → "2015", '2015-03' → "März 2015", '2015-03-04' → "4. März 2015"
-export function formatPartial(value) {
-  if (!value) return '';
-  const [y, m, d] = value.split('-');
-  if (!m) return y;
-  const opts = { month: 'long', year: 'numeric' };
-  if (d) opts.day = 'numeric';
-  return new Intl.DateTimeFormat(lang.value, opts).format(toDate(value));
-}
-
 // '1990-11-20' → "20. November 1990", '--11-20' → "20. November"
 export function formatBirthday(value) {
   const [, y, m, d] = /^(\d{4}|-)-(\d{2})-(\d{2})$/.exec(value || '') || [];
@@ -38,18 +26,6 @@ export function formatBirthday(value) {
   const opts = { day: 'numeric', month: 'long' };
   if (y !== '-') opts.year = 'numeric';
   return new Intl.DateTimeFormat(lang.value, opts).format(new Date(y === '-' ? 2000 : Number(y), Number(m) - 1, Number(d)));
-}
-
-// "heute", "gestern", "vor 3 Wochen", "in 2 Tagen"
-export function relativeDay(iso, today = isoDate()) {
-  if (!iso) return '';
-  const days = daysBetween(today, iso);
-  const rtf = new Intl.RelativeTimeFormat(lang.value, { numeric: 'auto' });
-  const abs = Math.abs(days);
-  if (abs < 7) return rtf.format(days, 'day');
-  if (abs < 30) return rtf.format(Math.round(days / 7), 'week');
-  if (abs < 365) return rtf.format(Math.round(days / 30.4), 'month');
-  return rtf.format(Math.round(days / 365), 'year');
 }
 
 // "3 Wochen", "5 Monate": a span without "ago"
@@ -138,21 +114,12 @@ export function whatsappLink(phone) {
   return `https://wa.me/${digits}`;
 }
 
-// --- toasts ---
+// --- changes the lists beside an entry pick up (SplitView on a computer) ---
 
-export const toast = reactive({ text: '', action: null, timer: null });
-
-export function showToast(text, action = null) {
-  clearTimeout(toast.timer);
-  toast.text = text;
-  toast.action = action;
-  toast.timer = setTimeout(() => {
-    toast.text = '';
-    toast.action = null;
-  }, action ? 5000 : 2500);
-}
-
-export function errorText(err) {
-  if (err?.code && t(`errors.${err.code}`) !== `errors.${err.code}`) return t(`errors.${err.code}`);
-  return t('errors.generic');
-}
+// The last change to a friend: { id, friend } or { id, deleted: true }
+export const friendChange = ref(null);
+// Some event was added, changed or deleted: { id, at }
+export const eventChange = ref(null);
+export const eventChanged = (id) => {
+  eventChange.value = { id, at: Date.now() };
+};

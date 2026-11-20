@@ -9,6 +9,8 @@ A self-hosted notebook for your friends: who they are, what you did together, wh
 - **WhatsApp**: copy or share messages into Bande and get a pre-filled event. Date, time and people are guessed ("Samstag 19 Uhr", "morgen", "am 24.11.", "tomorrow at 7pm").
 - **Reminders** as push notifications: birthdays a week before (with your gift ideas) and on the day, plans the day before, and friends you haven't been in touch with for longer than you set.
 - **Calendar feed**: a secret ICS address with plans, the last two years and birthdays for your phone's calendar.
+- **On a computer** the tabs become a sidebar, the home page puts plans, birthdays and friends to get in touch with side by side, and a friend or an event opens beside the list (friends, timeline, home) so you keep your place. `/` jumps to the search, `Esc` closes what's open beside it. Copied WhatsApp messages can be pasted anywhere with Ctrl+V.
+- **Fernweh**: with [Fernweh](../fernweh/) set up, your friends appear on its map, and a friend's page links to them there (see below).
 - German and English interface, JSON export.
 
 ## WhatsApp
@@ -32,6 +34,8 @@ docker compose up -d --build
 
 The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`); push notifications and installing the app need HTTPS. The first start creates the account `ADMIN_USER`.
 
+**Login through Authelia:** `deploy/friends.fdahle.de.conf` is the version behind the homestack Authelia login (with a second factor, see [deploy/README.md](../deploy/README.md#one-login-for-all-apps)). Set `AUTH_PROXY_SECRET` in `.env` and the same value in `/etc/nginx/homestack-secrets/bande.conf`. Bande then takes the user from Authelia and makes an account for them the first time; your friends and everything else don't belong to an account, so they all stay. Only the language and display name start fresh (set them under Settings), and push reminders use the language of the newest account. The calendar feed `/ics/…` stays reachable for calendar apps through Authelia's bypass rule for it ([deploy/authelia.yml](../deploy/authelia.yml)).
+
 **Update:** `docker compose up -d --build`. The data lives in the `bande-data` volume (`bande.db` plus `photos/`).
 
 **Backup:** back up `bande.db` with `sqlite3 bande.db ".backup …"`, along with the `photos/` folder from the volume.
@@ -44,6 +48,28 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 
 **"Get in touch every …"** on a friend counts meetups, calls, trips and parties as contact. A plan with them stops the reminder.
 
+## Fernweh
+
+[Fernweh](../fernweh/) (your saved places) can show your friends on its map. It asks Bande for them over a small API, server to server:
+
+`GET /api/link/people` with `Authorization: Bearer <LINK_TOKEN>` answers `{ "people": [{ "id", "name", "nickname", "city", "address", "archived", "updated_at" }] }` for all friends. Nothing else leaves Bande: no phone numbers, e-mail addresses, birthdays or notes. Without `LINK_TOKEN` the API isn't there (404); a missing or wrong token gets a 401. It doesn't go through the login (Fernweh has none in Bande), so the token is the only key: make it long.
+
+1. Make a secret, `openssl rand -hex 32`, and put it into Bande's `.env` as `LINK_TOKEN` and into Fernweh's as `BANDE_LINK_TOKEN`.
+2. Fernweh reaches Bande over a shared Docker network, not through nginx. Create it once, `docker network create homestack`, and put a `docker-compose.override.yml` next to Bande's `docker-compose.yml`:
+
+   ```yaml
+   services:
+     bande:
+       networks: [default, homestack]
+   networks:
+     homestack:
+       external: true
+   ```
+
+   Fernweh joins the same network and calls `http://bande:3000`.
+3. Set `FERNWEH_URL` (e.g. `https://places.fdahle.de`) in Bande's `.env`: a friend's page with an address or city then links *Auf der Karte* to `$FERNWEH_URL/?bande=<id>`, which opens them on Fernweh's map.
+4. `docker compose up -d` in both.
+
 ## Configuration
 
 | Variable | Default | |
@@ -54,6 +80,9 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 | `PORT` | 3068 | |
 | `DATA_DIR` | `/data` | Where `bande.db` and `photos/` live |
 | `TZ` | `Europe/Berlin` | Decides what "today" is |
+| `AUTH_PROXY_SECRET` | – | Log in through Authelia instead of Bande's own account (see [design/](../design/README.md#login)) |
+| `LINK_TOKEN` | – | Shared secret for Fernweh's link API (`BANDE_LINK_TOKEN` there); unset = no API |
+| `FERNWEH_URL` | – | Fernweh's address, for the *Auf der Karte* link on a friend's page; unset = no link |
 
 ## Developing
 
@@ -61,11 +90,14 @@ Needs Node 24 or newer (it uses the built-in `node:sqlite`).
 
 ```sh
 npm install
-ADMIN_PASSWORD=testtest DATA_DIR=./data npm run dev   # API on :3068
-npm run dev:web                                       # Vue with hot reload on :5168
-npm test                                              # date, WhatsApp and birthday parsing
+cp .env.example .env    # set ADMIN_PASSWORD and DATA_DIR=./data
+npm run dev            # API on :3068, reads .env
+npm run dev:web        # Vue with hot reload on :5168
+npm test               # dates, WhatsApp, birthdays, the Fernweh link API, the kit's login
 ```
 
 `npm run build` builds the frontend into `dist/`, which the server serves when it exists.
 
-Code map: `server/db.js` holds all SQL, `server/server.js` the routes. `server/dates.js` finds dates and times in German and English text, `server/whatsapp.js` reads copied messages, matches senders to friends and builds draft events. `server/friends.js` works out birthdays and who is overdue, `server/reminders.js` sends the push notifications, `server/ics.js` writes the calendar feed. The Vue app is in `web/src` (`views/` per page, `i18n.js` for the German and English texts); `web/public/sw.js` shows push messages; shares arrive as `/share?text=…` (see the manifest). `npm run icons` regenerates the app icons.
+Code map: `server/db.js` holds all SQL, `server/server.js` the routes. `server/dates.js` finds dates and times in German and English text, `server/whatsapp.js` reads copied messages, matches senders to friends and builds draft events. `server/friends.js` works out birthdays and who is overdue, `server/reminders.js` sends the push notifications, `server/ics.js` writes the calendar feed, `server/link.js` is the API for Fernweh. The Vue app is in `web/src` (`views/` per page, `i18n.js` for the German and English texts); `web/public/sw.js` shows push messages; shares arrive as `/share?text=…` (see the manifest). `npm run icons` regenerates the app icons.
+
+The layout, login and common components come from the homestack [design kit](../design/): the files in `web/src/kit/`, `server/kit/` and `scripts/kit/` are copies. Change them in `design/` and run `node design/sync.mjs` from the repository root.

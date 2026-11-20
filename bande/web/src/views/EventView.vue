@@ -1,28 +1,38 @@
 <script setup>
 // One event: new (/event/new, optionally ?friend=…&status=idea or a draft from a share) or existing.
+// An existing one opens beside the list it was picked from (home, timeline, friends; see router.js).
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, takeDraft } from '../api.js';
 import { t } from '../i18n.js';
-import { errorText, isoDate, KIND_ICONS, KINDS, mapsLink, showToast } from '../util.js';
-import TopBar from '../components/TopBar.vue';
-import Icon from '../components/Icon.vue';
+import { errorText, eventChanged, isoDate, KIND_ICONS, KINDS, mapsLink, showToast } from '../util.js';
+import TopBar from '../kit/components/TopBar.vue';
+import Icon from '../kit/components/Icon.vue';
 import FriendPicker from '../components/FriendPicker.vue';
 
 const props = defineProps({ id: { type: String, default: null } });
 const route = useRoute();
 const router = useRouter();
 const isNew = computed(() => !props.id);
+// The list this event was opened from, to go to when there is no page to go back to
+const listPath = computed(() => (isNew.value ? '/' : route.matched[0].path));
 const today = isoDate();
 
 const form = ref(null);
 const multiDay = ref(false);
 const busy = ref(false);
+const error = ref('');
 const STATUSES = ['idea', 'planned', 'done', 'cancelled'];
 
 onMounted(async () => {
   if (!isNew.value) {
-    const e = await api(`/events/${props.id}`);
+    let e;
+    try {
+      e = await api(`/events/${props.id}`);
+    } catch (err) {
+      error.value = errorText(err);
+      return;
+    }
     form.value = { ...e, friendIds: e.friends.map((f) => f.id) };
   } else {
     const draft = takeDraft();
@@ -64,6 +74,7 @@ async function save() {
       ? await api('/events', { method: 'POST', body })
       : await api(`/events/${props.id}`, { method: 'PATCH', body });
     showToast(t('saved'));
+    eventChanged(saved.id);
     goBack(saved.friends.length === 1 ? `/friend/${saved.friends[0].id}` : '/timeline');
   } catch (err) {
     showToast(errorText(err));
@@ -74,14 +85,21 @@ async function save() {
 
 async function remove() {
   if (!confirm(t('event.confirmDelete', { title: form.value.title }))) return;
-  await api(`/events/${props.id}`, { method: 'DELETE' });
-  goBack('/timeline');
+  try {
+    await api(`/events/${props.id}`, { method: 'DELETE' });
+  } catch (err) {
+    showToast(errorText(err));
+    return;
+  }
+  eventChanged(Number(props.id));
+  goBack(listPath.value);
 }
 </script>
 
 <template>
-  <TopBar :title="isNew ? t('event.newTitle') : form?.title || ''" :back="isNew ? '/' : '/timeline'" />
-  <main v-if="form">
+  <TopBar :title="isNew ? t('event.newTitle') : form?.title || ''" :back="listPath" />
+  <main v-if="error"><p class="error">{{ error }}</p></main>
+  <main v-else-if="form">
     <form class="form" @submit.prevent="save">
       <p v-if="form.source === 'whatsapp' && isNew" class="info"><Icon name="chat" /> {{ t('event.fromWhatsapp') }}</p>
 

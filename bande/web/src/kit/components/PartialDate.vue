@@ -1,3 +1,4 @@
+<!-- Copied from design/web/components/PartialDate.vue by design/sync.mjs. Change it there, not here. -->
 <script setup>
 // A date you may only half remember. Birthday: day and month, year optional ('--MM-DD' or 'YYYY-MM-DD').
 // Otherwise ("met on"): a year, month and day optional ('YYYY', 'YYYY-MM' or 'YYYY-MM-DD').

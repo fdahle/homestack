@@ -3,3 +3,6 @@ dist
 data
 .env
 *.log
+
+# Machine-specific, e.g. joining the homestack network for Fernweh (README.md#fernweh)
+docker-compose.override.yml

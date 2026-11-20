@@ -3,11 +3,11 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, refreshFriends } from '../api.js';
 import { t } from '../i18n.js';
-import { cityFromAddress, errorText, showToast, squarePhoto } from '../util.js';
-import TopBar from '../components/TopBar.vue';
-import Icon from '../components/Icon.vue';
+import { cityFromAddress, errorText, eventChanged, friendChange, showToast, squarePhoto } from '../util.js';
+import TopBar from '../kit/components/TopBar.vue';
+import Icon from '../kit/components/Icon.vue';
 import Avatar from '../components/Avatar.vue';
-import PartialDate from '../components/PartialDate.vue';
+import PartialDate from '../kit/components/PartialDate.vue';
 
 const props = defineProps({ id: { type: String, default: null } });
 const router = useRouter();
@@ -64,10 +64,15 @@ async function save() {
     const saved = isNew.value
       ? await api('/friends', { method: 'POST', body })
       : await api(`/friends/${props.id}`, { method: 'PATCH', body });
-    if (photo.value) await api(`/friends/${saved.id}/photo`, { method: 'PUT', raw: photo.value });
-    else if (removePhoto.value) await api(`/friends/${saved.id}/photo`, { method: 'DELETE' });
+    let friend = saved;
+    if (photo.value) friend = await api(`/friends/${saved.id}/photo`, { method: 'PUT', raw: photo.value });
+    else if (removePhoto.value) friend = await api(`/friends/${saved.id}/photo`, { method: 'DELETE' });
     refreshFriends();
-    router.replace(`/friend/${saved.id}`);
+    friendChange.value = { id: friend.id, friend };
+    // Back to their page: the one we came from if so (no second copy of it in the history)
+    const target = `/friend/${saved.id}`;
+    if (window.history.state?.back === target) router.back();
+    else router.replace(target);
   } catch (err) {
     showToast(errorText(err));
   } finally {
@@ -80,6 +85,9 @@ async function remove() {
   try {
     await api(`/friends/${props.id}`, { method: 'DELETE' });
     refreshFriends();
+    friendChange.value = { id: Number(props.id), deleted: true };
+    // Their events may be gone too
+    eventChanged(null);
     router.replace('/friends');
   } catch (err) {
     showToast(errorText(err));

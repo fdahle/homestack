@@ -1,9 +1,11 @@
 <script setup>
-// Events as a list, grouped by month (or not). A row opens the event.
-import { computed } from 'vue';
+// Events as a list, grouped by month (or not). A row opens the event: beside the list the page
+// shows it in (the page provides 'eventPath', see router.js), else at /event/:id.
+import { computed, inject } from 'vue';
+import { useRoute } from 'vue-router';
 import { t } from '../i18n.js';
 import { formatDate, friendNames, isoDate, KIND_ICONS, monthLabel } from '../util.js';
-import Icon from './Icon.vue';
+import Icon from '../kit/components/Icon.vue';
 
 const props = defineProps({
   events: { type: Array, required: true },
@@ -11,6 +13,8 @@ const props = defineProps({
   hideFriend: { type: Number, default: null }, // on a friend's page, don't name them in every row
 });
 
+const route = useRoute();
+const eventPath = inject('eventPath', (id) => `/event/${id}`);
 const today = isoDate();
 
 const groups = computed(() => {
@@ -33,7 +37,7 @@ const others = (e) => e.friends.filter((f) => f.id !== props.hideFriend);
       <h3 v-if="g.label" class="month">{{ g.label }}</h3>
       <ul class="event-list">
         <li v-for="e in g.events" :key="e.id">
-          <RouterLink :to="`/event/${e.id}`" class="event-row" :class="[`k-${e.kind}`, `s-${e.status}`]">
+          <RouterLink :to="eventPath(e.id)" class="event-row" :class="[`k-${e.kind}`, `s-${e.status}`, { selected: route.path === eventPath(e.id) }]">
             <span class="kind-dot"><Icon :name="KIND_ICONS[e.kind]" /></span>
             <span class="event-body">
               <span class="event-title">{{ e.title }}</span>

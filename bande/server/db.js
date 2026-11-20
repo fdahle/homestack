@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { createUserStore } from './kit/users.js';
 
 export const DATA_DIR = process.env.DATA_DIR || './data';
 export const PHOTO_DIR = join(DATA_DIR, 'photos');
@@ -11,21 +12,6 @@ export const db = new DatabaseSync(join(DATA_DIR, 'bande.db'));
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
-
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    display_name TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    lang TEXT NOT NULL DEFAULT 'de',
-    session_version INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
 
   -- birthday: 'YYYY-MM-DD', or '--MM-DD' when the year is unknown.
   -- met_on: 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD', as precise as you remember it.
@@ -155,44 +141,21 @@ export function transaction(fn) {
   }
 }
 
-function getSetting(key, init) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  if (row) return row.value;
-  const value = init();
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, value);
-  return value;
-}
+// --- accounts & settings ---
 
-export const setSetting = (key, value) =>
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(key, value);
+// The users and settings tables (the kit's, the same schema Bande always had, so accounts,
+// sessions and settings carry over)
+export const users = createUserStore(db);
 
-export const sessionSecret = () => getSetting('session_secret', () => randomBytes(32).toString('hex'));
+export const setSetting = (key, value) => users.setSetting(key, value);
 export const newToken = () => randomBytes(24).toString('base64url');
-export const icsToken = () => getSetting('ics_token', newToken);
-export const jsonSetting = (key, fallback) => JSON.parse(getSetting(key, () => JSON.stringify(fallback)));
+export const icsToken = () => users.getSetting('ics_token', newToken);
+export const jsonSetting = (key, fallback) => JSON.parse(users.getSetting(key, () => JSON.stringify(fallback)));
 export const setJsonSetting = (key, value) => setSetting(key, JSON.stringify(value));
 
-// --- users ---
-
-const USER_COLUMNS = 'id, username, display_name, lang, created_at';
-
-export const countUsers = () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-export const getUser = (id) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash, session_version FROM users WHERE id = ?`).get(id);
-export const getUserByName = (username) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash, session_version FROM users WHERE username = ?`).get(username);
-export const bumpSessionVersion = (id) => db.prepare('UPDATE users SET session_version = session_version + 1 WHERE id = ?').run(id);
-// The language of the (only) account, for push messages
-export const ownerLang = () => db.prepare('SELECT lang FROM users ORDER BY id LIMIT 1').get()?.lang || 'de';
-
-export function createUser({ username, displayName, passwordHash, lang = 'de' }) {
-  db.prepare('INSERT INTO users (username, display_name, password_hash, lang, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(username, displayName, passwordHash, lang, now());
-}
-
-export function updateUser(id, { displayName, lang, passwordHash }) {
-  if (displayName !== undefined) db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(displayName, id);
-  if (lang !== undefined) db.prepare('UPDATE users SET lang = ? WHERE id = ?').run(lang, id);
-  if (passwordHash !== undefined) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
-}
+// The language for push messages and the calendar: the newest account's. There is only one,
+// unless you moved to the Authelia login, which makes a new account for you.
+export const ownerLang = () => db.prepare('SELECT lang FROM users ORDER BY id DESC LIMIT 1').get()?.lang || 'de';
 
 // --- friends ---
 
@@ -230,6 +193,11 @@ export const listFriends = (today = localDate()) =>
 
 export const getFriend = (id, today = localDate()) =>
   formatFriend(db.prepare(friendsQuery('WHERE f.id = :id')).get({ id, today }));
+
+// For Fernweh's map (server/link.js): who they are and where they live, nothing else
+export const linkPeople = () =>
+  db.prepare('SELECT id, name, nickname, city, address, archived, updated_at FROM friends ORDER BY id').all()
+    .map((f) => ({ id: f.id, name: f.name, nickname: f.nickname, city: f.city, address: f.address, archived: Boolean(f.archived), updated_at: f.updated_at }));
 
 export const friendExists = (id) => Boolean(db.prepare('SELECT 1 FROM friends WHERE id = ?').get(id));
 export const existingFriendIds = (ids) =>
