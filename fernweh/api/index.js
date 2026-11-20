@@ -30,8 +30,8 @@ import shareLinksRoutes from './routes/shareLinks.js'
 import publicShareRoutes from './routes/publicShare.js'
 import backupRoutes from './routes/backup.js'
 import linkRoutes from './routes/links.js'
-import bandeRoutes from './routes/bande.js'
-import { scheduleBandeSync } from './utils/bande.js'
+import leuteRoutes from './routes/leute.js'
+import { scheduleLeuteSync } from './utils/leute.js'
 import { proxySecret } from './middleware/auth.js'
 
 const app = express()
@@ -88,7 +88,7 @@ app.use('/api/share-links', applyWriteLimiter, shareLinksRoutes)
 app.use('/api/public/share', publicShareRoutes)
 app.use('/api/backup', applyWriteLimiter, backupRoutes)
 app.use('/api/links', linkRoutes)
-app.use('/api/bande', applyWriteLimiter, bandeRoutes)
+app.use('/api/leute', applyWriteLimiter, leuteRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
@@ -113,4 +113,4 @@ process.on('unhandledRejection', (reason) => {
 export const server = app.listen(PORT, () => {
   console.log(`Fernweh API running on http://localhost:${server.address().port}${proxySecret() ? ' (sign-in through the server’s login)' : ''}`)
 })
-scheduleBandeSync()
+scheduleLeuteSync()

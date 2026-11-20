@@ -206,34 +206,34 @@
         <!-- ── Data ── -->
         <template v-if="tab === 'data'">
 
-          <!-- Friends from Bande (only when the server has the link set up) -->
-          <div v-if="bande.enabled.value" class="data-group bande-group">
-            <div class="group-label">Friends from Bande</div>
+          <!-- Friends from Leute (only when the server has the link set up) -->
+          <div v-if="leute.enabled.value" class="data-group leute-group">
+            <div class="group-label">Friends from Leute</div>
             <p class="hint">
-              Friends with an address in Bande become persons here, their address a pin in the collection “Freunde”.
-              Runs every {{ bande.status.value.every_hours }} hours. A pin you move stays put until the address changes in Bande; nothing is deleted here when a friend leaves Bande.
+              Friends with an address in Leute become persons here, their address a pin in the collection “Freunde”.
+              Runs every {{ leute.status.value.every_hours }} hours. A pin you move stays put until the address changes in Leute; nothing is deleted here when a friend leaves Leute.
             </p>
-            <div class="bande-row">
-              <button type="button" class="btn-secondary" :disabled="bande.syncing.value" @click="bande.syncNow()">
-                {{ bande.syncing.value ? 'Syncing…' : 'Sync now' }}
+            <div class="leute-row">
+              <button type="button" class="btn-secondary" :disabled="leute.syncing.value" @click="leute.syncNow()">
+                {{ leute.syncing.value ? 'Syncing…' : 'Sync now' }}
               </button>
-              <span v-if="bandeLast" class="bande-when">Last sync {{ bandeWhen }}</span>
-              <span v-else-if="!bande.syncing.value" class="bande-when">Not synced yet</span>
+              <span v-if="leuteLast" class="leute-when">Last sync {{ leuteWhen }}</span>
+              <span v-else-if="!leute.syncing.value" class="leute-when">Not synced yet</span>
             </div>
-            <p v-if="bande.syncError.value" class="msg error">{{ bande.syncError.value }}</p>
-            <template v-if="bandeLast">
-              <ul class="bande-counts">
-                <li v-for="c in bandeCounts" :key="c.label" :class="{ zero: !c.n }"><strong>{{ c.n }}</strong> {{ c.label }}</li>
+            <p v-if="leute.syncError.value" class="msg error">{{ leute.syncError.value }}</p>
+            <template v-if="leuteLast">
+              <ul class="leute-counts">
+                <li v-for="c in leuteCounts" :key="c.label" :class="{ zero: !c.n }"><strong>{{ c.n }}</strong> {{ c.label }}</li>
               </ul>
-              <p v-if="bandeLast.gone.length" class="msg warn">
-                No longer in Bande (kept here, no longer linked): {{ bandeLast.gone.join(', ') }}
+              <p v-if="leuteLast.gone.length" class="msg warn">
+                No longer in Leute (kept here, no longer linked): {{ leuteLast.gone.join(', ') }}
               </p>
-              <div v-if="bandeLast.not_found.length" class="msg warn">
+              <div v-if="leuteLast.not_found.length" class="msg warn">
                 Addresses not found, so no pin:
-                <ul><li v-for="f in bandeLast.not_found" :key="f.name">{{ f.name }} — {{ f.address }}</li></ul>
+                <ul><li v-for="f in leuteLast.not_found" :key="f.name">{{ f.name }} — {{ f.address }}</li></ul>
               </div>
-              <div v-if="bandeLast.errors.length" class="msg error">
-                <ul><li v-for="(e, i) in bandeLast.errors" :key="i">{{ e }}</li></ul>
+              <div v-if="leuteLast.errors.length" class="msg error">
+                <ul><li v-for="(e, i) in leuteLast.errors" :key="i">{{ e }}</li></ul>
               </div>
             </template>
           </div>
@@ -367,7 +367,7 @@ import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useStyleStore } from '../stores/style.js'
 import { useDialog } from '../composables/useDialog.js'
-import { useBande } from '../composables/useBande.js'
+import { useLeute } from '../composables/useLeute.js'
 
 const TILE_OPTIONS = Object.entries(TILES).map(([key, tile]) => ({ key, ...tile }))
 
@@ -408,7 +408,7 @@ const gpsLoading = ref(false)
 const gpsError   = ref('')
 
 onMounted(() => {
-  bande.load()
+  leute.load()
   try {
     const s = loadSettings()
     form.value              = { lat: s.lat ?? 20, lng: s.lng ?? 0, zoom: s.zoom ?? 2 }
@@ -470,15 +470,15 @@ function setTheme(key) {
   try { const s = loadSettings(); s.theme = key; saveSettings(s) } catch {}
 }
 
-// ── Bande ─────────────────────────────────────────────────
-const bande = useBande()
-const bandeLast = computed(() => bande.last.value)
-const bandeWhen = computed(() => {
-  const at = bandeLast.value?.finished_at
+// ── Leute ─────────────────────────────────────────────────
+const leute = useLeute()
+const leuteLast = computed(() => leute.last.value)
+const leuteWhen = computed(() => {
+  const at = leuteLast.value?.finished_at
   return at ? new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''
 })
-const bandeCounts = computed(() => {
-  const l = bandeLast.value
+const leuteCounts = computed(() => {
+  const l = leuteLast.value
   if (!l) return []
   return [
     { n: l.added.length, label: 'added' },
@@ -925,13 +925,13 @@ h2 { font-size: 16px; font-weight: 700; }
 }
 .data-group:last-child { margin-bottom: 0; }
 
-.bande-group { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
-.bande-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.bande-when { font-size: 12px; color: var(--text-2); }
-.bande-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; margin: 12px 0 0; font-size: 12.5px; color: var(--text); }
-.bande-counts li.zero { color: var(--text-2); }
-.bande-group .msg { margin: 10px 0 0; }
-.bande-group .msg ul { margin: 4px 0 0 18px; }
+.leute-group { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.leute-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.leute-when { font-size: 12px; color: var(--text-2); }
+.leute-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; margin: 12px 0 0; font-size: 12.5px; color: var(--text); }
+.leute-counts li.zero { color: var(--text-2); }
+.leute-group .msg { margin: 10px 0 0; }
+.leute-group .msg ul { margin: 4px 0 0 18px; }
 
 .hint {
   font-size: 12px;

@@ -31,7 +31,7 @@ try {
   assert.equal((await fetch(base + '/api/health')).status, 200)
   assert.equal((await fetch(base + '/api/unknown')).status, 404)
   assert.equal((await fetch(base + '/api/markers')).status, 401)
-  assert.equal((await fetch(base + '/api/bande')).status, 401)
+  assert.equal((await fetch(base + '/api/leute')).status, 401)
   const setup = await fetch(base + '/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'smoke-test-password' }) })
   assert.equal(setup.status, 200)
   assert.match(setup.headers.get('set-cookie'), /; Secure/)

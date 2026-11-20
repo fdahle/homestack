@@ -15,23 +15,23 @@ const MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS trip_waypoints_from ON trip_waypoints (from_marker_id);
     CREATE INDEX IF NOT EXISTS trip_waypoints_to ON trip_waypoints (to_marker_id);
     CREATE INDEX IF NOT EXISTS persons_address_marker ON persons (address_marker_id);`) },
-  { version: 6, up: bandeLink },
+  { version: 6, up: leuteLink },
 ]
 
-// Friends imported from Bande (api/utils/bande.js): the friend a person comes from, the address
+// Friends imported from Leute (api/utils/leute.js): the friend a person comes from, the address
 // text the last sync placed (only a changed text moves the pin again), whether that address was
-// found, and whether the friend is still in Bande. Plus small server-side settings and the cache
+// found, and whether the friend is still in Leute. Plus small server-side settings and the cache
 // of geocoded addresses.
-function bandeLink(db) {
+function leuteLink(db) {
   db.exec(`
-    ALTER TABLE persons ADD COLUMN bande_friend_id INTEGER;
-    ALTER TABLE persons ADD COLUMN bande_address TEXT;
-    ALTER TABLE persons ADD COLUMN bande_address_found INTEGER;
-    ALTER TABLE persons ADD COLUMN bande_gone INTEGER NOT NULL DEFAULT 0;
-    CREATE UNIQUE INDEX IF NOT EXISTS persons_bande_friend ON persons (bande_friend_id);
+    ALTER TABLE persons ADD COLUMN leute_friend_id INTEGER;
+    ALTER TABLE persons ADD COLUMN leute_address TEXT;
+    ALTER TABLE persons ADD COLUMN leute_address_found INTEGER;
+    ALTER TABLE persons ADD COLUMN leute_gone INTEGER NOT NULL DEFAULT 0;
+    CREATE UNIQUE INDEX IF NOT EXISTS persons_leute_friend ON persons (leute_friend_id);
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE IF NOT EXISTS geocode_cache (query TEXT PRIMARY KEY, lat REAL, lng REAL, address TEXT, country TEXT, fetched_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS bande_ignored (friend_id INTEGER PRIMARY KEY);`)
+    CREATE TABLE IF NOT EXISTS leute_ignored (friend_id INTEGER PRIMARY KEY);`)
 }
 
 export function initializeDatabase(db) {

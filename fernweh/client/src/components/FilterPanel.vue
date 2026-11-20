@@ -223,7 +223,7 @@
                 >{{ opt.label }}</button>
               </div>
             </div>
-            <a v-if="detailBandeUrl" class="icon-btn bande-btn" :href="detailBandeUrl" target="_blank" rel="noopener" title="Open in Bande" aria-label="Open in Bande">
+            <a v-if="detailLeuteUrl" class="icon-btn leute-btn" :href="detailLeuteUrl" target="_blank" rel="noopener" title="Open in Leute" aria-label="Open in Leute">
               <AppIcon name="externalLink" />
             </a>
             <button v-if="!props.readOnly && detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit" aria-label="Edit">
@@ -340,7 +340,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { COLOR_MODES, markerColors } from '../utils/mapStyle.js'
 import AppIcon from './AppIcon.vue'
-import { bandeFriendUrl } from '../composables/useBande.js'
+import { leuteFriendUrl } from '../composables/useLeute.js'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -426,7 +426,7 @@ const detailGroup = computed(() => {
   return { type, id, name: item.name, color: item.color, item }
 })
 
-const detailBandeUrl = computed(() => !props.readOnly && detailGroup.value?.type === 'person' ? bandeFriendUrl(detailGroup.value.item) : null)
+const detailLeuteUrl = computed(() => !props.readOnly && detailGroup.value?.type === 'person' ? leuteFriendUrl(detailGroup.value.item) : null)
 
 function drillInto(group) {
   detailFilter.value = { type: group.type, id: group.id }

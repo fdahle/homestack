@@ -1,0 +1,28 @@
+{
+  "name": "Leute",
+  "short_name": "Leute",
+  "description": "Deine Freunde: wer sie sind, was ihr erlebt habt, was ihr vorhabt",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f2ee",
+  "theme_color": "#f6f2ee",
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    { "name": "Eintragen", "url": "/event/new" },
+    { "name": "Aus WhatsApp einfügen", "short_name": "Aus WhatsApp", "url": "/share" }
+  ],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

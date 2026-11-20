@@ -20,7 +20,7 @@ access_control:
   rules:
     # --- what has to work without the login cookie ---
 
-    # Calendar apps fetch Bande's feed on their own; the link carries its own secret token.
+    # Calendar apps fetch Leute's feed on their own; the link carries its own secret token.
     - domain: friends.fdahle.de
       resources: ['^/ics/']
       policy: bypass

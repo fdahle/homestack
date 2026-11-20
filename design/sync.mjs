@@ -22,7 +22,7 @@ const APPS = {
   checkpoint: LAYOUT,
   flimmer: LAYOUT,
   regal: LAYOUT,
-  bande: LAYOUT,
+  leute: LAYOUT,
   fernweh: { web: 'client/src/kit', server: 'api/kit', scripts: 'scripts/kit' },
 };
 

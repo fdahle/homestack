@@ -7,7 +7,7 @@ process.env.MAPPER_DB_PATH = ':memory:'
 process.env.SESSION_SECRET = 'proxy-test-secret-'.repeat(3)
 process.env.PORT = '0'
 delete process.env.AUTH_PROXY_SECRET
-delete process.env.BANDE_URL
+delete process.env.LEUTE_URL
 const { server } = await import('../index.js')
 const { default: db } = await import('../db.js')
 
@@ -81,6 +81,6 @@ test('share links and the health check stay public behind the proxy', async () =
   assert.equal(data.status, 200)
   assert.deepEqual(data.data.markers.map((m) => m.label), ['Shared'])
   assert.equal((await call('/api/health')).status, 200)
-  assert.equal((await call('/api/bande')).status, 403)
-  assert.deepEqual((await call('/api/bande', { headers: viaProxy() })).data, { enabled: false })
+  assert.equal((await call('/api/leute')).status, 403)
+  assert.deepEqual((await call('/api/leute', { headers: viaProxy() })).data, { enabled: false })
 })

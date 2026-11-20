@@ -29,11 +29,11 @@
             <input id="manage-name" v-model="form.name" type="text" :placeholder="label + ' name'" required />
           </div>
 
-          <p v-if="type === 'person' && props.item?.bande_friend_id != null" class="bande-link">
-            <template v-if="props.item.bande_gone">No longer in Bande: kept here, no longer synced.</template>
+          <p v-if="type === 'person' && props.item?.leute_friend_id != null" class="leute-link">
+            <template v-if="props.item.leute_gone">No longer in Leute: kept here, no longer synced.</template>
             <template v-else>
-              From Bande: the name follows Bande, the address pin moves when the address changes there.
-              <a v-if="bandeUrl" :href="bandeUrl" target="_blank" rel="noopener">Open in Bande <AppIcon name="externalLink" /></a>
+              From Leute: the name follows Leute, the address pin moves when the address changes there.
+              <a v-if="leuteUrl" :href="leuteUrl" target="_blank" rel="noopener">Open in Leute <AppIcon name="externalLink" /></a>
             </template>
           </p>
 
@@ -158,7 +158,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { parseDate, normDate } from '../../../shared/dates.js'
 import AppIcon from './AppIcon.vue'
-import { bandeFriendUrl } from '../composables/useBande.js'
+import { leuteFriendUrl } from '../composables/useLeute.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
@@ -228,7 +228,7 @@ function onMarkerBlur() {
   setTimeout(() => { markerDropdownOpen.value = false }, 150)
 }
 
-const bandeUrl = computed(() => props.type === 'person' ? bandeFriendUrl(props.item) : null)
+const leuteUrl = computed(() => props.type === 'person' ? leuteFriendUrl(props.item) : null)
 
 const presets = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
@@ -438,8 +438,8 @@ textarea { resize: vertical; }
 .checkbox-label input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
 .hint-text { font-size: 11px; color: var(--text-2); margin-top: 4px; }
 
-.bande-link { margin: -4px 0 14px; font-size: 12px; color: var(--text-2); line-height: 1.5; }
-.bande-link a { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; white-space: nowrap; }
+.leute-link { margin: -4px 0 14px; font-size: 12px; color: var(--text-2); line-height: 1.5; }
+.leute-link a { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; white-space: nowrap; }
 
 .address-marker-row {
   display: flex;
