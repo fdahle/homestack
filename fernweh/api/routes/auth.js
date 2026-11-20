@@ -2,17 +2,19 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
 import db from '../db.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, ownLoginOnly, proxySecret } from '../middleware/auth.js'
 import { setAuthCookie, clearAuthCookie } from '../utils/session.js'
 
 const router = Router()
 
 router.get('/config', (_req, res) => {
+  // Behind the server's login (AUTH_PROXY_SECRET) there is no password to set or enter.
+  if (proxySecret()) return res.json({ setupRequired: false, proxyLogin: true })
   const user = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()
-  res.json({ setupRequired: !user })
+  res.json({ setupRequired: !user, proxyLogin: false })
 })
 
-router.post('/setup', async (req, res, next) => {
+router.post('/setup', ownLoginOnly, async (req, res, next) => {
   try {
     const existing = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()
     if (existing) return res.status(409).json({ error: 'Already set up' })
@@ -31,7 +33,7 @@ router.post('/setup', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', ownLoginOnly, async (req, res, next) => {
   try {
     const user = db.prepare('SELECT * FROM users ORDER BY id LIMIT 1').get()
     if (!user) return res.status(401).json({ error: 'Not set up' })
@@ -47,23 +49,23 @@ router.post('/login', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-router.post('/logout', (_req, res) => {
+router.post('/logout', ownLoginOnly, (_req, res) => {
   clearAuthCookie(res)
   res.json({ ok: true })
 })
 
 // Rotating the session version invalidates every issued cookie, this one included.
-router.post('/logout-all', requireAuth, (req, res) => {
+router.post('/logout-all', ownLoginOnly, requireAuth, (req, res) => {
   db.prepare('UPDATE users SET session_version=? WHERE id=?').run(randomBytes(32).toString('hex'), req.user.sub)
   clearAuthCookie(res)
   res.json({ ok: true })
 })
 
 router.get('/me', requireAuth, (req, res) => {
-  res.json({ loggedIn: true, id: req.user.sub })
+  res.json({ loggedIn: true, id: req.user.sub, viaProxy: !!req.user.proxy })
 })
 
-router.post('/change-password', requireAuth, async (req, res, next) => {
+router.post('/change-password', ownLoginOnly, requireAuth, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body
     if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {

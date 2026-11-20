@@ -5,6 +5,8 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     isAuthenticated: false,
     setupRequired: false,
+    proxyLogin: false, // AUTH_PROXY_SECRET: the server's login (Authelia) signs in, not a password here
+    viaProxy: false,
     _sessionChecked: false,
     sessionExpired: false, // a write was rejected with 401 while the app was open
     offline: false, // the last session check could not reach the server
@@ -15,13 +17,14 @@ export const useAuthStore = defineStore('auth', {
       const res = await apiFetch('/api/auth/config')
       const data = await res.json()
       this.setupRequired = data.setupRequired
+      this.proxyLogin = Boolean(data.proxyLogin)
     },
 
     async checkSession() {
       if (this._sessionChecked && this.isAuthenticated) return true
       try {
-        await apiFetch('/api/auth/me')
-        Object.assign(this, { isAuthenticated: true, _sessionChecked: true, sessionExpired: false, offline: false })
+        const me = await (await apiFetch('/api/auth/me')).json().catch(() => ({}))
+        Object.assign(this, { isAuthenticated: true, viaProxy: Boolean(me?.viaProxy), _sessionChecked: true, sessionExpired: false, offline: false })
         return true
       } catch (err) {
         // Only the server answering 401 means signed out. A dropped connection or a proxy error

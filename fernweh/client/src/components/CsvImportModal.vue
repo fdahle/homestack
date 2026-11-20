@@ -570,9 +570,9 @@ onUnmounted(() => {
 /* ── Buttons ──────────────────────────────────── */
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;

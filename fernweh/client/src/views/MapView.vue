@@ -272,6 +272,7 @@ import { loadSegments, saveSegment } from '../composables/useTripRouting.js'
 import { useMapControl } from '../composables/useMapControl.js'
 import { useTripRouteLayer } from '../composables/useTripRouteLayer.js'
 import TripSummaryChip from '../components/TripSummaryChip.vue'
+import { loadBandeStatus } from '../composables/useBande.js'
 
 const styleStore = useStyleStore()
 const markersStore = useMarkersStore()
@@ -521,6 +522,23 @@ function takeSharedText() {
   history.replaceState(history.state, '', location.pathname + (query ? `?${query}` : '') + location.hash)
   return shared
 }
+// Bande links here as /?bande=<friend id>: show that friend's address pin. Nothing happens
+// when no person is linked to the friend or they have no address pin.
+function focusBandeFriend() {
+  if (!globalThis.location?.search) return
+  const params = new URLSearchParams(location.search)
+  const friendId = params.get('bande')
+  if (friendId == null) return
+  params.delete('bande')
+  const query = params.toString()
+  history.replaceState(history.state, '', location.pathname + (query ? `?${query}` : '') + location.hash)
+  const person = personsStore.items.find((p) => p.bande_friend_id != null && String(p.bande_friend_id) === friendId)
+  const marker = person?.address_marker_id && markersStore.items.find((m) => m.id === person.address_marker_id)
+  if (!marker || !map) return
+  map.setView([marker.lat, marker.lng], Math.max(map.getZoom(), 16))
+  openMarkerModal(marker)
+}
+
 function openSharedText() {
   const shared = takeSharedText()
   if (!shared) return
@@ -601,6 +619,7 @@ async function initializeMap() {
   savedSettings.value = loadSettings()
   const s = savedSettings.value
 
+  loadBandeStatus()
   await Promise.all([markersStore.fetch(), categoriesStore.fetch(), collectionsStore.fetch(), personsStore.fetch()])
   if (disposed) return
 
@@ -637,6 +656,7 @@ async function initializeMap() {
   // Not awaited: slow routing services must not keep "Loading map…" up; route errors show on their own.
   renderTripRoute()
   openSharedText()
+  focusBandeFriend()
   } catch (err) {
     mapLoadError.value = err.message
     if (map) { map.remove(); map = null }
@@ -1137,7 +1157,7 @@ watch(() => markersStore.routeRevision, () => { undoStack.value = [] })
   text-align: center;
 }
 .move-actions { display: flex; gap: 8px; }
-.move-actions .btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
+.move-actions .btn-primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .move-actions .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .move-actions .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .move-error { color: var(--danger); font-size: 12px; }
@@ -1152,7 +1172,7 @@ watch(() => markersStore.routeRevision, () => { undoStack.value = [] })
   gap: 6px;
   padding: 10px 18px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   border-radius: 24px;
   font-size: 14px;
   font-weight: 600;

@@ -30,6 +30,9 @@ import shareLinksRoutes from './routes/shareLinks.js'
 import publicShareRoutes from './routes/publicShare.js'
 import backupRoutes from './routes/backup.js'
 import linkRoutes from './routes/links.js'
+import bandeRoutes from './routes/bande.js'
+import { scheduleBandeSync } from './utils/bande.js'
+import { proxySecret } from './middleware/auth.js'
 
 const app = express()
 const PORT = process.env.PORT || 3063
@@ -58,6 +61,8 @@ app.use(helmet({
 const smallJson = express.json({ limit: '2mb' })
 app.use((req, res, next) => req.path === '/api/backup/restore' ? next() : smallJson(req, res, next))
 app.use(cookieParser())
+// Express 5 leaves req.body undefined for requests without a body; the routes expect an object.
+app.use((req, _res, next) => { req.body ??= {}; next() })
 
 const authLimit = { windowMs: 15 * 60 * 1000, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Too many sign-in attempts. Please wait 15 minutes.' }) }
 const authLimiter = rateLimit({ ...authLimit, max: 20, keyGenerator: req => clientKey(req.ip) })
@@ -83,6 +88,7 @@ app.use('/api/share-links', applyWriteLimiter, shareLinksRoutes)
 app.use('/api/public/share', publicShareRoutes)
 app.use('/api/backup', applyWriteLimiter, backupRoutes)
 app.use('/api/links', linkRoutes)
+app.use('/api/bande', applyWriteLimiter, bandeRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
@@ -91,7 +97,7 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not foun
 // Hashed build assets never change; a missing one (old tab after a redeploy) must 404, not get index.html.
 app.use('/assets', express.static(join(DIST, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }))
 app.use(express.static(DIST, { index: false }))
-app.get('*', (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(join(DIST, 'index.html')))
+app.get('/{*path}', (_req, res) => res.set('Cache-Control', 'no-cache').sendFile(join(DIST, 'index.html')))
 
 app.use((err, _req, res, _next) => {
   if (process.env.NODE_ENV === 'production') console.error(err.message)
@@ -105,5 +111,6 @@ process.on('unhandledRejection', (reason) => {
 })
 
 export const server = app.listen(PORT, () => {
-  console.log(`Fernweh API running on http://localhost:${server.address().port}`)
+  console.log(`Fernweh API running on http://localhost:${server.address().port}${proxySecret() ? ' (sign-in through the server’s login)' : ''}`)
 })
+scheduleBandeSync()

@@ -29,6 +29,14 @@
             <input id="manage-name" v-model="form.name" type="text" :placeholder="label + ' name'" required />
           </div>
 
+          <p v-if="type === 'person' && props.item?.bande_friend_id != null" class="bande-link">
+            <template v-if="props.item.bande_gone">No longer in Bande: kept here, no longer synced.</template>
+            <template v-else>
+              From Bande: the name follows Bande, the address pin moves when the address changes there.
+              <a v-if="bandeUrl" :href="bandeUrl" target="_blank" rel="noopener">Open in Bande <AppIcon name="externalLink" /></a>
+            </template>
+          </p>
+
           <div class="field" v-if="type === 'collection'">
             <label for="manage-description">Description</label>
             <textarea id="manage-description" v-model="form.description" rows="2" placeholder="Optional notes" />
@@ -150,6 +158,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { parseDate, normDate } from '../../../shared/dates.js'
 import AppIcon from './AppIcon.vue'
+import { bandeFriendUrl } from '../composables/useBande.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
 import { usePersonsStore } from '../stores/persons.js'
@@ -218,6 +227,8 @@ function selectMarker(m) {
 function onMarkerBlur() {
   setTimeout(() => { markerDropdownOpen.value = false }, 150)
 }
+
+const bandeUrl = computed(() => props.type === 'person' ? bandeFriendUrl(props.item) : null)
 
 const presets = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
 
@@ -331,7 +342,7 @@ async function del() {
 
 .modal {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 360px;
   max-width: calc(100vw - 32px);
@@ -427,6 +438,9 @@ textarea { resize: vertical; }
 .checkbox-label input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
 .hint-text { font-size: 11px; color: var(--text-2); margin-top: 4px; }
 
+.bande-link { margin: -4px 0 14px; font-size: 12px; color: var(--text-2); line-height: 1.5; }
+.bande-link a { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; white-space: nowrap; }
+
 .address-marker-row {
   display: flex;
   gap: 6px;
@@ -509,14 +523,14 @@ textarea { resize: vertical; }
 .btn-ghost { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
 .btn-ghost:hover { background: var(--border); color: var(--text); }
 
-.btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
+.btn-primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 
 .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .btn-secondary:hover { background: var(--border); }
 
 .btn-danger { background: none; color: var(--danger); border: 1px solid var(--danger); }
-.btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: var(--danger); color: var(--surface); }
 
 @media (max-width: 640px) {
   .overlay { align-items: stretch; padding: 0; }

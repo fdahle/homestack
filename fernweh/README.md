@@ -2,7 +2,7 @@
 
 A personal map bookmarking app. Save places, organise them into categories and collections, plan trips, and share views with others via share links.
 
-Built for my own use — but feel free to use it, fork it, or adapt it however you like.
+Built for my own use — but feel free to use it, fork it, or adapt it however you like. Part of the homestack apps: it wears their look (the [design kit](../design/README.md)'s colours, type and icon style, in Fernweh's plum), can sign in through their shared Authelia login, and shows your friends from [Bande](../bande/) on the map.
 
 ---
 
@@ -13,20 +13,21 @@ Built for my own use — but feel free to use it, fork it, or adapt it however y
 - Organise markers into **categories** (by type) and **collections** (by trip or theme)
 - **Trip mode** — order stops, draw walking/cycling/driving routes via OSRM or OpenRouteService, see distance and travel time, export as GPX
 - **Persons** — associate places with people and store their addresses
+- **Friends from Bande** — your friends and where they live, imported from [Bande](#friends-from-bande) and kept up to date
 - **Share links** — share a filtered view (read-only, including trip routes) with optional password and expiry
 - Save places found on the map with their website and Wikipedia image
 - **Add from Google Maps** — paste a place's "Share" link into the search bar (or, on Android, share it straight to the installed app); it opens at that spot with Google's name, matched to the OpenStreetMap place when there is one
 - Search across names, notes, addresses and groups (accent-insensitive)
 - **Trash** — deleted markers can be undone or restored for 30 days
 - Import places from Google Maps (saved-list CSV, Takeout "Saved Places.json"), Google My Maps / Google Earth (KML, KMZ; folders can become collections or categories), GPX waypoints and GeoJSON, or from a Fernweh JSON export; export/backup to JSON or download the full database
-- Installable on phones (PWA); "locate me"; sign out of all devices
-- Single-user, self-hosted, no external accounts required
+- Installable on phones (PWA); "locate me"; sign out of all devices; light and dark follow the system (or pick one in Settings → Appearance)
+- Single-user, self-hosted, no external accounts required; optionally behind the homestack login (Authelia)
 
 ## Tech stack
 
-- **Backend:** Node.js 22, Express, SQLite (built-in `node:sqlite`)
-- **Frontend:** Vue 3, Pinia, Leaflet
-- **Auth:** bcrypt + JWT in HttpOnly cookies
+- **Backend:** Node.js 24, Express 5, SQLite (built-in `node:sqlite`)
+- **Frontend:** Vue 3, Pinia, Leaflet; colours and sizes from the homestack kit (`client/src/kit/tokens.css`, Fernweh's own in `client/src/theme.css`)
+- **Auth:** bcrypt + JWT in HttpOnly cookies, or the homestack login proxy (`AUTH_PROXY_SECRET`)
 - **Build:** Vite (client), Docker (deployment)
 
 ---
@@ -62,7 +63,9 @@ The app listens on port **3063**, bound to `127.0.0.1` so it is only reachable t
 
 If your proxy runs elsewhere (another host or container), set `BIND_ADDRESS` in `.env` and make sure `TRUST_PROXY` matches the number of proxies in front of the app. Never expose the port directly while `TRUST_PROXY` is set: clients could then fake their IP address and bypass the sign-in rate limit.
 
-### nginx example
+### nginx
+
+[deploy/places.fdahle.de.conf](deploy/places.fdahle.de.conf) is the configuration behind the homestack Authelia login (see [below](#sign-in-through-the-homestack-login)). Without Authelia, a plain one:
 
 ```nginx
 server {
@@ -82,6 +85,48 @@ server {
     gzip_types text/css application/javascript application/json image/svg+xml;
 }
 ```
+
+### Sign in through the homestack login
+
+Behind Authelia (see [deploy/README.md](../deploy/README.md#one-login-for-all-apps)), Fernweh doesn't ask for its own password: nginx asks Authelia, then passes the user in `Remote-User` together with a shared secret in `X-Auth-Proxy-Secret`.
+
+```sh
+secret=$(openssl rand -hex 32)
+echo "AUTH_PROXY_SECRET=$secret" >> /srv/docker/homestack/fernweh/.env
+echo "proxy_set_header X-Auth-Proxy-Secret \"$secret\";" > /etc/nginx/homestack-secrets/fernweh.conf
+chmod 640 /etc/nginx/homestack-secrets/fernweh.conf
+cp fernweh/deploy/places.fdahle.de.conf /etc/nginx/sites-available/
+nginx -t && systemctl reload nginx
+cd /srv/docker/homestack/fernweh && docker compose up -d
+```
+
+With `AUTH_PROXY_SECRET` set, the API trusts `Remote-User` only together with the right secret (compared in constant time) and then treats the request as Fernweh's one owner; every other request to the API gets a 403, a session cookie alone included. The login page, signing out and the password change disappear (Settings → Account says you're signed in through the server's login). When the Authelia login runs out, the app reloads itself (at most once a minute) and lands on Authelia's login page. Shared map views (`/share/…`, `/api/public/share/…`) stay public: Authelia lets them through ([deploy/authelia.yml](../deploy/authelia.yml)). Your places and the password set before stay; leave `AUTH_PROXY_SECRET` empty again and Fernweh asks for that password as before.
+
+### Friends from Bande
+
+With [Bande](../bande/README.md#fernweh) on the same server, Fernweh imports your friends and their addresses, one way: Bande is where you keep them, Fernweh shows them on the map.
+
+1. In Bande's `.env` set `LINK_TOKEN` (`openssl rand -hex 32`), the same value here as `BANDE_LINK_TOKEN`.
+2. Fernweh reaches Bande over the shared Docker network `homestack` (`docker network create homestack` once; Bande joins it as described in its README). Put a `docker-compose.override.yml` next to Fernweh's `docker-compose.yml`:
+
+   ```yaml
+   services:
+     app:
+       networks: [default, homestack]
+   networks:
+     homestack:
+       external: true
+   ```
+
+3. In Fernweh's `.env`: `BANDE_URL=http://bande:3000`, `BANDE_LINK_TOKEN=…`, and `BANDE_PUBLIC_URL=https://friends.fdahle.de` for the links to Bande. Then `docker compose up -d`.
+
+Without `BANDE_URL` and `BANDE_LINK_TOKEN` none of this is there. With them, the sync runs at start, every `BANDE_SYNC_HOURS` (6), and from **Settings → Data → Sync now**, which also shows the last result (added, linked, moved, unchanged, gone, addresses not found, errors). The rules:
+
+- Every friend in Bande who isn't archived and has an address or a city becomes a person here, named as in Bande. A person with the same name (ignoring case) who isn't linked yet is linked instead of duplicated, and keeps their address pin if they have one.
+- The address (or the city when there is none) is looked up with OpenStreetMap's Nominatim, from the server: one request a second, cached by the address text. It becomes the person's address pin, in the collection **Freunde** (made when needed; rename it as you like, Fernweh keeps using it). An address Nominatim doesn't know leaves the person without a pin and is listed in the result (and asked again after a month).
+- A pin moves only when the address changes in Bande, so a pin you moved by hand stays where you put it. Your label, notes, categories and everything else you edit here stay too; only the name follows Bande. A pin that is also another person's address isn't moved: the friend gets a new one.
+- Nothing is deleted because of Bande: a friend who is gone or archived there stays here, marked as no longer linked (and named in the result). A person you delete here isn't imported again.
+- A linked person has **Open in Bande** (in the person's list on the map, the person editor, and on their address pin). Bande's *Auf der Karte* links to `/?bande=<id>`, which opens Fernweh at that friend's pin (after signing in).
 
 ### Data persistence
 
@@ -112,11 +157,16 @@ docker compose up -d --build
 | Variable | Required | Description |
 |---|---|---|
 | `SESSION_SECRET` | Yes | Random string ≥ 32 characters, used to sign JWT tokens |
-| `PORT` | No | Port the app listens on without Docker (default: `3063`; the container always uses 3000) |
+| `PORT` | No | Port the app listens on without Docker, and the host port docker-compose publishes (default: `3063`; inside the container always 3000) |
 | `NODE_ENV` | No | Set to `production` in production (Secure cookie, so HTTPS is required) |
-| `BIND_ADDRESS` | No | Host address docker-compose publishes port 3063 on (default: `127.0.0.1`) |
+| `BIND_ADDRESS` | No | Host address docker-compose publishes the port on (default: `127.0.0.1`) |
 | `TRUST_PROXY` | No | Number of reverse proxies in front of the app, `false` when there is none, or a list of proxy addresses such as `loopback, 10.0.0.0/8` (default: `false`; docker-compose sets `1`) |
 | `MAPPER_DB_PATH` | No | SQLite file when running without Docker (default: `data/mapper.db`) |
+| `AUTH_PROXY_SECRET` | No | Sign in through the homestack login (Authelia) instead of the password: the secret nginx sends in `X-Auth-Proxy-Secret` ([above](#sign-in-through-the-homestack-login)) |
+| `BANDE_URL` | No | Bande's address server to server, normally `http://bande:3000` over the `homestack` network ([above](#friends-from-bande)) |
+| `BANDE_LINK_TOKEN` | No | The secret Bande's link API expects (`LINK_TOKEN` there) |
+| `BANDE_PUBLIC_URL` | No | Bande's address in the browser, e.g. `https://friends.fdahle.de`, for "Open in Bande" |
+| `BANDE_SYNC_HOURS` | No | Hours between syncs with Bande (default: `6`) |
 
 Sessions last 30 days and are renewed while you use the app; "Sign out of all devices" and password changes end every session.
 
@@ -128,7 +178,9 @@ Do whatever you want with it.
 
 ## Development checks
 
-Use Node.js 22.13+ or 24+. Install dependencies with `npm ci`, `npm ci --prefix api`, and `npm ci --prefix client`. Run `npm run check` for linting, regression tests, a production build and an isolated HTTP smoke test. Tests use an in-memory database and never open `data/mapper.db`.
+Use Node.js 24. Install dependencies with `npm ci`, `npm ci --prefix api`, and `npm ci --prefix client`. Run `npm run check` for linting, regression tests (including the Bande sync against a fake Bande and geocoder, and the login through the proxy), a production build and an isolated HTTP smoke test. Tests use an in-memory database and never open `data/mapper.db`.
+
+The homestack design kit is copied in by `node design/sync.mjs fernweh` (from the repository root) to `client/src/kit`, `api/kit` and `scripts/kit`; don't edit those copies. Fernweh, a full-screen map, takes the kit's tokens (`kit/tokens.css`, mapped to Fernweh's own variable names in `client/src/theme.css`) and icon style, not its page layout. `npm run icons` redraws the app icon (a white map pin on plum, `scripts/make-icons.js`) into `client/public/`.
 
 Stop the app before running `npm run reset`; this deletes the local database. Database upgrades run transactionally and are recorded in `schema_migrations`. Existing sessions are invalidated once on this upgrade and whenever the password is changed or reset.
 

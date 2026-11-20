@@ -22,7 +22,7 @@ try {
   // An outdated chunk after a redeploy must fail loudly instead of returning index.html.
   assert.equal((await fetch(base + '/assets/MapView-outdated.js')).status, 404)
   assert.equal((await fetch(base + '/share/some-token')).status, 200)
-  assert.equal((await fetch(base + '/manifest.webmanifest')).headers.get('content-type'), 'application/manifest+json')
+  assert.match((await fetch(base + '/manifest.webmanifest')).headers.get('content-type'), /^application\/manifest\+json(;|$)/)
   assert.equal((await fetch(base + '/sw.js')).status, 200)
   const oversized = JSON.stringify({ password: 'x'.repeat(3 * 1024 * 1024) })
   assert.equal((await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: oversized })).status, 413)
@@ -31,6 +31,7 @@ try {
   assert.equal((await fetch(base + '/api/health')).status, 200)
   assert.equal((await fetch(base + '/api/unknown')).status, 404)
   assert.equal((await fetch(base + '/api/markers')).status, 401)
+  assert.equal((await fetch(base + '/api/bande')).status, 401)
   const setup = await fetch(base + '/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'smoke-test-password' }) })
   assert.equal(setup.status, 200)
   assert.match(setup.headers.get('set-cookie'), /; Secure/)

@@ -123,6 +123,9 @@
               class="open-maps-link"
             >Open in Maps <AppIcon name="externalLink" /></a>
           </div>
+          <div v-for="b in bandeLinks" :key="b.url" class="meta-row">
+            <a :href="b.url" target="_blank" rel="noopener" class="open-maps-link">{{ bandeLinks.length > 1 ? `${b.name} in Bande` : 'Open in Bande' }} <AppIcon name="externalLink" /></a>
+          </div>
         </div>
 
       </div>
@@ -378,6 +381,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { bandeFriendUrl } from '../composables/useBande.js'
 import { copyText } from '../utils/clipboard.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -465,6 +469,11 @@ const selectedCollections = computed(() =>
 const recent = recentPicks()
 const collectionChoices = computed(() => recentFirst(collectionsStore.items, recent.collection_ids))
 const categoryChoices = computed(() => recentFirst(categoriesStore.items, recent.category_ids))
+// The marker is the address of friends from Bande: links to them there
+const bandeLinks = computed(() => props.marker?.id == null ? [] : personsStore.items
+  .filter((p) => p.address_marker_id === props.marker.id)
+  .map((p) => ({ name: p.name, url: bandeFriendUrl(p) }))
+  .filter((b) => b.url))
 const personChoices = computed(() => recentFirst(personsStore.items, recent.person_ids))
 
 const displayImage = computed(() => form.value.image_url || null)
@@ -854,7 +863,7 @@ async function del() {
 
 .modal {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 420px;
   max-width: calc(100vw - 32px);
@@ -1438,19 +1447,19 @@ form .modal-actions {
 
 .spacer { flex: 1; }
 
-.btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
+.btn-primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 
 .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .btn-secondary:hover { background: var(--border); }
 
 .btn-danger { background: none; color: var(--danger); border: 1px solid var(--danger); }
-.btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: var(--danger); color: var(--surface); }
 
 .btn-ghost { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
 .btn-ghost:hover { background: var(--border); color: var(--text); }
 
-.btn-source-active { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+.btn-source-active { background: var(--accent) !important; color: var(--accent-text) !important; border-color: var(--accent) !important; }
 
 @media (max-width: 640px) {
   .overlay { align-items: stretch; padding: 0; }

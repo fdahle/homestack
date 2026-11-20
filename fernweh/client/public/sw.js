@@ -4,8 +4,8 @@
 //   are pruned whenever a new index.html arrives.
 // - Icons and manifest: stale-while-revalidate, so a changed icon shows up on the next visit.
 // - API calls, map tiles and other sites: never cached here.
-const CACHE = 'fernweh-v1'
-const STATIC = ['/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png']
+const CACHE = 'fernweh-v2'
+const STATIC = ['/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png', '/icon-180.png', '/icon-maskable-512.png']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(['/', ...STATIC])).then(() => self.skipWaiting()))

@@ -43,43 +43,16 @@ onUnmounted(() => {
 /* Remove 300ms click delay on touch devices */
 button, a, [role="button"] { touch-action: manipulation; }
 
+/* Colours, radii and shadows: kit/tokens.css and theme.css (imported in main.js) */
 :root {
   --sat: env(safe-area-inset-top, 0px);
   --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
-  --bg: #f8f9fa;
-  --surface: #ffffff;
-  --surface-2: #f1f3f5;
-  --border: #dee2e6;
-  --text: #212529;
-  --text-2: #6c757d;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --danger: #ef4444;
-  --danger-hover: #dc2626;
-  --radius: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.12);
-}
-
-[data-theme="dark"] {
-  --bg: #1a1b1e;
-  --surface: #25262b;
-  --surface-2: #2c2e33;
-  --border: #373a40;
-  --text: #c9cdd4;
-  --text-2: #868e96;
-  --accent: #4dabf7;
-  --accent-hover: #339af0;
-  --danger: #ff6b6b;
-  --danger-hover: #fa5252;
-  --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.4);
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font);
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
@@ -113,15 +86,17 @@ input, textarea, select {
 
 input:focus, textarea:focus, select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+a { color: var(--accent); }
 
 label {
   display: block;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 550;
   color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   margin-bottom: 4px;
 }
 .app-banner {
@@ -134,7 +109,7 @@ label {
   padding: 8px 14px;
   background: var(--text);
   color: var(--surface);
-  border-radius: var(--radius);
+  border-radius: 999px;
   box-shadow: var(--shadow-lg);
   font-size: 13px;
   text-align: center;

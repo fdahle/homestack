@@ -409,7 +409,7 @@ watch(sidebarOpen, async () => {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--accent, #3b82f6);
+  color: var(--accent);
   margin-bottom: 16px;
 }
 
@@ -442,7 +442,7 @@ watch(sidebarOpen, async () => {
   background: var(--surface, #fff);
   color: var(--text, #111);
 }
-.gate-input:focus { outline: 2px solid var(--accent, #3b82f6); border-color: transparent; }
+.gate-input:focus { outline: 2px solid var(--accent); border-color: transparent; }
 
 .pw-toggle {
   background: none;
@@ -487,16 +487,16 @@ watch(sidebarOpen, async () => {
 .gate-btn {
   width: 100%;
   padding: 10px;
-  background: var(--accent, #3b82f6);
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-text);
   border: none;
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   margin-top: 4px;
 }
-.gate-btn:hover:not(:disabled) { background: var(--accent-hover, #2563eb); }
+.gate-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .gate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .loading-text { font-size: 14px; color: var(--text-2, #666); }

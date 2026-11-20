@@ -355,7 +355,7 @@ async function deleteLink(token) {
 
 .modal {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 420px;
   max-width: calc(100vw - 32px);
@@ -521,7 +521,7 @@ form { display: flex; flex-direction: column; gap: 0; }
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   font-weight: 600;
   display: inline-flex;
   align-items: center;

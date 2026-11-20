@@ -5,10 +5,13 @@ import { createPinia } from 'pinia'
 import { loadSettings } from './utils/settings.js'
 import router from './router/index.js'
 import App from './App.vue'
+import './kit/tokens.css'
+import './theme.css'
 
 try {
   const s = loadSettings()
-  if (s?.theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark')
+  // Follows the system unless the settings pin light or dark
+  if (s?.theme === 'dark' || s?.theme === 'light') document.documentElement.setAttribute('data-theme', s.theme)
 } catch {}
 
 const app = createApp(App)

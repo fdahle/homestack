@@ -1,0 +1,89 @@
+/* Fernweh on the homestack kit: kit/tokens.css (loaded before this file) brings the palette,
+   sizes and dark mode; this sets Fernweh's plum accent, a faint plum tint, and the names
+   Fernweh's components use (--border, --text-2, --surface-2 …) in terms of the kit's.
+
+   Light and dark follow the system like the other homestack apps. The settings can pin one
+   (data-theme="light" / "dark" on <html>), so both palettes are written out here, including
+   the few kit colours that change between them (status colours). */
+
+:root {
+  --bg: #f5f3f7;
+  --surface: #fefdff;
+  --text: #1f1b24;
+  --muted: #6f6878;
+  --line: #e4dfe9;
+  --accent: #7b3fa0;
+  --accent-text: #ffffff;
+  --accent-soft: #efe4f5;
+  --bar: #9a64bd;
+  --ok: #2e7d4f;
+  --ok-soft: #dcefe3;
+  --warn: #9a5c00;
+  --warn-soft: #fbecd2;
+  --danger: #b3261e;
+  --star: #e0a100;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
+  /* Panels and controls float above the map, so they need a bit more than the kit's cards */
+  --shadow-lg: 0 2px 6px rgb(40 20 50 / 0.08), 0 8px 24px rgb(40 20 50 / 0.12);
+
+  /* Fernweh's names, from the kit's */
+  --border: var(--line);
+  --text-2: var(--muted);
+  --text-muted: var(--muted);
+  --surface-2: color-mix(in srgb, var(--line) 40%, var(--surface));
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, var(--text));
+  --danger-hover: color-mix(in srgb, var(--danger) 86%, var(--text));
+  /* Inputs and small controls; cards, panels and dialogs use --radius-lg (the kit's --radius) */
+  --radius: 10px;
+  --radius-lg: 14px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17151a;
+    --surface: #221f26;
+    --text: #ece9f0;
+    --muted: #a59eac;
+    --line: #37323d;
+    --accent: #c79be3;
+    --accent-text: #241130;
+    --accent-soft: #392a45;
+    --bar: #b07fd2;
+    --ok: #6cc48d;
+    --ok-soft: #1f3a2a;
+    --warn: #f0b84a;
+    --warn-soft: #43321a;
+    --danger: #f28b82;
+    --star: #f5c542;
+    --shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.4);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #17151a;
+  --surface: #221f26;
+  --text: #ece9f0;
+  --muted: #a59eac;
+  --line: #37323d;
+  --accent: #c79be3;
+  --accent-text: #241130;
+  --accent-soft: #392a45;
+  --bar: #b07fd2;
+  --ok: #6cc48d;
+  --ok-soft: #1f3a2a;
+  --warn: #f0b84a;
+  --warn-soft: #43321a;
+  --danger: #f28b82;
+  --star: #f5c542;
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
+/* Buttons that do something get the kit's pill shape */
+.btn-primary, .btn-secondary, .btn-danger, .btn-logout, .btn-ghost { border-radius: 999px; }
+.btn-primary { color: var(--accent-text); }

@@ -62,10 +62,12 @@ router.put('/:id', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const { id } = req.params
-  const existing = db.prepare('SELECT id FROM persons WHERE id = ?').get(id)
+  const existing = db.prepare('SELECT id, bande_friend_id FROM persons WHERE id = ?').get(id)
   if (!existing) return res.status(404).json({ error: 'Not found' })
 
   db.prepare('DELETE FROM persons WHERE id = ?').run(id)
+  // Deleted here means deleted: the Bande import doesn't bring the friend back.
+  if (existing.bande_friend_id != null) db.prepare('INSERT OR IGNORE INTO bande_ignored (friend_id) VALUES (?)').run(existing.bande_friend_id)
   res.json({ ok: true })
 })
 

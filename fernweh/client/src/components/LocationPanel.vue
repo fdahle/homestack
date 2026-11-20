@@ -571,11 +571,7 @@ h2 {
 }
 
 .poi-status {
-  color: #b08400;
-}
-
-[data-theme="dark"] .poi-status {
-  color: #e0a800;
+  color: var(--warn);
 }
 
 .panel-warning {
@@ -675,11 +671,11 @@ h2 {
 .btn-save {
   width: 100%;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   font-weight: 600;
   font-size: 14px;
   padding: 10px;
-  border-radius: var(--radius);
+  border-radius: 999px;
   border: none;
 }
 .btn-save:hover:not(:disabled) { background: var(--accent-hover); }

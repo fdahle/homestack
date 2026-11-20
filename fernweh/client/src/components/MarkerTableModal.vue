@@ -354,7 +354,7 @@ const vFocus = {
 
 .modal {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: min(95vw, 1400px);
   height: min(90vh, 900px);

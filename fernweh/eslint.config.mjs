@@ -7,7 +7,7 @@ export default [
   js.configs.recommended,
   ...vue.configs['flat/essential'],
   { files: ['**/*.js', '**/*.mjs', '**/*.vue'], languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: { ...globals.node, ...globals.browser } }, rules: {
-    'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }],
+    'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none', ignoreRestSiblings: true }],
     'no-empty': ['error', { allowEmptyCatch: true }],
     'vue/multi-word-component-names': 'off',
   } },

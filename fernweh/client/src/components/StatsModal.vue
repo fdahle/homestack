@@ -177,7 +177,7 @@ onMounted(async () => {
 
 .modal {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 380px;
   max-width: calc(100vw - 32px);

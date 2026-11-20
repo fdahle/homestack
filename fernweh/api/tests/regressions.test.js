@@ -269,7 +269,7 @@ test('the complete database can be downloaded as a consistent SQLite snapshot', 
   await request('markers', 'POST', marker)
   const res = await fetch(origin + '/api/backup/database', { headers: { Cookie: `mapper_token=${token}` } })
   assert.equal(res.status, 200)
-  assert.match(res.headers.get('content-disposition'), /attachment; filename="fernweh-\d{4}-\d{2}-\d{2}\.db"/)
+  assert.match(res.headers.get('content-disposition'), /attachment; filename="?fernweh-\d{4}-\d{2}-\d{2}\.db"?$/)
   const bytes = Buffer.from(await res.arrayBuffer())
   assert.equal(bytes.subarray(0, 15).toString(), 'SQLite format 3')
   const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')

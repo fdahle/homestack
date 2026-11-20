@@ -1,7 +1,8 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <h1>🗺 Fernweh</h1>
+      <img class="app-icon" src="/icon.svg" width="72" height="72" alt="" />
+      <h1>Fernweh</h1>
 
       <form @submit.prevent="submit">
         <div class="field">
@@ -67,6 +68,8 @@ async function loadConfig() {
   try {
     await authStore.fetchConfig()
     configError.value = false
+    // Behind the server's login there is no password here: the map is the place to be.
+    if (authStore.proxyLogin) router.replace(redirect)
   } catch {
     configError.value = true
   } finally {
@@ -126,7 +129,7 @@ async function submit() {
 .login-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 40px;
   width: min(340px, 100%);
   box-shadow: var(--shadow-lg);
@@ -138,10 +141,16 @@ async function submit() {
   }
 }
 
+.app-icon {
+  display: block;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+}
+
 h1 {
   font-size: 24px;
   font-weight: 700;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   text-align: center;
 }
 
@@ -190,8 +199,9 @@ h1 {
 
 .btn-primary {
   width: 100%;
+  min-height: 42px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   font-weight: 600;
   padding: 10px;
 }

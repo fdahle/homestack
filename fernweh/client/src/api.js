@@ -10,9 +10,27 @@ function wait(ms, signal) {
   })
 }
 
+// Behind the server's login (Authelia), an expired login doesn't answer the API with a 401:
+// nginx redirects the request to the login portal, which fetch can't follow (another origin).
+// The API itself never redirects, so a redirect means exactly that, and reloading the page lets
+// nginx send the whole page to the portal, which comes back here after the login. At most once
+// a minute, so a broken setup can't reload forever. (Like the homestack kit's kit/api.js.)
+function proxyLoginExpired() {
+  try {
+    const last = Number(sessionStorage.getItem('proxyLoginReload') || 0)
+    if (Date.now() - last < 60_000) return
+    sessionStorage.setItem('proxyLoginReload', String(Date.now()))
+  } catch { /* no sessionStorage: reload anyway */ }
+  window.location.reload()
+}
+
 export async function apiFetch(url, { retryRateLimit = false, onRetry, ...options } = {}) {
   for (;;) {
-    const response = await fetch(url, options)
+    const response = await fetch(url, { redirect: 'manual', ...options })
+    if (response.type === 'opaqueredirect') {
+      proxyLoginExpired()
+      throw new Error('Your sign-in has expired. Reload the page to sign in again.')
+    }
     if (response.status === 429 && retryRateLimit) {
       const header = response.headers.get('Retry-After')
       const delay = Math.max(1000, (Number(header) || 0) * 1000 || Date.parse(header) - Date.now() || 60000)

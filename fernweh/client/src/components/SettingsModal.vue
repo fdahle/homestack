@@ -51,14 +51,17 @@
 
         <!-- ── Appearance ── -->
         <template v-if="tab === 'appearance'">
-          <div class="setting-row">
-            <div class="setting-info">
-              <span id="settings-dark-label" class="setting-name">Dark mode</span>
-              <span class="setting-desc">Switch between light and dark theme</span>
-            </div>
-            <button class="toggle" :class="{ on: isDark }" aria-labelledby="settings-dark-label" :aria-pressed="isDark" @click="toggleDark" type="button">
-              <span class="knob" />
-            </button>
+          <div id="settings-theme-label" class="group-label">Theme</div>
+          <div class="segment" role="group" aria-labelledby="settings-theme-label">
+            <button
+              v-for="t in THEMES"
+              :key="t.key"
+              type="button"
+              class="seg-btn"
+              :class="{ active: theme === t.key }"
+              :aria-pressed="theme === t.key"
+              @click="setTheme(t.key)"
+            >{{ t.label }}</button>
           </div>
 
           <div class="setting-row" style="margin-top:16px">
@@ -154,7 +157,11 @@
         </template>
 
         <!-- ── Account ── -->
-        <template v-if="tab === 'account'">
+        <template v-if="tab === 'account' && authStore.viaProxy">
+          <div class="group-label">Sign-in</div>
+          <p class="hint">You’re signed in through the server’s login. Passwords and signing out are handled there.</p>
+        </template>
+        <template v-else-if="tab === 'account'">
           <form @submit.prevent="doChangePassword">
             <div class="group-label">Change password</div>
             <p class="hint">Update your login password. You'll need your current password to confirm.</p>
@@ -198,6 +205,38 @@
 
         <!-- ── Data ── -->
         <template v-if="tab === 'data'">
+
+          <!-- Friends from Bande (only when the server has the link set up) -->
+          <div v-if="bande.enabled.value" class="data-group bande-group">
+            <div class="group-label">Friends from Bande</div>
+            <p class="hint">
+              Friends with an address in Bande become persons here, their address a pin in the collection “Freunde”.
+              Runs every {{ bande.status.value.every_hours }} hours. A pin you move stays put until the address changes in Bande; nothing is deleted here when a friend leaves Bande.
+            </p>
+            <div class="bande-row">
+              <button type="button" class="btn-secondary" :disabled="bande.syncing.value" @click="bande.syncNow()">
+                {{ bande.syncing.value ? 'Syncing…' : 'Sync now' }}
+              </button>
+              <span v-if="bandeLast" class="bande-when">Last sync {{ bandeWhen }}</span>
+              <span v-else-if="!bande.syncing.value" class="bande-when">Not synced yet</span>
+            </div>
+            <p v-if="bande.syncError.value" class="msg error">{{ bande.syncError.value }}</p>
+            <template v-if="bandeLast">
+              <ul class="bande-counts">
+                <li v-for="c in bandeCounts" :key="c.label" :class="{ zero: !c.n }"><strong>{{ c.n }}</strong> {{ c.label }}</li>
+              </ul>
+              <p v-if="bandeLast.gone.length" class="msg warn">
+                No longer in Bande (kept here, no longer linked): {{ bandeLast.gone.join(', ') }}
+              </p>
+              <div v-if="bandeLast.not_found.length" class="msg warn">
+                Addresses not found, so no pin:
+                <ul><li v-for="f in bandeLast.not_found" :key="f.name">{{ f.name }} — {{ f.address }}</li></ul>
+              </div>
+              <div v-if="bandeLast.errors.length" class="msg error">
+                <ul><li v-for="(e, i) in bandeLast.errors" :key="i">{{ e }}</li></ul>
+              </div>
+            </template>
+          </div>
 
           <!-- Review markers table -->
           <div class="data-group">
@@ -305,7 +344,7 @@
       </div>
 
       <div class="modal-footer">
-        <button v-if="tab === 'account'" type="button" class="btn-logout" @click="logout">Sign out</button>
+        <button v-if="tab === 'account' && !authStore.viaProxy" type="button" class="btn-logout" @click="logout">Sign out</button>
         <div class="spacer" />
         <button type="button" class="btn-secondary" @click="requestClose">Done</button>
       </div>
@@ -314,7 +353,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { loadSettings, saveSettings } from '../utils/settings.js'
 import { TILES, validTileKey } from '../utils/mapStyle.js'
 import { useRouter } from 'vue-router'
@@ -328,6 +367,7 @@ import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useStyleStore } from '../stores/style.js'
 import { useDialog } from '../composables/useDialog.js'
+import { useBande } from '../composables/useBande.js'
 
 const TILE_OPTIONS = Object.entries(TILES).map(([key, tile]) => ({ key, ...tile }))
 
@@ -368,6 +408,7 @@ const gpsLoading = ref(false)
 const gpsError   = ref('')
 
 onMounted(() => {
+  bande.load()
   try {
     const s = loadSettings()
     form.value              = { lat: s.lat ?? 20, lng: s.lng ?? 0, zoom: s.zoom ?? 2 }
@@ -418,15 +459,38 @@ watch(form, (val) => {
 // ── Appearance ────────────────────────────────────────────
 const tileKey = ref('osm')
 const cluster = ref(true)
-const isDark  = ref(document.documentElement.getAttribute('data-theme') === 'dark')
+// Follows the system unless one is picked (main.js applies it at start)
+const THEMES = [{ key: 'auto', label: 'Automatic' }, { key: 'light', label: 'Light' }, { key: 'dark', label: 'Dark' }]
+const theme = ref(document.documentElement.getAttribute('data-theme') || 'auto')
 
-function toggleDark() {
-  isDark.value = !isDark.value
-  isDark.value
-    ? document.documentElement.setAttribute('data-theme', 'dark')
-    : document.documentElement.removeAttribute('data-theme')
-  try { const s = loadSettings(); s.theme = isDark.value ? 'dark' : 'light'; saveSettings(s) } catch {}
+function setTheme(key) {
+  theme.value = key
+  if (key === 'auto') document.documentElement.removeAttribute('data-theme')
+  else document.documentElement.setAttribute('data-theme', key)
+  try { const s = loadSettings(); s.theme = key; saveSettings(s) } catch {}
 }
+
+// ── Bande ─────────────────────────────────────────────────
+const bande = useBande()
+const bandeLast = computed(() => bande.last.value)
+const bandeWhen = computed(() => {
+  const at = bandeLast.value?.finished_at
+  return at ? new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''
+})
+const bandeCounts = computed(() => {
+  const l = bandeLast.value
+  if (!l) return []
+  return [
+    { n: l.added.length, label: 'added' },
+    { n: l.linked.length, label: 'linked' },
+    { n: l.moved.length, label: 'moved' },
+    { n: l.renamed.length, label: 'renamed' },
+    { n: l.unchanged, label: 'unchanged' },
+    { n: l.gone.length, label: 'gone' },
+    { n: l.not_found.length, label: 'not found' },
+    { n: l.errors.length, label: l.errors.length === 1 ? 'error' : 'errors' },
+  ]
+})
 
 function setTile(key) {
   tileKey.value = key
@@ -551,7 +615,7 @@ function leaveFor(event) {
 
 .modal {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 400px;
   max-width: calc(100vw - 32px);
@@ -681,7 +745,7 @@ h2 { font-size: 16px; font-weight: 700; }
   flex-shrink: 0;
 }
 
-.btn-primary    { background: var(--accent); color: #fff; font-weight: 600; }
+.btn-primary    { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: default; }
 .btn-secondary  { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
@@ -708,7 +772,7 @@ h2 { font-size: 16px; font-weight: 700; }
 .toggle {
   width: 44px;
   height: 24px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--border);
   border: none;
   padding: 3px;
@@ -792,7 +856,7 @@ h2 { font-size: 16px; font-weight: 700; }
 }
 .seg-btn:last-child { border-right: none; }
 .seg-btn:hover { background: var(--surface-2); color: var(--text); }
-.seg-btn.active { background: var(--accent); color: #fff; }
+.seg-btn.active { background: var(--accent); color: var(--accent-text); }
 
 /* ── Advanced: POI exclusions ── */
 .poi-section {
@@ -814,7 +878,7 @@ h2 { font-size: 16px; font-weight: 700; }
   gap: 4px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 2px 6px 2px 9px;
   font-size: 12px;
   font-family: monospace;
@@ -849,7 +913,7 @@ h2 { font-size: 16px; font-weight: 700; }
   color: var(--danger);
   border: 1px solid var(--danger);
   background: none;
-  border-radius: var(--radius);
+  border-radius: 999px;
 }
 .btn-logout:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 
@@ -860,6 +924,14 @@ h2 { font-size: 16px; font-weight: 700; }
   margin-bottom: 24px;
 }
 .data-group:last-child { margin-bottom: 0; }
+
+.bande-group { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.bande-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bande-when { font-size: 12px; color: var(--text-2); }
+.bande-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; margin: 12px 0 0; font-size: 12.5px; color: var(--text); }
+.bande-counts li.zero { color: var(--text-2); }
+.bande-group .msg { margin: 10px 0 0; }
+.bande-group .msg ul { margin: 4px 0 0 18px; }
 
 .hint {
   font-size: 12px;
@@ -898,14 +970,14 @@ h2 { font-size: 16px; font-weight: 700; }
   border-radius: var(--radius);
 }
 .msg.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.msg.ok    { color: #16a34a;        background: color-mix(in srgb, #16a34a 10%, transparent); }
-.msg.warn  { color: #b45309;        background: color-mix(in srgb, #b45309 10%, transparent); }
+.msg.ok    { color: var(--ok);   background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.msg.warn  { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
 
 .btn-danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--surface);
   border: none;
-  border-radius: var(--radius);
+  border-radius: 999px;
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 500;

@@ -203,7 +203,7 @@ function coords(m) { return `(${m.lat.toFixed(4)}, ${m.lng.toFixed(4)})` }
 
 .modal {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 380px;
   max-width: calc(100vw - 32px);
@@ -368,7 +368,7 @@ h2 { font-size: 15px; font-weight: 700; }
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .mode-pill:hover { background: var(--border); color: var(--text); }
-.mode-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.mode-pill.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 
 .error { color: var(--danger); font-size: 13px; margin: 0 20px 8px; }
 
@@ -383,7 +383,7 @@ h2 { font-size: 15px; font-weight: 700; }
 
 .spacer { flex: 1; }
 
-.btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
+.btn-primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 

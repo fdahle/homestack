@@ -223,6 +223,9 @@
                 >{{ opt.label }}</button>
               </div>
             </div>
+            <a v-if="detailBandeUrl" class="icon-btn bande-btn" :href="detailBandeUrl" target="_blank" rel="noopener" title="Open in Bande" aria-label="Open in Bande">
+              <AppIcon name="externalLink" />
+            </a>
             <button v-if="!props.readOnly && detailGroup?.item" class="icon-btn" @click="editDetailGroup" title="Edit" aria-label="Edit">
               <AppIcon name="edit" />
             </button>
@@ -337,6 +340,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { COLOR_MODES, markerColors } from '../utils/mapStyle.js'
 import AppIcon from './AppIcon.vue'
+import { bandeFriendUrl } from '../composables/useBande.js'
 import { useMarkersStore } from '../stores/markers.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -421,6 +425,8 @@ const detailGroup = computed(() => {
   if (!item) return null   // item was deleted
   return { type, id, name: item.name, color: item.color, item }
 })
+
+const detailBandeUrl = computed(() => !props.readOnly && detailGroup.value?.type === 'person' ? bandeFriendUrl(detailGroup.value.item) : null)
 
 function drillInto(group) {
   detailFilter.value = { type: group.type, id: group.id }
@@ -968,7 +974,7 @@ function formatDateRange(item) {
 }
 .seg-btn:last-child { border-right: none; }
 .seg-btn:hover { background: var(--surface-2); color: var(--text); }
-.seg-btn.active { background: var(--accent); color: #fff; }
+.seg-btn.active { background: var(--accent); color: var(--accent-text); }
 
 /* ── Detail header extras ────────────────────────────────────────────────── */
 .detail-title {
