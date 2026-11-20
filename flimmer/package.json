@@ -1,0 +1,28 @@
+{
+  "name": "flimmer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted log of films and series, kept apart: watchlist, what you watched, episodes and what's next",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/server.js",
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server/server.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "test": "node --test \"server/*.test.js\" \"server/kit/*.test.js\"",
+    "icons": "node scripts/make-icons.js",
+    "import:watcharr": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/import-watcharr.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "vite": "^8.3.5",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  }
+}

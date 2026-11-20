@@ -1,0 +1,25 @@
+services:
+  flimmer:
+    build: .
+    container_name: flimmer
+    restart: unless-stopped
+    # Only reachable through nginx on the same machine (see deploy/)
+    ports:
+      - "127.0.0.1:${PORT:-3071}:3000"
+    # A small init as PID 1, so `docker stop` shuts the server down cleanly
+    init: true
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      TMDB_TOKEN: ${TMDB_TOKEN:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      TMDB_LANGUAGE: ${TMDB_LANGUAGE:-de-DE}
+      WATCH_REGION: ${WATCH_REGION:-DE}
+      # Set to log in through Authelia instead of the own account (design/README.md)
+      AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - flimmer-data:/data
+
+volumes:
+  flimmer-data:
