@@ -13,7 +13,7 @@ node design/sync.mjs --check   # does every app match the kit?
 | `server/` | `<app>/server/kit/` | `users.js` (accounts table), `auth.js` (login: own accounts or a login proxy), `http.js` (Express setup, `/healthz`, account routes, frontend, errors), `errors.js`, `auth.test.js` |
 | `scripts/` | `<app>/scripts/kit/` | `icons.js`: draws the app icon (white symbol on a rounded square in the app's colour) |
 
-Apps using it: Checkpoint, Flimmer, Regal (the list is at the top of `sync.mjs`). Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
+Apps using it: Checkpoint, Flimmer, Regal, Bande, and Fernweh for its colours, icon and login (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node design/sync.mjs bande` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
 
 ## Phone and computer
 
@@ -95,5 +95,6 @@ The app then trusts `Remote-User` only together with that secret, creates an acc
 | Stapel | pile of comics | blue `#2f5fa8` |
 | Flimmer | film frame with a play button | teal `#14787a` |
 | Regal | books on a shelf | forest green `#3d7a3a` |
+| Fernweh | map pin | plum `#7b3fa0` |
 
-Bande and Stapel already follow the same style but don't use the kit yet.
+Stapel already follows the same style but doesn't use the kit yet.

@@ -65,7 +65,7 @@ const counts = (c) => t('settings.importCounts', { added: formatNumber(c.added),
 </script>
 
 <template>
-  <TopBar :title="t('nav.settings')" :back="PATHS[lastMode].library" />
+  <TopBar :title="t('nav.settings')" sidebar-page :back="PATHS[lastMode].library" />
   <main>
     <AccountCards>
       <section class="card form">

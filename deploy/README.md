@@ -67,7 +67,7 @@ Authelia's session cookie is set for `fdahle.de`, so it covers every subdomain: 
 2. `install -m 644 deploy/nginx/homestack-authelia.conf /etc/nginx/snippets/` (next to Authelia's own `authelia-location.conf` and `authelia-authrequest.conf`, which Stammbaum already uses).
 3. `install -d -m 750 -o root -g www-data /etc/nginx/homestack-secrets`
 
-**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal):
+**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal, Bande) or follows it (Fernweh, conf `fernweh/deploy/places.fdahle.de.conf`), shown for Checkpoint:
 
 ```sh
 secret=$(openssl rand -hex 32)
@@ -79,13 +79,38 @@ nginx -t && systemctl reload nginx
 cd /srv/docker/homestack/checkpoint && docker compose up -d
 ```
 
-The app then has no login page of its own: it takes the user from Authelia and makes an account for them the first time. Checkpoint, Flimmer and Regal are for one person and their lists don't belong to an account, so nothing is lost when you switch; only the language setting starts again at German. When the Authelia login runs out, the app reloads itself and lands on Authelia's login page.
+The app then has no login page of its own: it takes the user from Authelia and makes an account for them the first time. The apps are for one person and their data doesn't belong to an account, so nothing is lost when you switch; only the language setting starts again at German. Fernweh simply treats whoever Authelia lets in as its one user. When the Authelia login runs out, the app reloads itself and lands on Authelia's login page.
 
 **Where each app stands:**
 
 | App | Behind Authelia |
 |---|---|
-| Checkpoint, Flimmer, Regal | Ready: only Authelia's login (steps above) |
+| Checkpoint, Flimmer, Regal, Bande, Fernweh | Ready: only Authelia's login (steps above) |
 | Stammbaum | Already, with its own `STAMMBAUM_PROXY_SECRET` |
-| Bande, Stapel, Backlog, Fernweh | Possible now, but they still ask for their own password once per device afterwards (their sessions last 400 days). Gone once they move to the design kit |
+| Stapel, Backlog | Possible now, but they still ask for their own password once per device afterwards (their sessions last 400 days). Gone once they move to the design kit |
 | Zettel | Authelia in front for the second factor; Zettel keeps its own login on purpose, since that unlocks your notes database and encryption key |
+
+## Apps that talk to each other
+
+Some apps fetch data from each other directly, container to container, never through nginx or Authelia. They meet on a shared Docker network, made once:
+
+```sh
+docker network create homestack
+```
+
+Each app that takes part joins it in its `docker-compose.override.yml` (next to its `docker-compose.yml`, ignored by git):
+
+```yaml
+services:
+  bande:              # the service name from the app's docker-compose.yml (Fernweh's is `app`)
+    networks: [default, homestack]
+networks:
+  homestack:
+    external: true
+```
+
+The apps then reach each other by container name, e.g. `http://bande:3000`. Each link has its own secret token on both sides.
+
+| Link | Settings |
+|---|---|
+| Fernweh places your friends' addresses from Bande on the map (collection "Freunde"); "Auf der Karte" in Bande, "Open in Bande" in Fernweh | Bande: `LINK_TOKEN`, `FERNWEH_URL=https://places.fdahle.de`. Fernweh: `BANDE_URL=http://bande:3000`, `BANDE_LINK_TOKEN` (the same token), `BANDE_PUBLIC_URL=https://friends.fdahle.de` |

@@ -6,8 +6,8 @@
 //   node design/sync.mjs --check   only report apps whose copy differs (exit code 1)
 //   node design/sync.mjs checkpoint   only these apps
 //
-// design/web     → <app>/web/src/kit
-// design/server  → <app>/server/kit
+// design/web     → <app>/web/src/kit   (Fernweh: client/src/kit)
+// design/server  → <app>/server/kit    (Fernweh: api/kit)
 // design/scripts → <app>/scripts/kit
 //
 // The copies are committed. Change the kit here, run this, commit both.
@@ -16,12 +16,15 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const APPS = ['checkpoint', 'flimmer', 'regal'];
-const PARTS = [
-  ['web', 'web/src/kit'],
-  ['server', 'server/kit'],
-  ['scripts', 'scripts/kit'],
-];
+// Where each part of the kit goes; Fernweh keeps its own layout (client/, api/)
+const LAYOUT = { web: 'web/src/kit', server: 'server/kit', scripts: 'scripts/kit' };
+const APPS = {
+  checkpoint: LAYOUT,
+  flimmer: LAYOUT,
+  regal: LAYOUT,
+  bande: LAYOUT,
+  fernweh: { web: 'client/src/kit', server: 'api/kit', scripts: 'scripts/kit' },
+};
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = dirname(here);
@@ -49,12 +52,12 @@ function withHeader(source, text) {
 }
 
 let differences = 0;
-for (const app of only.length ? APPS.filter((a) => only.includes(a)) : APPS) {
+for (const app of Object.keys(APPS).filter((a) => !only.length || only.includes(a))) {
   if (!existsSync(join(root, app))) {
     console.log(`${app}: not there, skipped`);
     continue;
   }
-  for (const [from, to] of PARTS) {
+  for (const [from, to] of Object.entries(APPS[app])) {
     const srcDir = join(here, from);
     const destDir = join(root, app, to);
     const wanted = new Map();

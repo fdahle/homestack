@@ -18,7 +18,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <TopBar :title="t('nav.settings')" back="/" />
+  <TopBar :title="t('nav.settings')" sidebar-page back="/" />
   <main>
     <AccountCards>
       <section class="card form">
