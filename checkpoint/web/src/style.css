@@ -1,0 +1,103 @@
+/* Checkpoint on top of the homestack kit (kit/tokens.css, kit/base.css): its colours,
+   its statuses and the pages only it has. */
+
+:root {
+  --bg: #f3f2f8;
+  --surface: #fdfcff;
+  --text: #1d1b26;
+  --muted: #6e6a7c;
+  --line: #e2e0ec;
+  --accent: #5448c8;
+  --accent-text: #ffffff;
+  --accent-soft: #e6e3fa;
+  --bar: #7a6fe0;
+  /* Game covers are 3:4 */
+  --cover-ratio: 3 / 4;
+  /* Statuses: icon color and a soft background */
+  --s-playing: #2f6fd0;
+  --s-playing-soft: #e0eafa;
+  --s-finished: #2e7d4f;
+  --s-finished-soft: #dcefe3;
+  --s-completed: #a86b00;
+  --s-completed-soft: #f8ead0;
+  --s-dropped: #8a5a55;
+  --s-dropped-soft: #efe4e2;
+  --s-backlog: #5448c8;
+  --s-backlog-soft: #e6e3fa;
+  --s-wishlist: #c0397a;
+  --s-wishlist-soft: #f8e0ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16151c;
+    --surface: #201f28;
+    --text: #ebe9f3;
+    --muted: #a19db0;
+    --line: #34323f;
+    --accent: #a99eff;
+    --accent-text: #17122e;
+    --accent-soft: #2e2a4d;
+    --bar: #8f84f0;
+    --s-playing: #82aef0;
+    --s-playing-soft: #1f2d46;
+    --s-finished: #6cc48d;
+    --s-finished-soft: #1f3a2a;
+    --s-completed: #f0c060;
+    --s-completed-soft: #42341a;
+    --s-dropped: #c9a39e;
+    --s-dropped-soft: #3a2c2a;
+    --s-backlog: #a99eff;
+    --s-backlog-soft: #2e2a4d;
+    --s-wishlist: #f08cbc;
+    --s-wishlist-soft: #43233a;
+  }
+}
+
+.st-playing { --st: var(--s-playing); --st-soft: var(--s-playing-soft); }
+.st-finished { --st: var(--s-finished); --st-soft: var(--s-finished-soft); }
+.st-completed { --st: var(--s-completed); --st-soft: var(--s-completed-soft); }
+.st-dropped { --st: var(--s-dropped); --st-soft: var(--s-dropped-soft); }
+.st-backlog { --st: var(--s-backlog); --st-soft: var(--s-backlog-soft); }
+.st-wishlist { --st: var(--s-wishlist); --st-soft: var(--s-wishlist-soft); }
+
+/* --- game page --- */
+
+/* Six statuses: one row, or two of three where it is narrow */
+.status-picker { --n: 6; }
+.split-detail .status-picker { --n: 3; }
+
+.hours { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
+.hours .icon { width: 17px; height: 17px; }
+.manual { margin-top: 16px; }
+
+/* --- up next --- */
+
+.filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.playing-note { margin-bottom: 14px; }
+.playing-note a { font-weight: 600; }
+.pick { display: flex; gap: 18px; align-items: flex-start; padding: 18px; transition: opacity 0.25s, transform 0.25s; }
+.pick.rolling { opacity: 0.4; transform: scale(0.98); }
+.pick-cover { flex: 0 0 150px; }
+.pick-cover .cover { box-shadow: 0 4px 18px rgb(0 0 0 / 0.15); }
+.pick-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pick-body h2 { margin: 0; font-size: 1.4rem; }
+.pick-body h2 a { color: var(--text); }
+.pick-body p { margin: 0; }
+.pick-body .row-buttons { margin-top: 8px; }
+
+/* --- stats --- */
+
+.backlog-note { display: flex; align-items: center; gap: 6px; }
+.backlog-note .icon { width: 16px; height: 16px; flex: none; }
+
+@media (max-width: 560px) {
+  .status-picker { --n: 3; }
+  .pick { flex-direction: column; align-items: stretch; }
+  .pick-cover { flex: none; width: 160px; align-self: center; }
+}
+
+@media (min-width: 1024px) {
+  .pick-cover { flex-basis: 200px; }
+  .pick-body h2 { font-size: 1.7rem; }
+}

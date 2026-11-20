@@ -8,6 +8,7 @@ The newer apps share a look and some code through the [design kit](design/): one
 |---|---|
 | [backlog/](backlog/) | Tracks which blog posts you have read |
 | [bande/](bande/) | Friends: who they are, what you did together, what you have planned; WhatsApp import, reminders, calendar feed |
+| [checkpoint/](checkpoint/) | Games you play: playing, finished, dropped, backlog; ratings, stats and a pick for what to play next |
 | [fernweh/](fernweh/) | Map bookmarks: save places, sort them into collections, plan trips, share views |
 | [stammbaum/](stammbaum/) | A pocket who-is-who for family gatherings |
 | [stapel/](stapel/) | Tracks a comic collection: owned, read, missing |
@@ -24,6 +25,7 @@ Each app has its own port, so all of them can run side by side on one machine, i
 | backlog | 3066 | 3066 | – |
 | stapel | 3067 | 3067 | 5167 |
 | bande | 3068 | 3068 | 5168 |
+| checkpoint | 3069 | 3069 | 5169 |
 | zettel | 3070 (CouchDB 5984) | 3070 | 5170 |
 
 `PORT` in an app's `.env` overrides its Docker port.
