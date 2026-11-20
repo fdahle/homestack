@@ -26,7 +26,7 @@ access_control:
       policy: bypass
 
     # Fernweh's shared map views are for people without an account (the link is the key).
-    - domain: map.fdahle.de                             # yours
+    - domain: places.fdahle.de
       resources: ['^/share/', '^/api/public/share', '^/assets/']
       policy: bypass
 
@@ -39,7 +39,7 @@ access_control:
         - comics.fdahle.de
         - read.fdahle.de
         - friends.fdahle.de
-        - map.fdahle.de                                 # yours
+        - places.fdahle.de
         - notes.fdahle.de                               # yours
         - stammbaum.fdahle.de                           # yours
       resources: ['^/(manifest\.webmanifest|icon[^/]*\.(png|svg)|favicon\.ico|sw\.js)$']
@@ -51,7 +51,7 @@ access_control:
     - domain:
         - notes.fdahle.de                               # yours
         - friends.fdahle.de
-        - map.fdahle.de                                 # yours
+        - places.fdahle.de
       subject: 'group:me'
       policy: two_factor
 
