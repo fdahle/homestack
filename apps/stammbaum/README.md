@@ -22,7 +22,7 @@ enhancement. Three screens, one markdown file:
   or a link to the rest of the family, each with the line to edit. Something
   to ask about at the next gathering.
 
-On the hosted version, the menu shows the page on screen as a **QR code**: the
+On the hosted version, the settings page shows the page one came from as a **QR code**: the
 person you are talking to scans it and has the same relationship, tree or
 person on their own phone. The encoder is part of the app — no library, no
 network — and the single file mailed around leaves the entry out, since a
@@ -31,8 +31,8 @@ network — and the single file mailed around leaves the entry out, since a
 Everyone is captioned with what they are to whoever is looking — *Tante*,
 *Cousine 2. Grades* — and search finds people by name, place, job, year of
 birth or by that relation ("tante", "cousin"); "mueller" and "strasse" find
-*Müller* and *Straße*. The app speaks German and English; the menu switches
-between them. The menu also saves the tree on screen as a PNG or SVG, with the
+*Müller* and *Straße*. The app speaks German and English; the settings switch
+between them. They also save the tree last on screen as a PNG or SVG, with the
 family's name on top and always in light colours — for a poster, or to send
 around.
 
@@ -103,7 +103,7 @@ Behind the login, every card has a pen in its corner: the person's details as a 
 — dates as day, month and year, where the year alone is enough — then their
 parents, partners and children, each with what can be done about them, and
 **+ Elternteil**, **+ Partner/in**, **+ Kind**, **+ Geschwister** to add someone
-new or someone already in the tree. The menu adds people connected to nobody yet. A
+new or someone already in the tree. The settings page adds people connected to nobody yet. A
 partnership is edited from its row: married or together, since when, and
 whether and when it ended.
 
@@ -139,7 +139,7 @@ SVG is not taken, since it could carry script. Uploads are logged in
 `changes.log` like edits; the proxy in front has to let bodies of a few
 megabytes through (`client_max_body_size` in [`deploy/`](deploy/)).
 
-The menu's **Die Datei family.md** shows the file as it is, line by line, to
+The settings page's **Die Datei family.md** shows the file as it is, line by line, to
 download or copy — and **Datei ordnen** puts it in order: a section per
 generation, each household together (the couple, then the line about them),
 person lines aligned, a bare `married=?` dropped since `a + b` says the same,
@@ -340,14 +340,14 @@ line.
 
 ## Language
 
-The menu switches between **Deutsch** and **English**; the first visit follows
+The settings page switches between **Deutsch** and **English**; the first visit follows
 the browser's language. Everything the app says is translated, the relation
 words included. What the family file says — names, notes, places, jobs — is
 shown as written.
 
 ## Appearance
 
-The menu switches between **Automatisch**, **Hell** and **Dunkel**, and the
+The settings page switches between **Automatisch**, **Hell** and **Dunkel**, and the
 choice is remembered. "Automatisch" follows the phone's own light/dark setting and
 switches with it; the two explicit modes override it. The phone's status bar
 colour follows along.
@@ -372,7 +372,7 @@ second palette existing anywhere.
 
 ## How it is built
 
-Vite + TypeScript, styled on the homestack [design kit](../../kit/README.md): its palette
+Vite + TypeScript + Vue, styled on the homestack [design kit](../../kit/README.md): its palette
 and light/dark switch (`src/kit`, copied by `node kit/sync.mjs`), plus `src/styles/base.css`
 and `src/styles/app.css`. Until 2026-11 the styling was Tailwind CSS 4 and daisyUI 5; the
 few daisyUI components the code uses are now drawn in base.css. The offline file still
@@ -383,14 +383,24 @@ the parser and the writer with the app.
 The overview is one SVG with a transform for pan and zoom, driven by Pointer
 Events so mouse, trackpad, pen and touch all take the same code path. The person
 view is HTML with connectors drawn into an SVG overlay after layout, so it
-reflows correctly from a 390 px phone up. The few shared pieces (buttons, badges, dialogs, the menu) are in base.css; the tree and
+reflows correctly from a 390 px phone up. The few shared pieces (buttons, badges, dialogs) are in base.css; the tree and
 the person view keep their own component classes in app.css.
+
+The frame is Vue, like the other homestack apps: tabs at the bottom on a phone (Baum,
+Geburtstage, Zahlen) and a sidebar on a computer, the bar with search and who is looking
+above the page, and a settings page (`src/app/`). The addresses stay hash routes (`#/p/klaus`),
+so links, QR codes and the offline file keep working without a server. The pages themselves
+(the trees, a person, birthdays, numbers) are still drawn by `src/views/*.ts`, into `<main>`,
+whenever the address or the family changes; they can move into Vue components one at a time.
 
 ```
 data/                   your family and its history/ — ignored here
 sample/family.md        the made-up sample family, and the format in prose
 sample/photos/          its placeholder portraits
 src/parser/             markdown → { people, unions, warnings }, and back: write.ts
+src/main.ts             loads the family, then starts the app
+src/app/                the frame (App.vue, AppBar.vue, SettingsPage.vue) and store.ts:
+                        the family, who is looking, routes, saving, live updates
 src/source/             where the family comes from: the server, or built in
 src/edit/               the editor: forms, and what they turn into
 server/                 the app's server: api/family, api/edits, api/photos, photos/, history
@@ -415,6 +425,7 @@ src/views/stats.ts      the numbers as tiles
 src/views/missing.ts    the checklist for whoever keeps the file
 src/styles/base.css     the kit palette under daisyUI's old names, buttons, badges, dialogs
 src/styles/app.css      every component rule
+src/styles/shell.css    the tabs and the sidebar, as in the kit
 src/kit/                the homestack design kit (a copy; kit/sync.mjs)
 tests/                  parser, writer, server, family, kinship, age, calendar, stats, gaps, QR and layout (vitest)
 ```

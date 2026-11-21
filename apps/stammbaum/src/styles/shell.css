@@ -1,0 +1,166 @@
+/*
+ * The frame every homestack app has (kit/web/base.css, "navigation"): tabs at the bottom on
+ * a phone, a sidebar from 1024px on. The kit's base.css itself isn't loaded: its .btn, .card,
+ * .hint and the like would change Stammbaum's own pages. Unlike in the other apps the frame
+ * is one screen high, so the tree fills exactly what is left: the tabs take their place in
+ * the column instead of lying over the page.
+ */
+
+@layer components {
+  .frame {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    background: var(--color-base-200);
+  }
+
+  .frame > .app-shell {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  .app-nav {
+    order: 1;
+    display: flex;
+    flex: none;
+    justify-content: space-around;
+    height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+
+  .app-nav a {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    max-width: 120px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    text-decoration: none;
+  }
+
+  .app-nav a.active {
+    color: var(--accent);
+  }
+
+  .app-nav .icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .app-nav .brand,
+  .app-nav .nav-extra,
+  .app-nav .nav-spacer {
+    display: none;
+  }
+
+  .viewer-bubble {
+    display: contents;
+  }
+
+  /* Above the tabs, not over them */
+  .toast-note,
+  .frame .warnings {
+    bottom: calc(var(--nav-h) + 20px + env(safe-area-inset-bottom));
+  }
+
+  @media (min-width: 1024px) {
+    .phone-only {
+      display: none !important;
+    }
+
+    .frame {
+      flex-direction: row;
+    }
+
+    .frame > .app-shell {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* The family's name is in the sidebar */
+    .app-shell > .app-bar .brand {
+      display: none;
+    }
+
+    .app-nav {
+      order: 0;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 2px;
+      width: var(--side-w);
+      height: auto;
+      padding: 14px 12px;
+      border-top: 0;
+      border-right: 1px solid var(--line);
+    }
+
+    .app-nav a {
+      flex: none;
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 12px;
+      max-width: none;
+      padding: 9px 12px;
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 550;
+    }
+
+    .app-nav a .icon {
+      color: var(--muted);
+    }
+
+    .app-nav a:hover {
+      background: color-mix(in srgb, var(--line) 55%, transparent);
+    }
+
+    .app-nav a.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .app-nav a.active .icon {
+      color: var(--accent);
+    }
+
+    .app-nav .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 12px 18px;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+
+    .app-nav .brand:hover {
+      background: none;
+    }
+
+    .app-nav .brand .crest .icon {
+      color: var(--accent);
+    }
+
+    .app-nav .nav-spacer {
+      display: block;
+      flex: 1;
+    }
+
+    .app-nav .nav-extra {
+      display: flex;
+    }
+
+    .toast-note,
+    .frame .warnings {
+      left: calc(var(--side-w) + 16px);
+    }
+  }
+}

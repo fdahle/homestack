@@ -15,37 +15,9 @@
     <title>Stammbaum</title>
   </head>
   <body>
-    <div id="app" class="app-shell">
-      <header class="app-bar">
-        <a href="#/" class="btn btn-ghost brand">
-          <span
-            class="crest"
-            id="crest"
-          ></span>
-          <span id="family-title" class="family-title">Stammbaum</span>
-        </a>
-
-        <div class="app-actions"></div>
-
-        <div class="search" role="search">
-          <input
-            id="search"
-            type="search"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Wer ist das?"
-            aria-label="Person suchen"
-            role="combobox"
-            aria-controls="results"
-            aria-autocomplete="list"
-            aria-expanded="false"
-            class="input search-input"
-          />
-          <ul id="results" class="results menu" role="listbox" hidden></ul>
-        </div>
-      </header>
-
-      <main id="view" class="view"></main>
+    <div id="app">
+      <!-- Until the family is loaded; then the app (src/app/App.vue) takes over -->
+      <div class="app-shell"><main id="view" class="view"></main></div>
     </div>
     <!-- What the toasts say, read out by screen readers: one region, its text replaced. -->
     <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
