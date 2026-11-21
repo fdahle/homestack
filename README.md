@@ -1,21 +1,21 @@
 # Apps
 
-Small self-hosted apps I run for myself and my family. Each folder is a separate, self-contained app with its own `package.json`, Dockerfile, `docker-compose.yml` and README, so you can use any one of them on its own.
+Small self-hosted apps I run for myself and my family. Each folder in `apps/` is a separate, self-contained app with its own `package.json`, Dockerfile, `docker-compose.yml` and README, so you can use any one of them on its own. Next to them: `kit/`, the design kit they share, and `deploy/`, how the server runs them.
 
-The newer apps share a look and some code through the [design kit](design/): one set of colours, components, login and icon style, made for the phone and for a computer. The kit is copied into each app that uses it (`node design/sync.mjs`), so every app still builds from its own folder.
+The newer apps share a look and some code through the [design kit](kit/): one set of colours, components, login and icon style, made for the phone and for a computer. The kit is copied into each app that uses it (`node kit/sync.mjs`), so every app still builds from its own folder.
 
 | Folder | App |
 |---|---|
-| [backlog/](backlog/) | Tracks which blog posts you have read |
-| [checkpoint/](checkpoint/) | Games you play: playing, finished, dropped, backlog; ratings, stats and a pick for what to play next |
-| [fernweh/](fernweh/) | Map bookmarks: save places, sort them into collections, plan trips, share views |
-| [flimmer/](flimmer/) | Films and series, kept apart: watchlist, what you watched, episodes, what's next |
-| [haken/](haken/) | Tasks as quick as a note: due dates, repeats, priorities, subtasks, reminders, a calendar feed; works offline |
-| [leute/](leute/) | Friends: who they are, what you did together, what you have planned; events from WhatsApp messages, reminders, calendar feed |
-| [regal/](regal/) | Your books with covers: want to read, reading, read; synced from Calibre |
-| [stammbaum/](stammbaum/) | A pocket who-is-who for family gatherings |
-| [stapel/](stapel/) | Tracks a comic collection: owned, read, missing |
-| [zettel/](zettel/) | Notes that work offline: Markdown with checklists, labels, pictures and files, synced across your devices |
+| [backlog/](apps/backlog/) | Tracks which blog posts you have read |
+| [checkpoint/](apps/checkpoint/) | Games you play: playing, finished, dropped, backlog; ratings, stats and a pick for what to play next |
+| [fernweh/](apps/fernweh/) | Map bookmarks: save places, sort them into collections, plan trips, share views |
+| [leute/](apps/leute/) | Friends: who they are, what you did together, what you have planned; events from WhatsApp messages, reminders, calendar feed |
+| [notizbuch/](apps/notizbuch/) | Notes that work offline: Markdown with checklists, labels, pictures and files, synced across your devices |
+| [regal/](apps/regal/) | Your books with covers: want to read, reading, read; synced from Calibre |
+| [stammbaum/](apps/stammbaum/) | A pocket who-is-who for family gatherings |
+| [stapel/](apps/stapel/) | Tracks a comic collection: owned, read, missing |
+| [todo/](apps/todo/) | To-do: tasks as quick as a note, with due dates, repeats, priorities, subtasks, reminders and a calendar feed; works offline |
+| [watchlist/](apps/watchlist/) | Films and series, kept apart: watchlist, what you watched, episodes, what's next |
 
 ## Ports
 
@@ -29,10 +29,10 @@ Each app has its own port, so all of them can run side by side on one machine, i
 | stapel | 3067 | 3067 | 5167 |
 | leute | 3068 | 3068 | 5168 |
 | checkpoint | 3069 | 3069 | 5169 |
-| zettel | 3070 | 3070 | 5170 |
-| flimmer | 3071 | 3071 | 5171 |
+| notizbuch | 3070 | 3070 | 5170 |
+| watchlist | 3071 | 3071 | 5171 |
 | regal | 3072 | 3072 | 5172 |
-| haken | 3073 | 3073 | 5173 |
+| todo | 3073 | 3073 | 5173 |
 
 `PORT` in an app's `.env` overrides its Docker port.
 
@@ -40,12 +40,12 @@ Each app has its own port, so all of them can run side by side on one machine, i
 
 So that every app runs, deploys and gets maintained the same way:
 
-- **Folders:** `server/` (Express 5, the built-in `node:sqlite`), `web/` (Vue 3 + Vite) with the [design kit](design/) copied into `web/src/kit` and `server/kit`, `scripts/make-icons.js`, `deploy/<domain>.conf` (nginx), `Dockerfile`, `docker-compose.yml`, `.env.example`, `README.md`.
+- **Folders:** `server/` (Express 5, the built-in `node:sqlite`), `web/` (Vue 3 + Vite) with the [design kit](kit/) copied into `web/src/kit` and `server/kit`, `scripts/make-icons.js`, `deploy/<domain>.conf` (nginx), `Dockerfile`, `docker-compose.yml`, `.env.example`, `README.md`.
 - **Commands:** `npm start` (the server, reads `.env`), `npm run dev` (the server with restarts), `npm run dev:web` (Vite with hot reload), `npm run build`, `npm test`, `npm run icons`.
 - **Settings:** `ADMIN_USER` / `ADMIN_PASSWORD` (your account), `AUTH_PROXY_SECRET` (login through Authelia instead), `DATA_DIR` (`/data` in Docker), `PORT` (the table above), `TZ`.
 - **Login and look:** from the kit: one account per person, light/dark/automatic, phone and computer layouts, an icon in the shared style.
 - **Server:** `GET /healthz` answers without a login (Docker's health check); `node:24-alpine`, the server runs as the user `node`, data in the volume `/data`, the port only on `127.0.0.1`.
-- **Offline apps** (Zettel, Haken) keep everything on the device and sync through the kit (`offline.js`, `sync.js`).
+- **Offline apps** (Notizbuch, To-do) keep everything on the device and sync through the kit (`offline.js`, `sync.js`).
 
 Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a password chosen on the first visit), **Stammbaum** (TypeScript and daisyUI, no login of its own: it sits behind Authelia), **Backlog** (pages rendered on the server, no build step).
 
@@ -53,7 +53,7 @@ Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a 
 
 ```sh
 node try.mjs              # which apps there are
-node try.mjs haken        # one app (or several: node try.mjs haken zettel)
+node try.mjs todo         # one app (or several: node try.mjs todo notizbuch)
 node try.mjs all          # all of them
 ```
 

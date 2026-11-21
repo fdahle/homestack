@@ -39,13 +39,13 @@ deployed_any=0
 failed=()
 for app in "${APPS[@]}"; do
     deployed=$(cat "$STATE_DIR/$app.deployed" 2>/dev/null || true)
-    if [ $all = 0 ] && [ -n "$deployed" ] && git_ diff --quiet "$deployed" "$head" -- "$app"; then
+    if [ $all = 0 ] && [ -n "$deployed" ] && git_ diff --quiet "$deployed" "$head" -- "apps/$app"; then
         continue
     fi
     echo "Deploying $app at ${head:0:7}"
     deployed_any=1
     # Build first: if that fails, the running containers stay as they are.
-    if (cd "$REPO/$app" && docker compose build --pull && docker compose up -d --remove-orphans); then
+    if (cd "$REPO/apps/$app" && docker compose build --pull && docker compose up -d --remove-orphans); then
         echo "$head" > "$STATE_DIR/$app.deployed"
     else
         failed+=("$app")

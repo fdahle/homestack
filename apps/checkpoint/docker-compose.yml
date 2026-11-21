@@ -1,0 +1,23 @@
+services:
+  checkpoint:
+    build: .
+    container_name: checkpoint
+    restart: unless-stopped
+    # Only reachable through nginx on the same machine (see deploy/)
+    ports:
+      - "127.0.0.1:${PORT:-3069}:3000"
+    # A small init as PID 1, so `docker stop` shuts the server down cleanly
+    init: true
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      IGDB_CLIENT_ID: ${IGDB_CLIENT_ID:-}
+      IGDB_CLIENT_SECRET: ${IGDB_CLIENT_SECRET:-}
+      # Set to log in through Authelia instead of the own account (kit/README.md)
+      AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - checkpoint-data:/data
+
+volumes:
+  checkpoint-data:

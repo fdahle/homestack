@@ -3,8 +3,8 @@
 // offline service worker and everything), each on its own port.
 //
 //   node try.mjs                 which apps there are
-//   node try.mjs haken           one app
-//   node try.mjs haken zettel    several
+//   node try.mjs todo            one app
+//   node try.mjs todo notizbuch  several
 //   node try.mjs all             all of them
 //
 // The first time, an app gets its packages and, if it has no .env yet, a local one with the
@@ -36,8 +36,7 @@ const APPS = {
     env: () => ({ SESSION_SECRET: randomBytes(32).toString('hex') }),
     noAccount: 'choose a password on the first visit',
   },
-  flimmer: KIT(3071),
-  haken: KIT(3073),
+  todo: KIT(3073),
   leute: KIT(3068),
   regal: KIT(3072),
   stammbaum: {
@@ -50,14 +49,15 @@ const APPS = {
     },
     noAccount: 'no login locally (on the server it sits behind Authelia)',
   },
+  notizbuch: KIT(3070),
   stapel: KIT(3067),
-  zettel: KIT(3070),
+  watchlist: KIT(3071),
 };
 
 const names = process.argv.slice(2);
 if (!names.length) {
   console.log('node try.mjs <app> [<app> …] | all\n');
-  for (const [name, app] of Object.entries(APPS)) console.log(`  ${name.padEnd(11)} http://localhost:${app.port}`);
+  for (const [name, app] of Object.entries(APPS).sort()) console.log(`  ${name.padEnd(11)} http://localhost:${app.port}`);
   process.exit(0);
 }
 const chosen = names.includes('all') ? Object.keys(APPS) : names;
@@ -88,7 +88,7 @@ const summary = [];
 
 for (const name of chosen) {
   const app = APPS[name];
-  const dir = join(root, name);
+  const dir = join(root, 'apps', name);
   console.log(`\n=== ${name}`);
 
   for (const sub of app.install || ['.']) {

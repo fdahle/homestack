@@ -12,7 +12,7 @@ One checkout for all apps, owned by a normal user (git runs as that user, docker
 git clone https://github.com/fdahle/homestack.git /srv/docker/homestack
 ```
 
-Next to each app you run, put what belongs to your server only. Git ignores all of it:
+In each app's folder (`apps/<app>/`), put what belongs to your server only. Git ignores all of it:
 
 - `.env`: the app's settings (see its `.env.example`). If the app ran before from a folder with another name, add `COMPOSE_PROJECT_NAME=<old folder name>` so Docker keeps using the same volumes and container names.
 - `docker-compose.override.yml`: changes to the app's `docker-compose.yml` for your server (limits, volumes, ports). Compose reads it on its own.
@@ -51,6 +51,19 @@ Make a key pair just for this (`ssh-keygen -t ed25519 -N '' -f deploy-key`). The
 | `DEPLOY_HOST` | the server's address |
 | `DEPLOY_PORT` | its SSH port |
 
+## Once: the apps moved into apps/
+
+The apps used to sit at the top of the repository; now they're in `apps/`, the design kit is `kit/`, and Flimmer, Zettel and Haken are called Watchlist, Notizbuch and To-do. After the push with that change, the installed deploy script can't find the apps and leaves the running containers alone. Then, on the server:
+
+```sh
+git -C /srv/docker/homestack pull                    # as the checkout's owner
+sudo sh /srv/docker/homestack/deploy/move-to-apps.sh
+```
+
+It moves each app's `.env`, `docker-compose.override.yml` and data folder (Fernweh's and Stammbaum's `data/`, after stopping them) into `apps/<app>/`, renames the three apps in `APPS`, installs the new deploy script and rebuilds everything. Docker keeps the same project names (Watchlist's `docker-compose.yml` says `name: flimmer`), so containers keep their volumes. The old Zettel's containers stop, because Notizbuch uses its port; its CouchDB volume stays until you remove it. In Notizbuch's `.env`, `ADMIN_USERNAME` is now called `ADMIN_USER`.
+
+The nginx configs only changed in their comments; the ports are the same.
+
 ## Day to day
 
 - `journalctl -u homestack-deploy` shows what was deployed and why something failed.
@@ -67,7 +80,7 @@ Authelia's session cookie is set for `fdahle.de`, so it covers every subdomain: 
 2. `install -m 644 deploy/nginx/homestack-authelia.conf /etc/nginx/snippets/` (next to Authelia's own `authelia-location.conf` and `authelia-authrequest.conf`, which Stammbaum already uses).
 3. `install -d -m 750 -o root -g www-data /etc/nginx/homestack-secrets`
 
-**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal, Leute, Stapel, Zettel, Haken) or follows it (Fernweh), shown for Leute:
+**Per app** that uses the [design kit](../../kit/README.md#login) (Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do) or follows it (Fernweh), shown for Leute:
 
 ```sh
 secret=$(openssl rand -hex 32)
@@ -87,12 +100,12 @@ The app then has no login page of its own: it takes the user from Authelia and m
 |---|---|
 | Leute | Behind Authelia with a second factor (only you, group `admin`) |
 | Stammbaum | Behind Authelia, with its own `STAMMBAUM_PROXY_SECRET` |
-| Checkpoint, Flimmer, Regal | Their own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above whenever you want |
+| Checkpoint, Watchlist, Regal | Their own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above whenever you want |
 | Fernweh | Its own password; ready for Authelia too (`AUTH_PROXY_SECRET`, conf in its `deploy/`) |
 | Stapel | Its own password; ready for Authelia with the steps above (the first account is the admin who can add people; behind Authelia everyone gets an account by logging in there) |
 | Backlog | Its own username and password (`ADMIN_USER`/`ADMIN_PASSWORD`); behind Authelia it would ask for it once more per device |
-| Zettel | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above. Opens offline with the account it last saw |
-| Haken | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above, with a bypass for `/ics/` like Leute's. Opens offline with the account it last saw |
+| Notizbuch | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above. Opens offline with the account it last saw |
+| To-do | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above, with a bypass for `/ics/` like Leute's. Opens offline with the account it last saw |
 
 ## Apps that talk to each other
 

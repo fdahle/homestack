@@ -1,0 +1,23 @@
+services:
+  notizbuch:
+    build: .
+    container_name: notizbuch
+    restart: unless-stopped
+    # Only reachable through nginx on the same machine (see deploy/)
+    ports:
+      - "127.0.0.1:${PORT:-3070}:3000"
+    # A small init as PID 1, so `docker stop` shuts the server down cleanly
+    init: true
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      MAX_FILE_MB: ${MAX_FILE_MB:-25}
+      TRASH_DAYS: ${TRASH_DAYS:-30}
+      # Set to log in through Authelia instead of the own account (kit/README.md)
+      AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - notizbuch-data:/data
+
+volumes:
+  notizbuch-data:

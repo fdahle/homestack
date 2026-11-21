@@ -1,0 +1,198 @@
+/* Watchlist on top of the homestack kit (kit/tokens.css, kit/base.css): its colours,
+   one accent per mode (films teal, series petrol blue), its statuses and the pages only it has. */
+
+:root {
+  --bg: light-dark(#f1f6f5, #131918);
+  --surface: light-dark(#fcfefe, #1b2322);
+  --text: light-dark(#172322, #e5eeed);
+  --muted: light-dark(#5f706e, #97a9a6);
+  --line: light-dark(#dbe5e3, #2c3836);
+  --accent: light-dark(#14787a, #5ec9c2);
+  --accent-text: light-dark(#ffffff, #0a2322);
+  --accent-soft: light-dark(#d8eeed, #1c3a38);
+  --bar: light-dark(#2b9496, #3fb0a9);
+  /* Statuses: icon color and a soft background */
+  --s-watchlist: light-dark(#6a52c4, #b3a4f5);
+  --s-watchlist-soft: light-dark(#e9e4fa, #2e2a4d);
+  --s-watched: light-dark(#2e7d4f, #6cc48d);
+  --s-watched-soft: light-dark(#dcefe3, #1f3a2a);
+  --s-watching: light-dark(#2f6fd0, #82aef0);
+  --s-watching-soft: light-dark(#e0eafa, #1f2d46);
+  --s-paused: light-dark(#a86b00, #f0c060);
+  --s-paused-soft: light-dark(#f8ead0, #42341a);
+  --s-dropped: light-dark(#8a5a55, #c9a39e);
+  --s-dropped-soft: light-dark(#efe4e2, #3a2c2a);
+}
+
+/* Series: the same family, a little bluer, so you always see which side you are on */
+:root[data-mode="series"] {
+  --accent: light-dark(#1d6690, #7cb9e6);
+  --accent-text: light-dark(#ffffff, #0a1d2b);
+  --accent-soft: light-dark(#dbe9f3, #1e3346);
+  --bar: light-dark(#3a82b0, #5a9cd0);
+}
+
+.st-watchlist { --st: var(--s-watchlist); --st-soft: var(--s-watchlist-soft); }
+.st-watched, .st-finished { --st: var(--s-watched); --st-soft: var(--s-watched-soft); }
+.st-watching { --st: var(--s-watching); --st-soft: var(--s-watching-soft); }
+.st-paused { --st: var(--s-paused); --st-soft: var(--s-paused-soft); }
+.st-dropped { --st: var(--s-dropped); --st-soft: var(--s-dropped-soft); }
+
+/* --- the mode switch: in the sidebar, or on top of the page on the phone --- */
+
+.mode-switch a { flex: 1; }
+.page-mode { margin: 2px 0 14px; }
+
+/* --- lists --- */
+
+.card-list { list-style: none; margin: 0; padding: 0; }
+/* Search on its own line on the phone, sort and genre beside each other under it;
+   all in one line where there is room */
+.library-toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.library-toolbar input { grid-column: 1 / -1; }
+.library-toolbar select:only-of-type { grid-column: 1 / -1; }
+.empty.compact { padding: 20px 0; }
+.result-overview { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* --- a title's page --- */
+
+.status-picker { --n: 3; }
+.status-picker.five { --n: 5; }
+.original { margin: -2px 0 0; font-size: 0.9rem; }
+.byline { margin: 0; font-size: 0.92rem; }
+.tagline { margin: 4px 0 0; font-style: italic; color: var(--muted); font-size: 0.92rem; }
+.hero-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-width: 280px; }
+.manual { margin-top: 16px; }
+
+.icon-btn.small-btn { width: 34px; height: 34px; }
+.icon-btn.small-btn .icon { width: 18px; height: 18px; }
+
+/* The watch log of a film */
+.watch-log { display: flex; flex-direction: column; gap: 6px; }
+.watches { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.watch-row { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 0.95rem; }
+.watch-row > .icon { width: 18px; height: 18px; color: var(--s-watched); }
+.watch-date { margin: 2px 0 8px 26px; width: calc(100% - 26px); }
+
+/* The next episode of a series */
+.next-box { display: flex; align-items: center; gap: 14px; border-left: 4px solid var(--st, var(--accent)); }
+.next-box .grow { display: flex; flex-direction: column; gap: 1px; }
+.next-box .field-label { margin: 0; }
+.next-title { font-size: 1rem; line-height: 1.3; }
+
+/* Seasons and their episodes */
+.seasons { padding: 16px 12px 10px; }
+.seasons .card-title { padding: 0 4px; }
+.seasons.busy { cursor: progress; }
+.season { border-top: 1px solid var(--line); }
+.season:first-of-type { border-top: 0; }
+.season-head { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.season-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 8px 4px; border: 0; border-radius: 10px; background: none; text-align: left; cursor: pointer; }
+.season-toggle:hover { background: color-mix(in srgb, var(--line) 45%, transparent); }
+.season-toggle .chevron { width: 18px; height: 18px; color: var(--muted); transform: rotate(-90deg); transition: transform 0.15s; }
+.season.open .chevron { transform: none; }
+.season-name { display: flex; flex-direction: column; min-width: 0; }
+.season-name strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.season-name small { font-size: 0.8rem; }
+.season-progress { flex: 0 0 72px; margin-left: auto; }
+.season-action { flex: none; }
+.season-action .icon { width: 16px; height: 16px; }
+.season-action.subtle { border-color: transparent; color: var(--muted); font-weight: 500; }
+
+.episodes { list-style: none; margin: 0 0 8px; padding: 0; }
+.episode { display: flex; align-items: center; gap: 10px; padding: 5px 4px; border-radius: 10px; }
+.episode:hover { background: color-mix(in srgb, var(--line) 35%, transparent); }
+.ep-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid color-mix(in srgb, var(--muted) 60%, var(--line));
+  border-radius: 50%;
+  background: var(--surface);
+  color: transparent;
+  cursor: pointer;
+}
+.ep-check .icon { width: 17px; height: 17px; stroke-width: 2.6; }
+.ep-check:hover { border-color: var(--s-watched); color: color-mix(in srgb, var(--s-watched) 45%, transparent); }
+.episode.watched .ep-check { background: var(--s-watched); border-color: var(--s-watched); color: var(--surface); }
+.ep-num { flex: 0 0 1.8em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.88rem; }
+.ep-body { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.ep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.94rem; }
+.ep-body small { font-size: 0.78rem; }
+.episode.watched .ep-name { color: var(--muted); }
+.episode.future .ep-name { color: var(--muted); font-style: italic; }
+.episode.future .ep-check { border-style: dashed; }
+.add-season { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; padding: 10px 4px 6px; border-top: 1px solid var(--line); }
+.add-season label { min-width: 160px; }
+
+/* Where to stream */
+.providers .card-title { display: flex; align-items: baseline; gap: 8px; }
+.providers .region { font-size: 0.8rem; font-weight: 600; }
+.provider-group + .provider-group { margin-top: 10px; }
+.provider-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.provider-list li { display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px 3px 3px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.85rem; }
+.provider-list img { width: 28px; height: 28px; border-radius: 8px; }
+.attribution { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 12px 0 0; }
+.attribution a { display: inline-flex; align-items: center; gap: 4px; font-weight: 550; }
+.attribution .icon { width: 15px; height: 15px; }
+
+/* --- up next --- */
+
+.next-list { display: grid; gap: 10px; }
+.next-card { display: flex; align-items: center; gap: 14px; margin: 0; padding: 12px; }
+.next-card.selected { outline: 2px solid var(--accent); outline-offset: -1px; }
+.next-poster { flex: 0 0 64px; }
+.next-poster .cover { border-radius: 8px; }
+.next-poster .cover-placeholder { font-size: 0.6rem; padding: 4px; }
+.next-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.next-series { color: var(--text); font-weight: 650; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.next-body .next-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.next-body .progress { margin-top: 4px; max-width: 240px; }
+.seen-btn { flex: none; }
+
+.soon { display: grid; gap: 4px 16px; }
+.soon-day h3 { margin: 10px 0 4px; font-size: 0.88rem; color: var(--muted); }
+.soon-day h3.near { color: var(--accent); }
+.soon-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 10px; color: var(--text); }
+.soon-row:hover { background: color-mix(in srgb, var(--line) 50%, transparent); }
+.soon-row.selected { background: var(--accent-soft); }
+.soon-row .thumb { flex: 0 0 38px; border-radius: 5px; }
+.soon-row .thumb .cover-placeholder { font-size: 0.5rem; padding: 2px; }
+
+/* --- settings --- */
+
+.import-progress { display: flex; flex-direction: column; gap: 4px; }
+.import-report details { font-size: 0.9rem; }
+.import-report summary { cursor: pointer; color: var(--muted); }
+.import-report ul { margin: 6px 0 0; padding-left: 18px; }
+code { font: 0.82rem ui-monospace, monospace; padding: 1px 5px; border-radius: 5px; background: var(--line); overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  .status-picker.five { --n: 3; }
+  .next-box { padding: 12px 14px; gap: 10px; }
+  .next-poster { flex-basis: 52px; }
+  .next-card { gap: 12px; padding: 10px; }
+  /* Only the tick on the phone, the card says what it is for */
+  .seen-btn { width: 46px; height: 46px; padding: 0; }
+  .seen-btn span { display: none; }
+  .seen-btn .icon { width: 22px; height: 22px; }
+  .season-progress { display: none; }
+}
+
+@media (min-width: 1024px) {
+  .library-toolbar { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .library-toolbar input { grid-column: auto; }
+  .library-toolbar select { width: auto; min-width: 170px; }
+  .library-toolbar select:only-of-type { grid-column: auto; }
+  /* Beside an open entry the list is narrow again: search on its own line */
+  .split.has-detail .library-toolbar { grid-template-columns: 1fr 1fr; }
+  .split.has-detail .library-toolbar input, .split.has-detail .library-toolbar select:only-of-type { grid-column: 1 / -1; }
+  .split.has-detail .library-toolbar select { width: 100%; }
+  .next-list { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+  .split.has-detail .next-list { grid-template-columns: 1fr; }
+  .soon { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .next-poster { flex-basis: 72px; }
+}
