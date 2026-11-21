@@ -1,5 +1,8 @@
-import { reactive } from 'vue';
 import { lang, t } from './i18n.js';
+import { errorText as kitErrorText } from './kit/util.js';
+
+// The kit's helpers (toasts, dates, shortcuts, …); errorText below is Stapel's own
+export * from './kit/util.js';
 
 // Only covers stored on the server are shown. GCD's scans can't be used: GCD doesn't
 // allow servers to download them, and its image server sends
@@ -78,25 +81,13 @@ export const yearRange = (s) => (s.year_began ? `${s.year_began}${s.year_ended &
 const LANGUAGE_NAMES = { de: 'DE', en: 'EN', fr: 'FR', nl: 'NL', it: 'IT', es: 'ES', sv: 'SV', da: 'DA', no: 'NO', fi: 'FI', pl: 'PL', pt: 'PT' };
 export const languageTag = (code) => (code ? LANGUAGE_NAMES[code] || code.toUpperCase() : '');
 
-// --- toasts ---
+// --- errors (toasts and the rest come from the kit) ---
 
-export const toast = reactive({ text: '', action: null, timer: null });
-
-export function showToast(text, action = null) {
-  clearTimeout(toast.timer);
-  toast.text = text;
-  toast.action = action;
-  toast.timer = setTimeout(() => {
-    toast.text = '';
-    toast.action = null;
-  }, action ? 5000 : 2500);
-}
-
+// GCD's limit says when it's available again; everything else as the kit words it
 export function errorText(err) {
   if (err?.code === 'gcd_busy') {
     const at = err.data?.retryAt ? new Date(err.data.retryAt) : null;
     return at ? t('errors.gcdBusyUntil', { time: at.toLocaleTimeString(lang.value, { hour: '2-digit', minute: '2-digit' }) }) : t('errors.gcdBusy');
   }
-  if (err?.code && t(`errors.${err.code}`) !== `errors.${err.code}`) return t(`errors.${err.code}`);
-  return t('errors.generic');
+  return kitErrorText(err);
 }

@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createUserStore } from './kit/users.js';
 
 export const DATA_DIR = process.env.DATA_DIR || './data';
 export const COVER_DIR = join(DATA_DIR, 'covers');
@@ -142,37 +142,24 @@ export function transaction(fn) {
   }
 }
 
-function getSetting(key, init) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  if (row) return row.value;
-  const value = init();
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, value);
-  return value;
-}
-
-export const sessionSecret = () => getSetting('session_secret', () => randomBytes(32).toString('hex'));
-
 // --- users ---
+
+// Accounts, login sessions and small settings are the design kit's (kit/users.js, the same
+// tables as before). Stapel adds is_admin: an admin can add people, who share the catalog
+// but keep their own marks.
+export const users = createUserStore(db);
 
 const USER_COLUMNS = 'id, username, display_name, lang, is_admin, created_at';
 
-export const countUsers = () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 export const listUsers = () => db.prepare(`SELECT ${USER_COLUMNS} FROM users ORDER BY id`).all();
-export const getUser = (id) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash, session_version FROM users WHERE id = ?`).get(id);
-export const getUserByName = (username) => db.prepare(`SELECT ${USER_COLUMNS}, password_hash, session_version FROM users WHERE username = ?`).get(username);
-export const bumpSessionVersion = (id) => db.prepare('UPDATE users SET session_version = session_version + 1 WHERE id = ?').run(id);
+export const isAdmin = (id) => Boolean(db.prepare('SELECT is_admin FROM users WHERE id = ?').get(id)?.is_admin);
+export const setAdmin = (id) => db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(id);
+export const hasAdmin = () => Boolean(db.prepare('SELECT 1 FROM users WHERE is_admin = 1').get());
 
-export function createUser({ username, displayName, passwordHash, lang = 'de', isAdmin = false }) {
-  const { lastInsertRowid } = db
-    .prepare('INSERT INTO users (username, display_name, password_hash, lang, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(username, displayName || username, passwordHash, lang, isAdmin ? 1 : 0, now());
-  return Number(lastInsertRowid);
-}
-
-export function updateUser(id, { displayName, lang, passwordHash }) {
-  if (displayName != null) db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(displayName, id);
-  if (lang != null) db.prepare('UPDATE users SET lang = ? WHERE id = ?').run(lang, id);
-  if (passwordHash != null) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+export function createUser({ username, displayName, passwordHash, lang = 'de', isAdmin: admin = false }) {
+  const id = users.createUser({ username, displayName: displayName || username, passwordHash, lang });
+  if (admin) setAdmin(id);
+  return id;
 }
 
 export const deleteUser = (id) => db.prepare('DELETE FROM users WHERE id = ?').run(id);

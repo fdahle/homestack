@@ -3,8 +3,8 @@ import { onMounted, ref } from 'vue';
 import { api, session } from '../api.js';
 import { t } from '../i18n.js';
 import { issueLabel } from '../util.js';
-import TopBar from '../components/TopBar.vue';
-import Icon from '../components/Icon.vue';
+import TopBar from '../kit/components/TopBar.vue';
+import Icon from '../kit/components/Icon.vue';
 import CoverImage from '../components/CoverImage.vue';
 
 const data = ref(null);
@@ -15,7 +15,7 @@ onMounted(async () => {
 
 <template>
   <TopBar :title="t('home.greeting', { name: session.user?.display_name })">
-    <RouterLink class="icon-btn" to="/settings" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
+    <RouterLink class="icon-btn phone-only" to="/settings" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
   </TopBar>
   <main v-if="data">
     <div v-if="!data.stats.series" class="empty">

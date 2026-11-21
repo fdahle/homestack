@@ -4,8 +4,8 @@ import { api, setStatus } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, issueLabel, showToast } from '../util.js';
 import wasmUrl from 'zxing-wasm/reader/zxing_reader.wasm?url';
-import TopBar from '../components/TopBar.vue';
-import Icon from '../components/Icon.vue';
+import TopBar from '../kit/components/TopBar.vue';
+import Icon from '../kit/components/Icon.vue';
 import CoverImage from '../components/CoverImage.vue';
 import SeriesSearch from '../components/SeriesSearch.vue';
 

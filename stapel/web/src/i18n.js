@@ -1,7 +1,8 @@
-import { ref } from 'vue';
+import { addMessages, lang, t } from './kit/i18n.js';
 
-// UI language per user (set in the settings). t('a.b', { n: 3 }) fills {n}.
-export const lang = ref('de');
+// Stapel's texts; the kit brings the common ones (back, save, login, account, …). Where both
+// have a key, Stapel's wins. The language is per user, set in the settings.
+export { lang, t };
 
 const de = {
   back: 'Zurück',
@@ -525,10 +526,4 @@ const en = {
   },
 };
 
-const DICTS = { de, en };
-
-export function t(key, vars) {
-  const value = key.split('.').reduce((node, part) => node?.[part], DICTS[lang.value]) ?? key.split('.').reduce((node, part) => node?.[part], de);
-  if (typeof value !== 'string') return key;
-  return vars ? value.replace(/\{(\w+)\}/g, (m, name) => (vars[name] ?? m)) : value;
-}
+addMessages({ de, en });

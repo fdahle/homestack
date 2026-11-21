@@ -1,8 +1,8 @@
 import express from 'express';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as store from './db.js';
-import { checkPassword, ensureAdmin, hashPassword, login, LoginLimitError, logout, requireAdmin, requireLogin, setSessionCookie } from './auth.js';
+import { createAuth, hashPassword } from './kit/auth.js';
+import { createApp, errorHandler, mountAccount, route, serveFrontend, servePrivateFiles, toId as id } from './kit/http.js';
 import {
   downloadCover, fetchImage, importSeries, libraryCoverUrls, loadDetails, removeCoverFiles, requestCovers, saveCoverUpload, searchSeries, seriesCoverStatus, startWorker,
   workerStatus,
@@ -15,72 +15,42 @@ import { lookupIsbn, parseCode } from './isbn.js';
 const PORT = Number(process.env.PORT || 3067);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
-const app = express();
-// One proxy (nginx) in front: req.ip is the address nginx saw, not a client-supplied X-Forwarded-For
-app.set('trust proxy', 1);
-app.disable('x-powered-by');
-app.use(express.json({ limit: '2mb' }));
-app.use((req, res, next) => {
-  req.body ??= {}; // Express 5 leaves it undefined for body-less requests
+const app = createApp({ jsonLimit: '2mb' });
+// The same cookie as before Stapel used the kit, so nobody has to log in again
+const auth = createAuth({ users: store.users, cookie: 'stapel_session' });
+const LANGS = ['de', 'en'];
+
+// --- login (kit): POST /api/login, /api/logout, GET/PATCH /api/me; everything after needs a login ---
+
+mountAccount(app, { auth, users: store.users, protect: ['/api', '/covers'], me: (user) => ({ is_admin: store.isAdmin(user.id) }) });
+
+// The first account is the admin (also the first one Authelia brings, behind a login proxy).
+// req.user.is_admin: admins may also delete what others have marked.
+app.use('/api', (req, res, next) => {
+  if (!store.hasAdmin()) store.setAdmin(req.user.id);
+  req.user.is_admin = store.isAdmin(req.user.id);
   next();
 });
 
-// Async route errors go to the error handler at the bottom
-const route = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const id = (v) => (Number.isInteger(Number(v)) ? Number(v) : NaN);
-const LANGS = ['de', 'en'];
+function requireAdmin(req, res, next) {
+  if (!req.user.is_admin) return res.status(403).json({ error: 'forbidden' });
+  next();
+}
 
-// --- login ---
-
-app.post('/api/login', route(async (req, res) => {
-  let user;
-  try {
-    user = await login(req.body.username, req.body.password, req.ip);
-  } catch (err) {
-    if (err instanceof LoginLimitError) return res.status(429).json({ error: 'too_many_attempts', retryAt: err.retryAt });
-    throw err;
-  }
-  if (!user) return res.status(401).json({ error: 'wrong_login' });
-  setSessionCookie(req, res, user);
-  res.json({ ok: true });
-}));
-
-app.post('/api/logout', (req, res) => {
-  logout(req, res);
-  res.json({ ok: true });
-});
-
-app.use(['/api', '/covers'], requireLogin);
+// --- people who share the catalog (admins only) ---
 
 const publicUser = ({ password_hash, session_version, ...u }) => ({ ...u, is_admin: Boolean(u.is_admin) });
-
-app.get('/api/me', (req, res) => res.json(publicUser(req.user)));
-
-app.patch('/api/me', route(async (req, res) => {
-  const { lang, displayName, currentPassword, newPassword } = req.body;
-  if (lang !== undefined && !LANGS.includes(lang)) return res.status(400).json({ error: 'bad_lang' });
-  if (newPassword !== undefined) {
-    if (!(await checkPassword(req.user, currentPassword))) return res.status(400).json({ error: 'wrong_password' });
-    if (String(newPassword).length < 8) return res.status(400).json({ error: 'password_too_short' });
-  }
-  store.updateUser(req.user.id, {
-    lang,
-    displayName: displayName !== undefined ? String(displayName).trim() || req.user.username : undefined,
-    passwordHash: newPassword !== undefined ? await hashPassword(String(newPassword)) : undefined,
-  });
-  const user = store.getUser(req.user.id);
-  if (newPassword !== undefined) setSessionCookie(req, res, user); // keep this device logged in
-  res.json(publicUser(user));
-}));
 
 app.get('/api/users', requireAdmin, (req, res) => res.json(store.listUsers().map(publicUser)));
 
 app.post('/api/users', requireAdmin, route(async (req, res) => {
+  // Behind a login proxy, people get their account by logging in there
+  if (auth.viaProxy) return res.status(400).json({ error: 'login_via_proxy' });
   const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
   if (!/^[\w.-]{2,40}$/.test(username)) return res.status(400).json({ error: 'bad_username' });
   if (password.length < 8) return res.status(400).json({ error: 'password_too_short' });
-  if (store.getUserByName(username)) return res.status(400).json({ error: 'username_taken' });
+  if (store.users.getUserByName(username)) return res.status(400).json({ error: 'username_taken' });
   store.createUser({
     username,
     displayName: String(req.body.displayName || '').trim() || username,
@@ -465,34 +435,19 @@ app.get('/api/export.csv', (req, res) => {
 
 // --- static files ---
 
-// private: covers are behind the login, so shared caches (Cloudflare) must not keep them
-app.use('/covers', express.static(store.COVER_DIR, {
-  cacheControl: false,
-  setHeaders: (res) => res.setHeader('Cache-Control', 'private, max-age=31536000, immutable'),
+// Covers are behind the login, so shared caches (Cloudflare) must not keep them
+servePrivateFiles(app, '/covers', store.COVER_DIR);
+serveFrontend(app, distDir);
+
+app.use(errorHandler((err, req, res) => {
+  if (err instanceof GcdBusyError) res.status(503).json({ error: 'gcd_busy', retryAt: err.retryAt });
+  else if (err instanceof GcdNotFoundError) res.status(404).json({ error: 'gcd_not_found' });
+  else if (err instanceof ComicVineBusyError) res.status(503).json({ error: 'comicvine_busy', retryAt: err.retryAt });
+  else return false;
+  return true;
 }));
-app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
-if (existsSync(distDir)) {
-  app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => {
-    if (/[\\/]assets[\\/]/.test(path)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  } }));
-  // Everything else is a page of the single-page app
-  app.get('/{*path}', (req, res) => res.sendFile('index.html', { root: distDir, headers: { 'Cache-Control': 'no-cache' } }));
-}
-
-app.use((err, req, res, next) => {
-  if (res.headersSent) return next(err);
-  if (err instanceof GcdBusyError) return res.status(503).json({ error: 'gcd_busy', retryAt: err.retryAt });
-  if (err instanceof GcdNotFoundError) return res.status(404).json({ error: 'gcd_not_found' });
-  if (err instanceof ComicVineBusyError) return res.status(503).json({ error: 'comicvine_busy', retryAt: err.retryAt });
-  // Body parser errors (bad JSON, too large) carry their own 4xx status
-  const status = err.status ?? err.statusCode;
-  if (status >= 400 && status < 500) return res.status(status).json({ error: err.type === 'entity.too.large' ? 'too_large' : 'bad_request' });
-  console.error(err);
-  res.status(500).json({ error: 'server_error' });
-});
-
-await ensureAdmin();
+await auth.ensureAdmin();
 app.listen(PORT, () => {
   console.log(`Stapel listening on :${PORT}`);
   startWorker();

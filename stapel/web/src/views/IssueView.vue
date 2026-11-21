@@ -4,8 +4,8 @@ import { useRouter } from 'vue-router';
 import { api, setStatus } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, formatKeyDate, issueLabel, showToast } from '../util.js';
-import TopBar from '../components/TopBar.vue';
-import Icon from '../components/Icon.vue';
+import TopBar from '../kit/components/TopBar.vue';
+import Icon from '../kit/components/Icon.vue';
 import CoverImage from '../components/CoverImage.vue';
 
 const props = defineProps({ id: String });

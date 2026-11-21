@@ -31,7 +31,7 @@ cp .env.example .env        # set ADMIN_PASSWORD, COMICVINE_API_KEY, GCD_EMAIL, 
 docker compose up -d --build
 ```
 
-The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`). HTTPS is required for the camera. The first start creates the account `ADMIN_USER`. Add more people under Settings → Users.
+The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`). HTTPS is required for the camera. The first start creates the account `ADMIN_USER`, which is the admin. Add more people under Settings → Users. Behind Authelia (`AUTH_PROXY_SECRET`, see the [design kit](../design/README.md#login)) everyone gets an account by logging in there, and the first one is the admin.
 
 **Update:** `docker compose up -d --build`. The data lives in the `stapel-data` volume (`stapel.db` plus `covers/`).
 
@@ -50,6 +50,7 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 | Variable | Default | |
 |---|---|---|
 | `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / – | First account, created when there are no users |
+| `AUTH_PROXY_SECRET` | – | Log in through Authelia instead of Stapel's own accounts |
 | `GCD_EMAIL` / `GCD_PASSWORD` | – | GCD account for higher rate limits (recommended) |
 | `COMICVINE_API_KEY` | – | Comic Vine API key for covers (recommended) |
 | `GCD_PER_MINUTE` / `_HOUR` / `_DAY` | 20 / 200 / 2000 (without account: 10 / 40 / 400) | GCD limits Stapel stays under |
@@ -71,4 +72,4 @@ npm run dev:web        # Vue with hot reload on :5167
 
 `npm run build` builds the frontend into `dist/`, which the server serves when it exists.
 
-Code map: `server/gcd.js` is the rate-limited, cached GCD client. `server/catalog.js` imports series and issues and runs the background worker. `server/isbn.js` does the DNB/Open Library lookups. `server/comicvine.js` is the Comic Vine client and `server/covers.js` links series to it and downloads covers. `server/db.js` holds all SQL, and `server/server.js` the routes. The Vue app is in `web/src` (`views/` per page, `i18n.js` for the German and English texts). `npm run icons` regenerates the app icons.
+Code map: `server/gcd.js` is the rate-limited, cached GCD client. `server/catalog.js` imports series and issues and runs the background worker. `server/isbn.js` does the DNB/Open Library lookups. `server/comicvine.js` is the Comic Vine client and `server/covers.js` links series to it and downloads covers. `server/db.js` holds all SQL, and `server/server.js` the routes. Login, accounts, the frame with its navigation and the base styles come from the [design kit](../design/README.md) (`server/kit`, `web/src/kit`, copied by `node design/sync.mjs`); Stapel adds admins and its own pages. The Vue app is in `web/src` (`views/` per page, `i18n.js` for the German and English texts). `npm run icons` regenerates the app icons.

@@ -1,19 +1,14 @@
 <script setup>
-import { computed, watch } from 'vue';
+import { computed, watchEffect } from 'vue';
 import { useRoute } from 'vue-router';
 import { session } from './api.js';
-import { lang, t } from './i18n.js';
-import { toast } from './util.js';
-import Icon from './components/Icon.vue';
+import { t } from './i18n.js';
+import AppShell from './kit/components/AppShell.vue';
 import ActivityPanel from './components/ActivityPanel.vue';
 import { activityVisible } from './activity.js';
 
 const route = useRoute();
-const showNav = computed(() => session.user && route.name !== 'login');
-
-watch(() => session.user?.lang, (value) => {
-  if (value) lang.value = value;
-}, { immediate: true });
+const showNav = computed(() => session.user && !route.meta.public);
 
 const tabs = computed(() => [
   { to: '/', name: 'home', icon: 'home', label: t('nav.home') },
@@ -22,34 +17,13 @@ const tabs = computed(() => [
   { to: '/add', name: 'add', icon: 'plus', label: t('nav.add') },
   { to: '/wishlist', name: 'wishlist', icon: 'heart', label: t('nav.wishlist') },
 ]);
+const extras = computed(() => [{ to: '/settings', name: 'settings', icon: 'gear', label: t('nav.settings') }]);
 
-const isActive = (tab) => route.name === tab.name || tab.also?.includes(route.name);
-
-function runToastAction() {
-  toast.action?.run();
-  toast.text = '';
-  toast.action = null;
-}
+// The activity pill floats over the page's end: the page makes room for it
+watchEffect(() => document.body.classList.toggle('has-activity', Boolean(showNav.value && activityVisible.value)));
 </script>
 
 <template>
-  <div :class="{ 'has-nav': showNav, 'has-activity': showNav && activityVisible }">
-    <RouterView v-slot="{ Component }">
-      <component :is="Component" :key="route.fullPath.split('?')[0]" />
-    </RouterView>
-
-    <nav v-if="showNav" class="bottom-nav" :aria-label="t('nav.label')">
-      <RouterLink v-for="tab in tabs" :key="tab.name" :to="tab.to" :class="{ active: isActive(tab) }">
-        <Icon :name="tab.icon" />
-        <span>{{ tab.label }}</span>
-      </RouterLink>
-    </nav>
-
-    <ActivityPanel v-if="showNav" />
-
-    <div v-if="toast.text" class="toast" role="status">
-      <span>{{ toast.text }}</span>
-      <button v-if="toast.action" class="link-btn" @click="runToastAction">{{ toast.action.label }}</button>
-    </div>
-  </div>
+  <AppShell name="Stapel" :tabs="tabs" :extras="extras" />
+  <ActivityPanel v-if="showNav" />
 </template>

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { t } from '../i18n.js';
 import { coverSrc, coverWaiting } from '../util.js';
-import Icon from './Icon.vue';
+import Icon from '../kit/components/Icon.vue';
 
 // Shows the cover, or a placeholder with number and title when there is none.
 // An hourglass marks covers that are on their way from Comic Vine.

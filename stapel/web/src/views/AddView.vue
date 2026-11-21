@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, showToast } from '../util.js';
-import TopBar from '../components/TopBar.vue';
+import TopBar from '../kit/components/TopBar.vue';
 import SeriesSearch from '../components/SeriesSearch.vue';
 
 const router = useRouter();

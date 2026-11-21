@@ -3,7 +3,7 @@ import { ref, watch } from 'vue';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, languageTag } from '../util.js';
-import Icon from './Icon.vue';
+import Icon from '../kit/components/Icon.vue';
 
 // Searches GCD for series. Emits 'pick' with the chosen result.
 const props = defineProps({ initialQuery: String, pickLabel: String, busyId: Number });

@@ -5,7 +5,7 @@ import { api } from '../api.js';
 import { lang, t } from '../i18n.js';
 import { activity, activityVisible, refreshActivity, seriesToPick, setMinimized, startActivity, stopActivity } from '../activity.js';
 import { errorText, fmtWhen, showToast } from '../util.js';
-import Icon from './Icon.vue';
+import Icon from '../kit/components/Icon.vue';
 
 // One indicator for everything that loads in the background: a pill above the
 // bottom navigation (or just an icon when minimized) that opens a panel with

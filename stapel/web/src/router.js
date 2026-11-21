@@ -1,9 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import { loadSession, session } from './api.js';
+import { installAuthGuard } from './kit/api.js';
+import { scrollBehavior } from './kit/util.js';
 
 export const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: (to, from, saved) => saved || { top: 0 },
+  scrollBehavior,
   routes: [
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
     { path: '/', name: 'home', component: () => import('./views/HomeView.vue') },
@@ -18,8 +19,4 @@ export const router = createRouter({
   ],
 });
 
-router.beforeEach(async (to) => {
-  if (!session.checked) await loadSession();
-  if (!to.meta.public && !session.user) return { name: 'login', query: { next: to.fullPath } };
-  if (to.name === 'login' && session.user) return { name: 'home' };
-});
+installAuthGuard(router);
