@@ -91,6 +91,8 @@ app.use('/api/links', linkRoutes)
 app.use('/api/leute', applyWriteLimiter, leuteRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+// The same as every homestack app has, for Docker's health check
+app.get('/healthz', (_req, res) => res.type('text').send('ok'))
 
 const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'dist')
 app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }))

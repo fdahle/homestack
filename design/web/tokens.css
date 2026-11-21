@@ -1,46 +1,35 @@
 /* The homestack palette and sizes. Each app sets its own --accent (and may tint
-   --bg/--surface) in its style.css, which is loaded after this file. */
+   --bg/--surface) in its style.css, which is loaded after this file.
+
+   Colours are light-dark(light, dark) pairs. Which half shows follows the system, unless
+   the settings pin one (data-theme="light" / "dark" on <html>, see theme.js): that only
+   changes color-scheme, so an app writes each colour once, as a pair, and never needs a
+   prefers-color-scheme block for colours. */
 :root {
-  --bg: #f4f3f1;
-  --surface: #fefdfc;
-  --text: #1e1d1b;
-  --muted: #706c66;
-  --line: #e3e0da;
-  --accent: #4a5bc4;
-  --accent-text: #ffffff;
-  --accent-soft: #e4e7f8;
-  --ok: #2e7d4f;
-  --ok-soft: #dcefe3;
-  --warn: #9a5c00;
-  --warn-soft: #fbecd2;
-  --danger: #b3261e;
-  --star: #e0a100;
+  color-scheme: light dark;
+  --bg: light-dark(#f4f3f1, #171716);
+  --surface: light-dark(#fefdfc, #21201f);
+  --text: light-dark(#1e1d1b, #ecebe8);
+  --muted: light-dark(#706c66, #a19d97);
+  --line: light-dark(#e3e0da, #353330);
+  --accent: light-dark(#4a5bc4, #9eaaf0);
+  --accent-text: light-dark(#ffffff, #141833);
+  --accent-soft: light-dark(#e4e7f8, #2a2f4d);
+  --ok: light-dark(#2e7d4f, #6cc48d);
+  --ok-soft: light-dark(#dcefe3, #1f3a2a);
+  --warn: light-dark(#9a5c00, #f0b84a);
+  --warn-soft: light-dark(#fbecd2, #43321a);
+  --danger: light-dark(#b3261e, #f28b82);
+  --star: light-dark(#e0a100, #f5c542);
   --bar: var(--accent);
   --radius: 14px;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
+  /* No shadows in the dark: they'd only muddy the surfaces */
+  --shadow: 0 1px 2px light-dark(rgb(0 0 0 / 0.05), transparent), 0 2px 8px light-dark(rgb(0 0 0 / 0.04), transparent);
   --nav-h: 60px;
   --side-w: 232px;
   --content-w: 1180px;
   --pane-w: 460px;
-  color-scheme: light dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #171716;
-    --surface: #21201f;
-    --text: #ecebe8;
-    --muted: #a19d97;
-    --line: #353330;
-    --accent: #9eaaf0;
-    --accent-text: #141833;
-    --accent-soft: #2a2f4d;
-    --ok: #6cc48d;
-    --ok-soft: #1f3a2a;
-    --warn: #f0b84a;
-    --warn-soft: #43321a;
-    --danger: #f28b82;
-    --star: #f5c542;
-    --shadow: none;
-  }
-}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }

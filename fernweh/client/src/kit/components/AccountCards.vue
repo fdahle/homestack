@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import { api, session } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, showToast } from '../util.js';
+import { applyTheme, theme, THEMES } from '../theme.js';
 import Icon from './Icon.vue';
 
 // Name, language, password and logout: the part of the settings every app has.
@@ -52,6 +53,16 @@ async function logout() {
     </label>
     <button class="btn primary">{{ t('save') }}</button>
   </form>
+
+  <!-- Applies at once, and only on this device -->
+  <section class="card form">
+    <h2>{{ t('account.theme') }}</h2>
+    <div class="segmented wide" role="radiogroup" :aria-label="t('account.theme')">
+      <button v-for="value in THEMES" :key="value" type="button" role="radio" :class="{ active: theme === value }" :aria-checked="theme === value" @click="applyTheme(value)">
+        {{ t(`account.themes.${value}`) }}
+      </button>
+    </div>
+  </section>
 
   <slot />
 

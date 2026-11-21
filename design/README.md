@@ -9,11 +9,11 @@ node design/sync.mjs --check   # does every app match the kit?
 
 | Kit | Copied to | What it is |
 |---|---|---|
-| `web/` | `<app>/web/src/kit/` | `tokens.css` (colours, sizes, dark mode), `base.css` (layout and components), `i18n.js`, `api.js`, `util.js`, `icons.js`, `components/` |
+| `web/` | `<app>/web/src/kit/` | `tokens.css` (colours, sizes, light and dark), `base.css` (layout and components), `theme.js` (light, dark or automatic), `i18n.js`, `api.js`, `util.js`, `icons.js`, `components/` |
 | `server/` | `<app>/server/kit/` | `users.js` (accounts table), `auth.js` (login: own accounts or a login proxy), `http.js` (Express setup, `/healthz`, account routes, frontend, errors), `errors.js`, `auth.test.js` |
 | `scripts/` | `<app>/scripts/kit/` | `icons.js`: draws the app icon (white symbol on a rounded square in the app's colour) |
 
-Apps using it: Checkpoint, Flimmer, Regal, Leute, and Fernweh for its colours, icon and login (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node design/sync.mjs leute` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
+Apps using it: Checkpoint, Flimmer, Regal, Leute, Stapel, Zettel, Haken, and Fernweh for its colours, icon and login (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node design/sync.mjs leute` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
 
 ## Phone and computer
 
@@ -28,9 +28,11 @@ Phone first. From **1024px** wide:
 
 ## How an app uses it
 
-**Styles** (`main.js`): `kit/tokens.css`, then `kit/base.css`, then the app's own `style.css`. The app's `style.css` sets its colours in `:root`, at least `--accent`, `--accent-text`, `--accent-soft`, and again under `@media (prefers-color-scheme: dark)`. It may tint `--bg`, `--surface`, `--line`, `--text`, `--muted`, and sets `--cover-ratio` when its covers aren't 2:3. Status colours go into `--st`/`--st-soft` via classes such as `.st-playing`. A `.status-picker` shows `--n` buttons per row (4 unless set): Checkpoint sets 6 and 3 on the phone, Flimmer's five series statuses 5 and 3.
+**Styles** (`main.js`): `kit/tokens.css`, then `kit/base.css`, then the app's own `style.css`. The app's `style.css` sets its colours in `:root`, at least `--accent`, `--accent-text`, `--accent-soft`, each as a `light-dark(light, dark)` pair (no `prefers-color-scheme` blocks: those would ignore the setting below). It may tint `--bg`, `--surface`, `--line`, `--text`, `--muted`, and sets `--cover-ratio` when its covers aren't 2:3. Status colours go into `--st`/`--st-soft` via classes such as `.st-playing`. A `.status-picker` shows `--n` buttons per row (4 unless set): Checkpoint sets 6 and 3 on the phone, Flimmer's five series statuses 5 and 3.
 
-An app with two modes (Flimmer: films and series) gives the second mode its own shade of the accent: it sets `data-mode` on `<html>` and overrides `--accent`, `--accent-soft` and `--bar` under `:root[data-mode="series"]`, again inside the dark-mode block.
+An app with two modes (Flimmer: films and series) gives the second mode its own shade of the accent: it sets `data-mode` on `<html>` and overrides `--accent`, `--accent-soft` and `--bar` under `:root[data-mode="series"]`, as light-dark pairs too.
+
+**Light and dark**: the system decides, unless *Darstellung* in the settings (in `AccountCards`) pins one for this device. `theme.js` sets `data-theme` on `<html>`, which pins `color-scheme` and so every `light-dark()` pair, and gives the phone's status bar (`<meta name="theme-color">`) the chosen theme's colour. The app's `index.html` has a light and a dark `theme-color` meta (with `media`) and, before the title, the one-line script from the top of `theme.js` that sets `data-theme` before the first paint.
 
 **Texts**: the app's `i18n.js` calls `addMessages({ de, en })` from `kit/i18n.js` and re-exports `lang` and `t`. The kit brings back/close/save/cancel/delete, login, dates, rating, account settings and the common errors; the app's texts win where both have a key.
 
@@ -96,5 +98,6 @@ The app then trusts `Remote-User` only together with that secret, creates an acc
 | Flimmer | film frame with a play button | teal `#14787a` |
 | Regal | books on a shelf | forest green `#3d7a3a` |
 | Fernweh | map pin | plum `#7b3fa0` |
+| Zettel | a note slip with a folded corner | amber `#b07c00` |
+| Haken | a tick swinging out of a box | raspberry `#b02058` |
 
-Stapel already follows the same style but doesn't use the kit yet.

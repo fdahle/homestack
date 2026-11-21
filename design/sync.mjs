@@ -23,6 +23,9 @@ const APPS = {
   flimmer: LAYOUT,
   regal: LAYOUT,
   leute: LAYOUT,
+  zettel: LAYOUT,
+  haken: LAYOUT,
+  stapel: LAYOUT,
   fernweh: { web: 'client/src/kit', server: 'api/kit', scripts: 'scripts/kit' },
 };
 

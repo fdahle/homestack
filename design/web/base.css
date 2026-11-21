@@ -320,16 +320,13 @@ main > h2.section:first-child, main > section:first-child > h2.section:first-chi
   place-items: center;
   height: 100%;
   padding: 10px;
-  background: linear-gradient(160deg, hsl(var(--h) 45% 82%), hsl(calc(var(--h) + 40) 40% 70%));
-  color: hsl(var(--h) 40% 22%);
+  background: linear-gradient(160deg, light-dark(hsl(var(--h) 45% 82%), hsl(var(--h) 25% 30%)), light-dark(hsl(calc(var(--h) + 40) 40% 70%), hsl(calc(var(--h) + 40) 25% 22%)));
+  color: light-dark(hsl(var(--h) 40% 22%), hsl(var(--h) 50% 85%));
   text-align: center;
   font-weight: 700;
   font-size: 0.85rem;
   line-height: 1.2;
   overflow-wrap: anywhere;
-}
-@media (prefers-color-scheme: dark) {
-  .cover-placeholder { background: linear-gradient(160deg, hsl(var(--h) 25% 30%), hsl(calc(var(--h) + 40) 25% 22%)); color: hsl(var(--h) 50% 85%); }
 }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile-min, 108px), 1fr)); gap: 16px 12px; margin-top: 8px; }

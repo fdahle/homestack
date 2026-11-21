@@ -3,53 +3,29 @@
    picker, the timeline, the friend page). */
 
 :root {
-  --bg: #f6f2ee;
-  --surface: #fffdfb;
-  --text: #221d1a;
-  --muted: #776d66;
-  --line: #e6ddd5;
-  --accent: #b2482a;
-  --accent-text: #ffffff;
-  --accent-soft: #f6e2da;
-  --warn: #b26a00;
-  --bar: #c66a4c;
+  --bg: light-dark(#f6f2ee, #1a1716);
+  --surface: light-dark(#fffdfb, #24201e);
+  --text: light-dark(#221d1a, #eeeae6);
+  --muted: light-dark(#776d66, #a39b94);
+  --line: light-dark(#e6ddd5, #38322f);
+  --accent: light-dark(#b2482a, #f0937a);
+  --accent-text: light-dark(#ffffff, #2a120b);
+  --accent-soft: light-dark(#f6e2da, #46271e);
+  --warn: light-dark(#b26a00, #f0b84a);
+  --bar: light-dark(#c66a4c, #e98a6d);
   /* Kinds of events: icon colour and a soft background */
-  --k-meet: #b2482a;
-  --k-meet-soft: #f6e2da;
-  --k-call: #2f5fa8;
-  --k-call-soft: #e1e9f6;
-  --k-trip: #2e7d4f;
-  --k-trip-soft: #dcefe3;
-  --k-party: #7a4bb0;
-  --k-party-soft: #ece3f6;
-  --k-note: #6b6560;
-  --k-note-soft: #ebe6e1;
+  --k-meet: light-dark(#b2482a, #f0937a);
+  --k-meet-soft: light-dark(#f6e2da, #46271e);
+  --k-call: light-dark(#2f5fa8, #7fa8ea);
+  --k-call-soft: light-dark(#e1e9f6, #24304a);
+  --k-trip: light-dark(#2e7d4f, #6cc48d);
+  --k-trip-soft: light-dark(#dcefe3, #1f3a2a);
+  --k-party: light-dark(#7a4bb0, #b996e6);
+  --k-party-soft: light-dark(#ece3f6, #352a47);
+  --k-note: light-dark(#6b6560, #b3aba4);
+  --k-note-soft: light-dark(#ebe6e1, #34302d);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a1716;
-    --surface: #24201e;
-    --text: #eeeae6;
-    --muted: #a39b94;
-    --line: #38322f;
-    --accent: #f0937a;
-    --accent-text: #2a120b;
-    --accent-soft: #46271e;
-    --warn: #f0b84a;
-    --bar: #e98a6d;
-    --k-meet: #f0937a;
-    --k-meet-soft: #46271e;
-    --k-call: #7fa8ea;
-    --k-call-soft: #24304a;
-    --k-trip: #6cc48d;
-    --k-trip-soft: #1f3a2a;
-    --k-party: #b996e6;
-    --k-party-soft: #352a47;
-    --k-note: #b3aba4;
-    --k-note-soft: #34302d;
-  }
-}
 
 /* Only where there is a mouse and keyboard (tips like Ctrl+V) */
 .pointer-only { display: none; margin: 8px 0 0; }
@@ -69,16 +45,12 @@
   flex: none;
   border-radius: 50%;
   overflow: hidden;
-  background: hsl(var(--h) 45% 87%);
-  color: hsl(var(--h) 40% 28%);
+  background: light-dark(hsl(var(--h) 45% 87%), hsl(var(--h) 25% 26%));
+  color: light-dark(hsl(var(--h) 40% 28%), hsl(var(--h) 50% 82%));
   font-weight: 650;
   letter-spacing: 0.02em;
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-@media (prefers-color-scheme: dark) {
-  .avatar { background: hsl(var(--h) 25% 26%); color: hsl(var(--h) 50% 82%); }
-}
-
 /* Rows as cards: friends, birthdays, plans to settle, memories */
 .card-list { display: flex; flex-direction: column; gap: 8px; }
 .card-list.spaced { margin-top: 10px; }

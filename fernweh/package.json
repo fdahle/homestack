@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "node --no-warnings api/index.js",
     "dev": "concurrently -n api,client -c blue,green \"npm --prefix api run dev\" \"npm --prefix client run dev\"",
     "reset": "node scripts/reset.mjs",
     "reset-password": "node api/reset-password.js",

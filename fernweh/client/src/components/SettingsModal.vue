@@ -355,6 +355,7 @@
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue'
 import { loadSettings, saveSettings } from '../utils/settings.js'
+import { applyTheme } from '../kit/theme.js'
 import { TILES, validTileKey } from '../utils/mapStyle.js'
 import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
@@ -465,8 +466,7 @@ const theme = ref(document.documentElement.getAttribute('data-theme') || 'auto')
 
 function setTheme(key) {
   theme.value = key
-  if (key === 'auto') document.documentElement.removeAttribute('data-theme')
-  else document.documentElement.setAttribute('data-theme', key)
+  applyTheme(key, { store: false })
   try { const s = loadSettings(); s.theme = key; saveSettings(s) } catch {}
 }
 

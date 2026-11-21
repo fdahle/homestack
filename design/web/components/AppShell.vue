@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { session } from '../api.js';
 import { lang, t } from '../i18n.js';
 import { toast } from '../util.js';
+import '../theme.js'; // light, dark or auto, and the status bar's colour
 import Icon from './Icon.vue';
 
 // The frame of every app: the pages, the navigation (tabs at the bottom on the phone,

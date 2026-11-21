@@ -2,57 +2,32 @@
    its statuses and the pages only it has. */
 
 :root {
-  --bg: #f3f2f8;
-  --surface: #fdfcff;
-  --text: #1d1b26;
-  --muted: #6e6a7c;
-  --line: #e2e0ec;
-  --accent: #5448c8;
-  --accent-text: #ffffff;
-  --accent-soft: #e6e3fa;
-  --bar: #7a6fe0;
+  --bg: light-dark(#f3f2f8, #16151c);
+  --surface: light-dark(#fdfcff, #201f28);
+  --text: light-dark(#1d1b26, #ebe9f3);
+  --muted: light-dark(#6e6a7c, #a19db0);
+  --line: light-dark(#e2e0ec, #34323f);
+  --accent: light-dark(#5448c8, #a99eff);
+  --accent-text: light-dark(#ffffff, #17122e);
+  --accent-soft: light-dark(#e6e3fa, #2e2a4d);
+  --bar: light-dark(#7a6fe0, #8f84f0);
   /* Game covers are 3:4 */
   --cover-ratio: 3 / 4;
   /* Statuses: icon color and a soft background */
-  --s-playing: #2f6fd0;
-  --s-playing-soft: #e0eafa;
-  --s-finished: #2e7d4f;
-  --s-finished-soft: #dcefe3;
-  --s-completed: #a86b00;
-  --s-completed-soft: #f8ead0;
-  --s-dropped: #8a5a55;
-  --s-dropped-soft: #efe4e2;
-  --s-backlog: #5448c8;
-  --s-backlog-soft: #e6e3fa;
-  --s-wishlist: #c0397a;
-  --s-wishlist-soft: #f8e0ec;
+  --s-playing: light-dark(#2f6fd0, #82aef0);
+  --s-playing-soft: light-dark(#e0eafa, #1f2d46);
+  --s-finished: light-dark(#2e7d4f, #6cc48d);
+  --s-finished-soft: light-dark(#dcefe3, #1f3a2a);
+  --s-completed: light-dark(#a86b00, #f0c060);
+  --s-completed-soft: light-dark(#f8ead0, #42341a);
+  --s-dropped: light-dark(#8a5a55, #c9a39e);
+  --s-dropped-soft: light-dark(#efe4e2, #3a2c2a);
+  --s-backlog: light-dark(#5448c8, #a99eff);
+  --s-backlog-soft: light-dark(#e6e3fa, #2e2a4d);
+  --s-wishlist: light-dark(#c0397a, #f08cbc);
+  --s-wishlist-soft: light-dark(#f8e0ec, #43233a);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16151c;
-    --surface: #201f28;
-    --text: #ebe9f3;
-    --muted: #a19db0;
-    --line: #34323f;
-    --accent: #a99eff;
-    --accent-text: #17122e;
-    --accent-soft: #2e2a4d;
-    --bar: #8f84f0;
-    --s-playing: #82aef0;
-    --s-playing-soft: #1f2d46;
-    --s-finished: #6cc48d;
-    --s-finished-soft: #1f3a2a;
-    --s-completed: #f0c060;
-    --s-completed-soft: #42341a;
-    --s-dropped: #c9a39e;
-    --s-dropped-soft: #3a2c2a;
-    --s-backlog: #a99eff;
-    --s-backlog-soft: #2e2a4d;
-    --s-wishlist: #f08cbc;
-    --s-wishlist-soft: #43233a;
-  }
-}
 
 .st-playing { --st: var(--s-playing); --st-soft: var(--s-playing-soft); }
 .st-finished { --st: var(--s-finished); --st-soft: var(--s-finished-soft); }

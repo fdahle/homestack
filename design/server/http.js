@@ -35,7 +35,8 @@ const publicUser = ({ password_hash, session_version, ...u }) => u;
 
 // POST /api/login, POST /api/logout, then the login check for everything under `protect`,
 // then GET/PATCH /api/me. Routes added after this call are behind the login.
-export function mountAccount(app, { auth, users, protect = ['/api'] }) {
+// me(user): extra fields for /api/me (Stapel: is_admin).
+export function mountAccount(app, { auth, users, protect = ['/api'], me = () => ({}) }) {
   app.post('/api/login', route(async (req, res) => {
     if (auth.viaProxy) return res.status(400).json({ error: 'login_via_proxy' });
     let user;
@@ -57,7 +58,7 @@ export function mountAccount(app, { auth, users, protect = ['/api'] }) {
 
   app.use(protect, auth.requireLogin);
 
-  app.get('/api/me', (req, res) => res.json(publicUser(req.user)));
+  app.get('/api/me', (req, res) => res.json({ ...publicUser(req.user), ...me(req.user) }));
 
   app.patch('/api/me', route(async (req, res) => {
     const { lang, displayName, currentPassword, newPassword } = req.body;
@@ -74,7 +75,7 @@ export function mountAccount(app, { auth, users, protect = ['/api'] }) {
     });
     const user = { ...users.getUser(req.user.id), via_proxy: req.user.via_proxy };
     if (newPassword !== undefined) auth.setSessionCookie(req, res, user); // keep this device logged in
-    res.json(publicUser(user));
+    res.json({ ...publicUser(user), ...me(user) });
   }));
 }
 

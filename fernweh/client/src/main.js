@@ -5,13 +5,14 @@ import { createPinia } from 'pinia'
 import { loadSettings } from './utils/settings.js'
 import router from './router/index.js'
 import App from './App.vue'
+import { applyTheme } from './kit/theme.js'
 import './kit/tokens.css'
 import './theme.css'
 
+// Follows the system unless the settings pin light or dark. Fernweh keeps the choice in its own
+// settings; the kit sets data-theme and the phone's status bar colour to match.
 try {
-  const s = loadSettings()
-  // Follows the system unless the settings pin light or dark
-  if (s?.theme === 'dark' || s?.theme === 'light') document.documentElement.setAttribute('data-theme', s.theme)
+  applyTheme(loadSettings()?.theme, { store: false })
 } catch {}
 
 const app = createApp(App)
