@@ -3,7 +3,7 @@
 #
 # Behind Authelia: the apps with personal data, Leute (friends.fdahle.de) and Stammbaum
 # (family.fdahle.de). The lists (games, watch, books, comics, read) keep their own
-# password, and Fernweh and Zettel their own login. To add one later, give it a rule
+# password, and Fernweh and Zettel their own login (both ready for Authelia). To add one later, give it a rule
 # like Leute's and switch its nginx config to the Authelia version.
 
 session:

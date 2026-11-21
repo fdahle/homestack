@@ -67,7 +67,7 @@ Authelia's session cookie is set for `fdahle.de`, so it covers every subdomain: 
 2. `install -m 644 deploy/nginx/homestack-authelia.conf /etc/nginx/snippets/` (next to Authelia's own `authelia-location.conf` and `authelia-authrequest.conf`, which Stammbaum already uses).
 3. `install -d -m 750 -o root -g www-data /etc/nginx/homestack-secrets`
 
-**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal, Leute) or follows it (Fernweh), shown for Leute:
+**Per app** that uses the [design kit](../design/README.md#login) (Checkpoint, Flimmer, Regal, Leute, Stapel, Zettel, Haken) or follows it (Fernweh), shown for Leute:
 
 ```sh
 secret=$(openssl rand -hex 32)
@@ -89,8 +89,10 @@ The app then has no login page of its own: it takes the user from Authelia and m
 | Stammbaum | Behind Authelia, with its own `STAMMBAUM_PROXY_SECRET` |
 | Checkpoint, Flimmer, Regal | Their own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above whenever you want |
 | Fernweh | Its own password; ready for Authelia too (`AUTH_PROXY_SECRET`, conf in its `deploy/`) |
-| Stapel, Backlog | Their own password; behind Authelia they would ask for it once more per device until they move to the design kit |
-| Zettel | Its own login, which also unlocks your notes database and encryption key; Authelia could sit in front for a second factor |
+| Stapel | Its own password; ready for Authelia with the steps above (the first account is the admin who can add people; behind Authelia everyone gets an account by logging in there) |
+| Backlog | Its own username and password (`ADMIN_USER`/`ADMIN_PASSWORD`); behind Authelia it would ask for it once more per device |
+| Zettel | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above. Opens offline with the account it last saw |
+| Haken | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above, with a bypass for `/ics/` like Leute's. Opens offline with the account it last saw |
 
 ## Apps that talk to each other
 
