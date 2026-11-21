@@ -13,6 +13,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       GCD_EMAIL: ${GCD_EMAIL:-}
       GCD_PASSWORD: ${GCD_PASSWORD:-}
+      GCD_BACKGROUND_PER_HOUR: ${GCD_BACKGROUND_PER_HOUR:-}
+      COMICVINE_API_KEY: ${COMICVINE_API_KEY:-}
       TZ: ${TZ:-Europe/Berlin}
     volumes:
       - stapel-data:/data

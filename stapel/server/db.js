@@ -118,6 +118,15 @@ function addColumn(table, column, definition) {
 }
 addColumn('users', 'session_version', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('issues', 'user_fields', "TEXT NOT NULL DEFAULT ''");
+// Covers from Comic Vine: a series is linked to a Comic Vine volume (cv_state: 'auto'
+// when matched automatically, 'manual' when picked, 'none' when there is none,
+// NULL when not looked for yet). Its issues get the cover URL to download.
+addColumn('series', 'cv_volume_id', 'INTEGER');
+addColumn('series', 'cv_volume_name', 'TEXT');
+addColumn('series', 'cv_state', 'TEXT');
+addColumn('series', 'cv_synced_at', 'TEXT');
+addColumn('issues', 'cv_cover_url', 'TEXT');
+addColumn('issues', 'cover_source', 'TEXT'); // 'cv', 'library', 'photo'
 
 export const now = () => new Date().toISOString();
 
@@ -345,7 +354,7 @@ export function addCustomIssues(seriesId, items) {
 }
 
 export function updateIssueInfo(id, fields) {
-  const allowed = ['number', 'title', 'variant', 'isbn', 'barcode', 'key_date', 'price', 'page_count', 'credits', 'cover_url', 'cover_file', 'details_at', 'details_failed', 'user_fields'];
+  const allowed = ['number', 'title', 'variant', 'isbn', 'barcode', 'key_date', 'price', 'page_count', 'credits', 'cover_url', 'cover_file', 'cover_source', 'cv_cover_url', 'details_at', 'details_failed', 'user_fields'];
   const keys = Object.keys(fields).filter((k) => allowed.includes(k));
   if (!keys.length) return;
   db.prepare(`UPDATE issues SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => fields[k] ?? null), id);
@@ -482,21 +491,38 @@ export function missingIssues(userId) {
 
 // --- background work ---
 
-// Next issue that still needs details/cover from GCD, most useful first:
-// owned by anyone, then wanted, then the rest of collected series.
-export function nextIssueNeedingDetails() {
-  return db.prepare(`
-    SELECT i.* FROM issues i
-    LEFT JOIN (SELECT issue_id, MAX(owned_at IS NOT NULL) * 2 + MAX(wanted_at IS NOT NULL) AS prio FROM user_issues GROUP BY issue_id) u ON u.issue_id = i.id
+// The waiting list of issues that still need details/cover from GCD, most useful
+// first: series asked for with "Cover laden", then issues owned by anyone, then
+// wanted ones, then the rest of collected series; reprints and variants last.
+// :requested is a JSON array of series ids.
+const DETAILS_QUEUE = `
+  WITH req AS (SELECT value AS series_id FROM json_each(:requested)),
+  prio AS (SELECT issue_id, MAX(owned_at IS NOT NULL) * 2 + MAX(wanted_at IS NOT NULL) AS prio FROM user_issues GROUP BY issue_id),
+  queue AS (
+    SELECT i.*, ROW_NUMBER() OVER (
+      ORDER BY i.series_id IN (SELECT series_id FROM req) DESC, COALESCE(p.prio, 0) DESC, i.is_variant, i.series_id, i.position
+    ) AS rn
+    FROM issues i LEFT JOIN prio p ON p.issue_id = i.id
     WHERE i.gcd_id IS NOT NULL AND i.details_at IS NULL AND i.details_failed = 0
-      AND (u.prio > 0 OR i.series_id IN (SELECT series_id FROM user_series))
-    ORDER BY COALESCE(u.prio, 0) DESC, i.is_variant, i.series_id, i.position
-    LIMIT 1`).get();
-}
+      AND (p.prio > 0 OR i.series_id IN (SELECT series_id FROM user_series) OR i.series_id IN (SELECT series_id FROM req))
+  )`;
 
-export const countIssuesNeedingDetails = () =>
-  db.prepare(`SELECT COUNT(*) AS n FROM issues WHERE gcd_id IS NOT NULL AND details_at IS NULL AND details_failed = 0
-    AND (series_id IN (SELECT series_id FROM user_series) OR id IN (SELECT issue_id FROM user_issues))`).get().n;
+export const nextIssueNeedingDetails = (requested = []) =>
+  db.prepare(`${DETAILS_QUEUE} SELECT * FROM queue ORDER BY rn LIMIT 1`).get({ requested: JSON.stringify(requested) });
+
+export const countIssuesNeedingDetails = (requested = []) =>
+  db.prepare(`${DETAILS_QUEUE} SELECT COUNT(*) AS n FROM queue`).get({ requested: JSON.stringify(requested) }).n;
+
+// Where a series stands in the waiting list: how many of its issues wait, and the
+// place in the list of its last one (for "done in about …").
+export const seriesQueue = (seriesId, requested = []) =>
+  db.prepare(`${DETAILS_QUEUE}
+    SELECT COUNT(*) AS waiting, COALESCE(SUM(is_variant = 0), 0) AS waitingMain,
+      MIN(rn) AS first, MAX(CASE WHEN is_variant = 0 THEN rn END) AS lastMain, MAX(rn) AS last
+    FROM queue WHERE series_id = :series`).get({ requested: JSON.stringify(requested), series: seriesId });
+
+export const seriesHasWaitingDetails = (seriesId) =>
+  Boolean(db.prepare('SELECT 1 FROM issues WHERE series_id = ? AND gcd_id IS NOT NULL AND details_at IS NULL AND details_failed = 0 LIMIT 1').get(seriesId));
 
 export const coverCount = () => db.prepare('SELECT COUNT(*) AS n FROM issues WHERE cover_file IS NOT NULL').get().n;
 
@@ -504,8 +530,85 @@ export const seriesNeedingSync = (olderThanIso) =>
   db.prepare(`SELECT * FROM series WHERE gcd_id IS NOT NULL AND id IN (SELECT series_id FROM user_series)
     AND (synced_at IS NULL OR synced_at < ?) ORDER BY synced_at LIMIT 1`).get(olderThanIso);
 
-export const seriesMissingPublisher = () =>
-  db.prepare('SELECT DISTINCT publisher_gcd_id AS id FROM series WHERE publisher_gcd_id IS NOT NULL AND publisher_name IS NULL LIMIT 1').get()?.id;
+export const seriesMissingPublisher = (skip = []) =>
+  db.prepare(`SELECT DISTINCT publisher_gcd_id AS id FROM series WHERE publisher_gcd_id IS NOT NULL AND publisher_name IS NULL
+    AND publisher_gcd_id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`).get(JSON.stringify(skip))?.id;
+
+// --- Comic Vine covers ---
+
+// A collected series that hasn't been looked up on Comic Vine yet
+export const seriesNeedingCvMatch = () =>
+  db.prepare(`SELECT s.*, (SELECT COUNT(DISTINCT number) FROM issues WHERE series_id = s.id) AS issue_count
+    FROM series s WHERE s.cv_state IS NULL AND s.id IN (SELECT series_id FROM user_series) ORDER BY s.id LIMIT 1`).get();
+
+// A linked series whose Comic Vine issue list is missing or older than olderThanIso
+export const seriesNeedingCvSync = (olderThanIso) =>
+  db.prepare(`SELECT * FROM series WHERE cv_volume_id IS NOT NULL AND cv_state IN ('auto', 'manual')
+    AND (cv_synced_at IS NULL OR cv_synced_at < ?) ORDER BY cv_synced_at IS NOT NULL, cv_synced_at LIMIT 1`).get(olderThanIso);
+
+export function setCvVolume(seriesId, { volumeId = null, name = null, state }) {
+  db.prepare('UPDATE series SET cv_volume_id = ?, cv_volume_name = ?, cv_state = ?, cv_synced_at = NULL WHERE id = ?').run(volumeId, name, state, seriesId);
+}
+
+// Covers that came from Comic Vine for a series (to remove when the link changes)
+export function clearCvCovers(seriesId) {
+  return transaction(() => {
+    const files = db.prepare("SELECT cover_file FROM issues WHERE series_id = ? AND cover_source = 'cv' AND cover_file IS NOT NULL").all(seriesId).map((r) => r.cover_file);
+    db.prepare("UPDATE issues SET cover_file = NULL, cover_source = NULL WHERE series_id = ? AND cover_source = 'cv'").run(seriesId);
+    db.prepare('UPDATE issues SET cv_cover_url = NULL WHERE series_id = ?').run(seriesId);
+    return files;
+  });
+}
+
+// Gives each issue of the series the Comic Vine cover of its number. The first
+// printing of a number gets the cover; reprints and variants keep their own.
+export function assignCvCovers(seriesId, cvIssues) {
+  const norm = (n) => String(n || '').trim().replace(/^#/, '').replace(/^0+(?=\d)/, '').toLowerCase();
+  const byNumber = new Map();
+  for (const i of cvIssues) if (i.coverUrl && !byNumber.has(norm(i.number))) byNumber.set(norm(i.number), i.coverUrl);
+  transaction(() => {
+    const update = db.prepare('UPDATE issues SET cv_cover_url = ? WHERE id = ?');
+    for (const issue of db.prepare('SELECT id, number, is_variant FROM issues WHERE series_id = ?').all(seriesId)) {
+      update.run(issue.is_variant ? null : byNumber.get(norm(issue.number)) ?? null, issue.id);
+    }
+    db.prepare('UPDATE series SET cv_synced_at = ? WHERE id = ?').run(now(), seriesId);
+  });
+}
+
+// Next cover to download: issues without a cover that have a Comic Vine URL;
+// requested series first, then issues owned by anyone, then wanted, then the rest.
+const CV_COVER_QUEUE = `
+  WITH req AS (SELECT value AS series_id FROM json_each(:requested)),
+  prio AS (SELECT issue_id, MAX(owned_at IS NOT NULL) * 2 + MAX(wanted_at IS NOT NULL) AS prio FROM user_issues GROUP BY issue_id),
+  queue AS (
+    SELECT i.*, ROW_NUMBER() OVER (
+      ORDER BY i.series_id IN (SELECT series_id FROM req) DESC, COALESCE(p.prio, 0) DESC, i.series_id, i.position
+    ) AS rn
+    FROM issues i LEFT JOIN prio p ON p.issue_id = i.id
+    WHERE i.cv_cover_url IS NOT NULL AND i.cover_file IS NULL
+  )`;
+
+export const nextCvCover = (requested = []) =>
+  db.prepare(`${CV_COVER_QUEUE} SELECT * FROM queue ORDER BY rn LIMIT 1`).get({ requested: JSON.stringify(requested) });
+
+export const seriesCvQueue = (seriesId, requested = []) =>
+  db.prepare(`${CV_COVER_QUEUE} SELECT COUNT(*) AS waiting, MAX(rn) AS last FROM queue WHERE series_id = :series`)
+    .get({ requested: JSON.stringify(requested), series: seriesId });
+
+// Per series of a user's collection: covers and GCD details done and still to come
+export const collectionProgress = (userId) =>
+  db.prepare(`
+    SELECT s.id, s.name, s.cv_state, s.cv_volume_name, s.cv_synced_at,
+      COALESCE(SUM(i.cover_file IS NOT NULL), 0) AS covers_done,
+      COALESCE(SUM(i.cv_cover_url IS NOT NULL AND i.cover_file IS NULL), 0) AS covers_waiting,
+      COALESCE(SUM(i.gcd_id IS NOT NULL AND (i.details_at IS NOT NULL OR i.details_failed = 1)), 0) AS details_done,
+      COALESCE(SUM(i.gcd_id IS NOT NULL AND i.details_at IS NULL AND i.details_failed = 0), 0) AS details_waiting
+    FROM user_series us JOIN series s ON s.id = us.series_id LEFT JOIN issues i ON i.series_id = s.id
+    WHERE us.user_id = ?
+    GROUP BY s.id ORDER BY s.name COLLATE NOCASE`).all(userId);
+
+export const countCvCoversWaiting = () =>
+  db.prepare('SELECT COUNT(*) AS n FROM issues WHERE cv_cover_url IS NOT NULL AND cover_file IS NULL').get().n;
 
 // --- export ---
 

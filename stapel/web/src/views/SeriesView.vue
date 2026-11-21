@@ -1,15 +1,17 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api, setStatus } from '../api.js';
 import { t } from '../i18n.js';
-import { compressNumbers, errorText, issueLabel, languageTag, parseNumberList, showToast, yearRange } from '../util.js';
+import { refreshActivity } from '../activity.js';
+import { compressNumbers, detailsWaiting, errorText, issueLabel, languageTag, parseNumberList, showToast, yearRange } from '../util.js';
 import TopBar from '../components/TopBar.vue';
 import Icon from '../components/Icon.vue';
 import CoverImage from '../components/CoverImage.vue';
 
 const props = defineProps({ id: String });
 const router = useRouter();
+const route = useRoute();
 
 const data = ref(null);
 const loadError = ref('');
@@ -44,29 +46,38 @@ async function load() {
   }
 }
 
-// While covers are being fetched for this series, refresh now and then
+// While covers or details of this series are on their way, pick up new ones now and then
+// (often while Comic Vine covers come in, which is a few a minute; rarely for GCD details)
 let poll = null;
+const cvBusy = (d) => d?.comicvine.enabled && (d.comicvine.waiting > 0 || d.comicvine.state === null || (d.comicvine.volume && !d.comicvine.synced));
 function startPolling() {
-  clearInterval(poll);
-  poll = setInterval(async () => {
-    if (document.hidden) return;
-    const fresh = await api(`/series/${props.id}`).catch(() => null);
-    if (!fresh) return;
-    const byId = new Map(fresh.issues.map((i) => [i.id, i]));
-    for (const issue of data.value.issues) {
-      const f = byId.get(issue.id);
-      if (f) Object.assign(issue, { cover_file: f.cover_file, cover_url: f.cover_url, details_at: f.details_at, title: f.title });
+  clearTimeout(poll);
+  if (!cvBusy(data.value) && !data.value?.covers.waiting) return;
+  poll = setTimeout(async () => {
+    const fresh = document.hidden ? null : await api(`/series/${props.id}`).catch(() => null);
+    if (fresh) {
+      const byId = new Map(fresh.issues.map((i) => [i.id, i]));
+      for (const issue of data.value.issues) {
+        const f = byId.get(issue.id);
+        if (f) Object.assign(issue, { cover_file: f.cover_file, cv_cover_url: f.cv_cover_url, details_at: f.details_at, details_failed: f.details_failed, title: f.title });
+      }
+      data.value.covers = fresh.covers;
+      data.value.comicvine = fresh.comicvine;
     }
-    data.value.coversRequested = fresh.coversRequested;
-    if (!fresh.coversRequested) clearInterval(poll);
-  }, 6000);
+    startPolling();
+  }, cvBusy(data.value) ? 8000 : 60_000);
 }
 
 onMounted(async () => {
   await load();
-  if (data.value?.coversRequested) startPolling();
+  startPolling();
+  // From the activity panel: "Auswählen" opens the Comic Vine picker right away
+  if (route.query.cv && data.value?.comicvine.enabled) {
+    router.replace({ query: {} });
+    openCv();
+  }
 });
-onBeforeUnmount(() => clearInterval(poll));
+onBeforeUnmount(() => clearTimeout(poll));
 
 // --- grouping by number: variants and reprints count towards their number ---
 
@@ -114,7 +125,56 @@ const tiles = computed(() => {
   return list;
 });
 
-const pendingCovers = computed(() => (data.value?.issues || []).filter((i) => i.gcd_id && !i.details_at && !i.details_failed && !i.is_variant).length);
+const pendingCovers = computed(() => (data.value?.issues || []).filter((i) => detailsWaiting(i) && !i.is_variant).length);
+
+// Which Comic Vine series the covers come from; progress is in the activity panel
+const cvLine = computed(() => {
+  const c = data.value?.comicvine;
+  if (!c?.enabled) return '';
+  if (c.state === null) return t('cv.looking');
+  if (c.state === 'unmatched') return t('cv.unmatched');
+  if (c.state === 'none') return t('cv.none');
+  return t('cv.linked', { name: c.volume.name });
+});
+
+// Picking the Comic Vine series that supplies the covers
+const cvDialog = ref(null);
+const cvQuery = ref('');
+const cvResults = ref(null);
+const cvSearching = ref(false);
+const cvError = ref('');
+
+function openCv() {
+  menuOpen.value = false;
+  cvQuery.value = data.value.series.name;
+  cvResults.value = null;
+  cvDialog.value.showModal();
+  searchCv();
+}
+
+async function searchCv() {
+  cvSearching.value = true;
+  cvError.value = '';
+  try {
+    cvResults.value = await api(`/series/${props.id}/comicvine?q=${encodeURIComponent(cvQuery.value)}`);
+  } catch (err) {
+    cvError.value = errorText(err);
+  } finally {
+    cvSearching.value = false;
+  }
+}
+
+async function chooseCv(volumeId) {
+  try {
+    data.value.comicvine = await api(`/series/${props.id}/comicvine`, { method: 'POST', body: { volumeId } });
+    cvDialog.value.close();
+    await load();
+    startPolling();
+    refreshActivity();
+  } catch (err) {
+    showToast(errorText(err));
+  }
+}
 
 // --- changing status ---
 
@@ -223,10 +283,10 @@ const menuOpen = ref(false);
 
 async function requestCovers() {
   menuOpen.value = false;
-  await api(`/series/${props.id}/covers`, { method: 'POST' });
-  data.value.coversRequested = true;
+  data.value.covers = await api(`/series/${props.id}/covers`, { method: 'POST' });
   showToast(t('series.coversRequested'));
   startPolling();
+  refreshActivity();
 }
 
 async function resync() {
@@ -307,7 +367,8 @@ const MODE_ICONS = { view: 'eye',owned: 'check', read: 'book', wanted: 'heart' }
 
   <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
   <div v-if="menuOpen" class="menu">
-    <button v-if="data.series.gcd_id && pendingCovers" @click="requestCovers"><Icon name="image" /> {{ t('series.loadCovers', { n: pendingCovers }) }}</button>
+    <button v-if="data.series.gcd_id && pendingCovers && !data.covers.requested" @click="requestCovers"><Icon name="image" /> {{ t('series.loadCovers', { n: pendingCovers }) }}</button>
+    <button v-if="data.comicvine.enabled" @click="openCv"><Icon name="image" /> {{ t('cv.change') }}</button>
     <button v-if="data.series.gcd_id" @click="resync"><Icon name="refresh" /> {{ t('series.resync') }}</button>
     <button @click="openAdd"><Icon name="plus" /> {{ t('series.addIssues') }}</button>
     <button v-if="!data.series.gcd_id" @click="openEdit"><Icon name="edit" /> {{ t('series.edit') }}</button>
@@ -340,7 +401,11 @@ const MODE_ICONS = { view: 'eye',owned: 'check', read: 'book', wanted: 'heart' }
         <button v-if="missingText.length > 160" class="link-btn" @click="showAllMissing = !showAllMissing">{{ showAllMissing ? t('less') : t('moreText') }}</button>
       </p>
       <p v-else-if="stats.total && stats.owned === stats.total" class="ok">{{ t('series.completeBanner') }}</p>
-      <p v-if="data.coversRequested" class="muted small">{{ t('series.coversLoading', { n: pendingCovers }) }}</p>
+      <p v-if="cvLine" class="cover-status muted small" :class="{ warn: data.comicvine.state === 'unmatched' }">
+        <Icon name="image" />
+        <span>{{ cvLine }}</span>
+        <button class="link-btn" @click="openCv">{{ data.comicvine.volume ? t('cv.changeShort') : t('cv.pick') }}</button>
+      </p>
     </section>
 
     <div class="mode-bar" role="radiogroup" :aria-label="t('series.tapMode')">
@@ -430,6 +495,37 @@ const MODE_ICONS = { view: 'eye',owned: 'check', read: 'book', wanted: 'heart' }
         <button class="btn primary">{{ t('add') }}</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog ref="cvDialog" class="dialog cv-dialog">
+    <form @submit.prevent="searchCv">
+      <h2>{{ t('cv.title') }}</h2>
+      <p class="muted small">{{ t('cv.hint') }}</p>
+      <div class="cv-search">
+        <input v-model="cvQuery" :placeholder="t('cv.searchPlaceholder')" required />
+        <button class="btn" :disabled="cvSearching">{{ t('cv.search') }}</button>
+      </div>
+    </form>
+    <p v-if="cvError" class="error small">{{ cvError }}</p>
+    <p v-else-if="cvSearching && !cvResults" class="muted small">{{ t('cv.searching') }}</p>
+    <ul v-if="cvResults" class="cv-results">
+      <li v-if="!cvResults.length" class="muted small">{{ t('cv.noResults') }}</li>
+      <li v-for="v in cvResults" :key="v.id" :class="{ current: data.comicvine.volume?.id === v.id }">
+        <img v-if="v.image" :src="v.image" alt="" loading="lazy" referrerpolicy="no-referrer" />
+        <span v-else class="cv-noimg"></span>
+        <span class="cv-info">
+          <strong>{{ v.name }}</strong>
+          <small>{{ [v.startYear, v.publisher, t('cv.issues', { n: v.issueCount ?? '?' })].filter(Boolean).join(' · ') }}</small>
+          <small v-if="v.score >= 6" class="ok">{{ t('cv.goodFit') }}</small>
+        </span>
+        <button v-if="data.comicvine.volume?.id !== v.id" class="btn small" @click="chooseCv(v.id)">{{ t('cv.choose') }}</button>
+        <span v-else class="ok small">{{ t('cv.current') }}</span>
+      </li>
+    </ul>
+    <div class="row-buttons end">
+      <button v-if="data?.comicvine.state !== 'none'" type="button" class="btn subtle" @click="chooseCv(null)">{{ t('cv.noCovers') }}</button>
+      <button type="button" class="btn subtle" @click="cvDialog.close()">{{ t('cancel') }}</button>
+    </div>
   </dialog>
 
   <dialog ref="editDialog" class="dialog">

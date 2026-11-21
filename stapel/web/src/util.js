@@ -1,8 +1,31 @@
 import { reactive } from 'vue';
 import { lang, t } from './i18n.js';
 
-// Covers stored on the server win; otherwise the browser loads GCD's scan directly.
-export const coverSrc = (issue) => (issue?.cover_file ? `/covers/${issue.cover_file}` : issue?.cover_url || null);
+// Only covers stored on the server are shown. GCD's scans can't be used: GCD doesn't
+// allow servers to download them, and its image server sends
+// Cross-Origin-Resource-Policy, so browsers refuse to show them on other sites.
+export const coverSrc = (issue) => (issue?.cover_file ? `/covers/${issue.cover_file}` : null);
+
+// Whether an issue's cover is on its way from Comic Vine
+export const coverWaiting = (issue) => Boolean(issue?.cv_cover_url && !issue.cover_file);
+
+// Whether an issue's details are still on the waiting list for GCD
+export const detailsWaiting = (issue) => Boolean(issue?.gcd_id && !issue.details_at && !issue.details_failed);
+
+// A time from now as "in 25 Min.", "um 21:40" or "Mo., 08:00"
+export function fmtWhen(iso) {
+  if (!iso) return '';
+  const at = new Date(iso);
+  const minutes = Math.round((at - Date.now()) / 60_000);
+  if (minutes <= 1) return t('time.now');
+  if (minutes < 60) return t('time.inMinutes', { n: minutes });
+  if (minutes < 24 * 60 && at.getDate() === new Date().getDate()) {
+    return t('time.at', { time: at.toLocaleTimeString(lang.value, { hour: '2-digit', minute: '2-digit' }) });
+  }
+  const days = Math.round(minutes / (24 * 60));
+  if (days >= 2) return t('time.inDays', { n: days });
+  return at.toLocaleString(lang.value, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
 
 // "1, 2, 3, 5, 7, 8, 9" → "1–3, 5, 7–9" (non-numeric numbers are listed as they are)
 export function compressNumbers(numbers) {

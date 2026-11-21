@@ -16,16 +16,18 @@ A self-hosted tracker for a comic collection: which comics you own, which you've
 |---|---|---|
 | Series, issue lists, details, credits | GCD API | Free and maintained by volunteers. Data under CC BY-SA 4.0. |
 | ISBN lookups | DNB, Open Library | No account needed |
-| Covers | GCD (shown by your browser), DNB and Open Library (stored), your own photos | GCD doesn't allow servers to download its scans, so Stapel only stores links to them |
+| Covers | Comic Vine API, DNB and Open Library by ISBN, your own photos | All stored by Stapel. Comic Vine needs a free API key. GCD's scans can't be used: GCD doesn't allow servers to download them, and its image server forbids showing them on other sites (`Cross-Origin-Resource-Policy`) |
 
-**GCD rate limits.** GCD throttles hard. In testing, anonymous requests were blocked for about 40 minutes after roughly 50 requests in an hour. With an account the limits are reportedly 20 per minute, 200 per hour and 2000 per day. **Create a free account** at comics.org and put it in `.env` as `GCD_EMAIL`/`GCD_PASSWORD`. Stapel counts its own requests and stays below the limits. Searches are cached for 3 days, and series lists are refreshed weekly. The issue details behind the covers load in the background, one request every 10 seconds, with the issues you own going first. When the limit is reached, the app says when GCD is available again. Your collection keeps working in the meantime.
+**GCD rate limits.** GCD throttles hard. In testing, anonymous requests were blocked for about 40 minutes after roughly 50 requests in an hour. With an account the limits are reportedly 20 per minute, 200 per hour and 2000 per day. **Create a free account** at comics.org and put it in `.env` as `GCD_EMAIL`/`GCD_PASSWORD`. Stapel counts its own requests and stays below the limits. Searches are cached for 3 days, and series lists are refreshed weekly.
+
+Issue details (date, price, ISBN, credits) come from a waiting list that is worked through slowly in the background: at most 25 requests an hour without an account (100 with one, set with `GCD_BACKGROUND_PER_HOUR`), spread evenly over the hour. Your own searches count towards that, so the more you search, the slower it goes. Issues you own go first, then wanted ones; "Details dieser Serie zuerst" in a series' ⋯ menu moves that series to the front. A series page shows how many issues are still waiting and roughly when they'll be done, and waiting issues have an hourglass. Issues whose details bring an ISBN get their cover from the DNB or Open Library. A big series takes a while: Lustiges Taschenbuch's ~600 numbers take about a day without an account. When GCD's limit is reached anyway, the app says when GCD is available again. Your collection keeps working in the meantime.
 
 Adding a series costs **one** request, however many issues it has. Searching costs 1–5 requests, because GCD can't filter by language: Stapel reads its result pages until it has enough matches in the chosen languages.
 
 ## Deploy
 
 ```sh
-cp .env.example .env        # set ADMIN_PASSWORD, GCD_EMAIL, GCD_PASSWORD, PORT
+cp .env.example .env        # set ADMIN_PASSWORD, COMICVINE_API_KEY, GCD_EMAIL, GCD_PASSWORD, PORT
 docker compose up -d --build
 ```
 
@@ -41,7 +43,7 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 
 **When GCD doesn't have a series:** "Selbst anlegen" creates a series by hand with numbers like `1-50`. Any series can get extra issues from its ⋯ menu.
 
-**Covers:** GCD covers come with the issue details, which load in the background. "Cover laden" in a series' ⋯ menu moves that series to the front of the queue. Issues with an ISBN get a stored cover from the DNB. "Foto" on an issue page takes your own.
+**Covers:** come from [Comic Vine](https://comicvine.gamespot.com/api/) (free API key as `COMICVINE_API_KEY`). Each series is linked to a Comic Vine series: automatically when one clearly fits (same start year, similar number of issues, same publisher), otherwise pick it on the series page ("Auswählen", or "Comic-Vine-Serie für Cover" in the ⋯ menu). Covers are matched by number and downloaded in the background, about one every 2 seconds, so Lustiges Taschenbuch's 616 covers take about 20 minutes. Reprints and variants keep a placeholder. Issues without a Comic Vine cover but with an ISBN get one from the DNB or Open Library. "Foto" on an issue page takes your own, and it is never replaced.
 
 ## Configuration
 
@@ -49,7 +51,9 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 |---|---|---|
 | `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / – | First account, created when there are no users |
 | `GCD_EMAIL` / `GCD_PASSWORD` | – | GCD account for higher rate limits (recommended) |
-| `GCD_PER_MINUTE` / `_HOUR` / `_DAY` | 20 / 200 / 2000 | GCD limits Stapel stays under |
+| `COMICVINE_API_KEY` | – | Comic Vine API key for covers (recommended) |
+| `GCD_PER_MINUTE` / `_HOUR` / `_DAY` | 20 / 200 / 2000 (without account: 10 / 40 / 400) | GCD limits Stapel stays under |
+| `GCD_BACKGROUND_PER_HOUR` | 100 (without account: 25) | Requests per hour for covers and refreshes in the background, your searches included |
 | `RESYNC_DAYS` | 7 | How often collected series are checked for new issues |
 | `PORT` | 3067 | |
 | `DATA_DIR` | `/data` | Where `stapel.db` and `covers/` live |
@@ -60,10 +64,11 @@ Needs Node 24 or newer (it uses the built-in `node:sqlite`).
 
 ```sh
 npm install
-ADMIN_PASSWORD=testtest DATA_DIR=./data npm run dev   # API on :3067
-npm run dev:web                                       # Vue with hot reload on :5167
+cp .env.example .env    # set ADMIN_PASSWORD, DATA_DIR=./data and your GCD account
+npm run dev            # API on :3067, reads .env
+npm run dev:web        # Vue with hot reload on :5167
 ```
 
 `npm run build` builds the frontend into `dist/`, which the server serves when it exists.
 
-Code map: `server/gcd.js` is the rate-limited, cached GCD client. `server/catalog.js` imports series and issues and runs the background worker. `server/isbn.js` does the DNB/Open Library lookups. `server/db.js` holds all SQL, and `server/server.js` the routes. The Vue app is in `web/src` (`views/` per page, `i18n.js` for the German and English texts). `npm run icons` regenerates the app icons.
+Code map: `server/gcd.js` is the rate-limited, cached GCD client. `server/catalog.js` imports series and issues and runs the background worker. `server/isbn.js` does the DNB/Open Library lookups. `server/comicvine.js` is the Comic Vine client and `server/covers.js` links series to it and downloads covers. `server/db.js` holds all SQL, and `server/server.js` the routes. The Vue app is in `web/src` (`views/` per page, `i18n.js` for the German and English texts). `npm run icons` regenerates the app icons.

@@ -8,8 +8,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server/server.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch server/server.js",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/server.js",
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server/server.js",
     "dev:web": "vite",
     "build": "vite build",
     "icons": "node scripts/make-icons.js"

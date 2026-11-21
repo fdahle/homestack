@@ -1,8 +1,11 @@
 // Client for the Grand Comics Database API (https://www.comics.org/api/).
-// GCD allows roughly 20 requests a minute, 200 an hour and 2000 a day, so every
-// request goes through one queue that counts against those limits, and responses
-// are cached. Background work (covers, refreshes) leaves a reserve for what you do
-// in the app.
+// With an account GCD allows roughly 20 requests a minute, 200 an hour and 2000 a
+// day; without one it blocks after about 50 an hour. Every request goes through one
+// queue that counts against those limits, and responses are cached.
+//
+// Background work (covers, refreshes) goes slowly on purpose: at most
+// GCD_BACKGROUND_PER_HOUR requests an hour, counting what you did in the app, and
+// spread evenly over the hour. What you do in the app always comes first.
 
 import { db } from './db.js';
 
@@ -11,17 +14,25 @@ const USER_AGENT = process.env.USER_AGENT || 'Stapel/1.0 (self-hosted comic coll
 const AUTH = process.env.GCD_EMAIL && process.env.GCD_PASSWORD
   ? `Basic ${Buffer.from(`${process.env.GCD_EMAIL}:${process.env.GCD_PASSWORD}`).toString('base64')}`
   : null;
+export const HAS_ACCOUNT = Boolean(AUTH);
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-// reserve: how many requests background work leaves free for you
+const env = (name, fallback) => Number(process.env[name]) || fallback;
+const PER_HOUR = env('GCD_PER_HOUR', AUTH ? 200 : 40);
+const PER_DAY = env('GCD_PER_DAY', AUTH ? 2000 : 400);
+export const BACKGROUND_PER_HOUR = Math.min(env('GCD_BACKGROUND_PER_HOUR', AUTH ? 100 : 25), PER_HOUR);
+// background: how many requests in the window (yours included) background work may go up to
 const LIMITS = [
-  { window: MINUTE, max: Number(process.env.GCD_PER_MINUTE || 20), reserve: 12 },
-  { window: HOUR, max: Number(process.env.GCD_PER_HOUR || 200), reserve: 60 },
-  { window: DAY, max: Number(process.env.GCD_PER_DAY || 2000), reserve: 400 },
+  { window: MINUTE, max: env('GCD_PER_MINUTE', AUTH ? 20 : 10), background: 3 },
+  { window: HOUR, max: PER_HOUR, background: BACKGROUND_PER_HOUR },
+  { window: DAY, max: PER_DAY, background: Math.min(BACKGROUND_PER_HOUR * 24, Math.floor(PER_DAY * 0.8)) },
 ];
 const MIN_SPACING_MS = 1500;
+// Background requests are spread over the hour instead of going out in a burst
+export const BACKGROUND_SPACING_MS = Math.ceil(HOUR / BACKGROUND_PER_HOUR);
+let lastBackgroundAt = 0;
 
 export class GcdBusyError extends Error {
   constructor(retryAt) {
@@ -47,6 +58,8 @@ export function usage() {
     hour: countSince(t - HOUR).n,
     day: countSince(t - DAY).n,
     limits: { minute: LIMITS[0].max, hour: LIMITS[1].max, day: LIMITS[2].max },
+    backgroundPerHour: BACKGROUND_PER_HOUR,
+    account: HAS_ACCOUNT,
     cooldownUntil: cooldownUntil > t ? new Date(cooldownUntil).toISOString() : null,
   };
 }
@@ -55,8 +68,9 @@ export function usage() {
 function nextSlot(background) {
   const t = Date.now();
   let wait = Math.max(cooldownUntil, lastRequestAt + MIN_SPACING_MS);
-  for (const { window, max, reserve } of LIMITS) {
-    const allowed = background ? max - reserve : max;
+  if (background) wait = Math.max(wait, lastBackgroundAt + BACKGROUND_SPACING_MS);
+  for (const { window, max, background: backgroundMax } of LIMITS) {
+    const allowed = background ? backgroundMax : max;
     const { n, first } = countSince(t - window);
     if (n >= allowed) {
       // The oldest requests in the window have to expire first
@@ -68,8 +82,9 @@ function nextSlot(background) {
   return wait > t ? wait : 0;
 }
 
-export function canRunBackground() {
-  return nextSlot(true) === 0;
+// When background work may send its next request (a timestamp; now or earlier = right away)
+export function nextBackgroundAt() {
+  return nextSlot(true) || Date.now();
 }
 
 async function request(path, { background }) {
@@ -84,6 +99,7 @@ async function request(path, { background }) {
   }
 
   lastRequestAt = Date.now();
+  if (background) lastBackgroundAt = lastRequestAt;
   db.prepare('INSERT INTO gcd_requests (at) VALUES (?)').run(lastRequestAt);
   const res = await fetch(`${BASE}${path}`, {
     headers: { Accept: 'application/json', 'User-Agent': USER_AGENT, ...(AUTH ? { Authorization: AUTH } : {}) },

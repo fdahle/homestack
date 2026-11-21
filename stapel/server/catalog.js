@@ -4,7 +4,7 @@
 import { unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import * as store from './db.js';
-import { canRunBackground, DAY_MS, gcdGet, GcdBusyError, GcdNotFoundError, idFromUrl } from './gcd.js';
+import { BACKGROUND_PER_HOUR, BACKGROUND_SPACING_MS, DAY_MS, gcdGet, GcdBusyError, GcdNotFoundError, idFromUrl, nextBackgroundAt, usage } from './gcd.js';
 import { parseCode } from './isbn.js';
 
 const USER_AGENT = process.env.USER_AGENT || 'Stapel/1.0 (self-hosted comic collection tracker)';
@@ -115,6 +115,8 @@ export async function importSeries(gcdId, { background = false, maxAgeMs = DAY_M
     return { gcd_id: idFromUrl(url), position: i + 1, ...p, is_variant: isVariant };
   }).filter((it) => it.gcd_id);
   await removeCoverFiles(store.syncIssues(seriesId, issues));
+  // New issues need their Comic Vine covers assigned too
+  store.db.prepare('UPDATE series SET cv_synced_at = NULL WHERE id = ? AND cv_volume_id IS NOT NULL').run(seriesId);
 
   try {
     await ensurePublisher(publisherId, { background });
@@ -145,9 +147,9 @@ function creditsOf(stories = []) {
 
 const firstCode = (value, pattern) => String(value || '').split(/[;,]/).map((v) => v.replace(pattern, '')).find((v) => v.length >= 8) || null;
 
-// Library covers come only from these hosts (Open Library redirects to archive.org),
+// Covers are downloaded only from these hosts (Open Library redirects to archive.org),
 // checked again on every redirect.
-const COVER_HOSTS = /(^|\.)(dnb\.de|openlibrary\.org|archive\.org)$/;
+const COVER_HOSTS = /(^|\.)(dnb\.de|openlibrary\.org|archive\.org)$|^comicvine\.gamespot\.com$/;
 const MAX_COVER_BYTES = 10 * 1024 * 1024;
 
 function allowedCoverUrl(url) {
@@ -173,13 +175,25 @@ export async function fetchImage(url) {
       continue;
     }
     const type = res.headers.get('content-type') || '';
-    if (!res.ok || !/^image\/(jpeg|png|webp|gif)\b/.test(type)) {
+    // Comic Vine serves its images as application/octet-stream; the bytes tell the format
+    if (!res.ok || !/^(image\/(jpeg|png|webp|gif)|application\/octet-stream)\b/.test(type)) {
       await res.body?.cancel();
       throw new Error(`Cover download failed (${res.status} ${type})`);
     }
-    return { type, buffer: await readCapped(res, MAX_COVER_BYTES) };
+    const buffer = await readCapped(res, MAX_COVER_BYTES);
+    const sniffed = imageType(buffer);
+    if (!sniffed) throw new Error('Cover download failed (not an image)');
+    return { type: sniffed, buffer };
   }
   throw new Error('Cover download failed (too many redirects)');
+}
+
+function imageType(b) {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.subarray(0, 4).toString('hex') === '89504e47') return 'image/png';
+  if (b.subarray(0, 4).toString('latin1') === 'GIF8') return 'image/gif';
+  if (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
 }
 
 async function readCapped(res, max) {
@@ -201,29 +215,30 @@ export async function removeCoverFiles(files) {
   for (const file of files) if (file) await unlink(join(store.COVER_DIR, basename(file))).catch(() => {});
 }
 
-// Stores an image as the issue's cover and removes the one it replaces
-async function storeCover(issueId, buffer, type) {
+// Stores an image as the issue's cover and removes the one it replaces.
+// source: 'cv' (Comic Vine), 'library' (DNB/Open Library) or 'photo' (uploaded)
+async function storeCover(issueId, buffer, type, source) {
   const previous = store.getIssue(issueId)?.cover_file;
   const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : 'jpg';
   const file = `${issueId}-${Date.now().toString(36)}.${ext}`;
   await writeFile(join(store.COVER_DIR, file), buffer);
-  store.updateIssueInfo(issueId, { cover_file: file });
+  store.updateIssueInfo(issueId, { cover_file: file, cover_source: source });
   if (previous && previous !== file) await removeCoverFiles([previous]);
   return file;
 }
 
 let lastCoverDownload = 0;
 
-export async function downloadCover(issueId, url) {
+export async function downloadCover(issueId, url, source = 'library') {
   const wait = lastCoverDownload + 700 - Date.now();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastCoverDownload = Date.now();
   const { type, buffer } = await fetchImage(url);
-  return storeCover(issueId, buffer, type);
+  return storeCover(issueId, buffer, type, source);
 }
 
 export async function saveCoverUpload(issueId, buffer, type) {
-  const file = await storeCover(issueId, buffer, type);
+  const file = await storeCover(issueId, buffer, type, 'photo');
   store.markUserFields(issueId, ['cover']);
   return file;
 }
@@ -276,9 +291,14 @@ export async function libraryCover(issueId, isbn) {
 }
 
 // --- background worker ---
+//
+// Works through a waiting list slowly, within the background budget of gcd.js
+// (by default 25 requests an hour without a GCD account): publishers, weekly
+// refreshes, then issue details with their covers.
 
-// Series whose covers the user asked for explicitly; served before the general backlog.
+// Series moved to the front of the list with "Cover laden"
 const requestedSeries = new Set();
+const unknownPublishers = new Set();
 let activeJob = null;
 
 export function requestCovers(seriesId) {
@@ -286,51 +306,69 @@ export function requestCovers(seriesId) {
   wake();
 }
 
-export const workerStatus = () => ({ job: activeJob, requested: [...requestedSeries], pending: store.countIssuesNeedingDetails() });
+const requestedList = () => {
+  for (const id of requestedSeries) if (!store.seriesHasWaitingDetails(id)) requestedSeries.delete(id);
+  return [...requestedSeries];
+};
 
-function nextRequested() {
-  for (const seriesId of requestedSeries) {
-    const issue = store.db.prepare(`SELECT * FROM issues WHERE series_id = ? AND gcd_id IS NOT NULL AND details_at IS NULL AND details_failed = 0
-      ORDER BY is_variant, position LIMIT 1`).get(seriesId);
-    if (issue) return issue;
-    requestedSeries.delete(seriesId);
-  }
-  return null;
+export function workerStatus() {
+  return {
+    job: activeJob,
+    requested: requestedList(),
+    pending: store.countIssuesNeedingDetails(requestedList()),
+    nextAt: new Date(nextBackgroundAt()).toISOString(),
+    perHour: BACKGROUND_PER_HOUR,
+  };
+}
+
+// Covers of one series still waiting, and when the last of them should be there.
+// Estimates assume nothing else jumps the queue and no searches use up the budget.
+export function seriesCoverStatus(seriesId) {
+  const requested = requestedList();
+  const q = store.seriesQueue(seriesId, requested);
+  const at = (place) => (place ? new Date(nextBackgroundAt() + (place - 1) * BACKGROUND_SPACING_MS).toISOString() : null);
+  return {
+    waiting: q.waiting,
+    waitingMain: q.waitingMain,
+    requested: requested.includes(seriesId),
+    nextAt: at(q.first),
+    doneMainAt: at(q.lastMain),
+    doneAt: at(q.last),
+    perHour: BACKGROUND_PER_HOUR,
+    pausedUntil: usage().cooldownUntil,
+  };
 }
 
 async function runOnce() {
-  const requested = nextRequested();
-  if (requested) {
-    activeJob = { type: 'details', seriesId: requested.series_id };
-    await loadDetails(requested, { background: false });
-    return 6000; // leaves room in the per-minute budget for searches
-  }
-  if (!canRunBackground()) return 30_000;
+  // Waits for the next background slot; wake() cuts the wait short when something changes
+  const wait = nextBackgroundAt() - Date.now();
+  if (wait > 0) return Math.min(wait + 50, 15 * 60_000);
 
-  const publisherId = [...publisherQueue][0] ?? store.seriesMissingPublisher();
+  const publisherId = [...publisherQueue][0] ?? store.seriesMissingPublisher([...unknownPublishers]);
   if (publisherId) {
     activeJob = { type: 'publisher' };
     try {
       await ensurePublisher(publisherId, { background: true });
     } catch (err) {
-      if (err instanceof GcdNotFoundError) publisherQueue.delete(publisherId);
-      else throw err;
+      if (!(err instanceof GcdNotFoundError)) throw err;
+      publisherQueue.delete(publisherId);
+      unknownPublishers.add(publisherId); // don't ask again until the next start
     }
-    return 10_000;
+    return 0;
   }
 
   const stale = store.seriesNeedingSync(new Date(Date.now() - RESYNC_DAYS * DAY_MS).toISOString());
   if (stale) {
     activeJob = { type: 'sync', seriesId: stale.id };
     await importSeries(stale.gcd_id, { background: true, maxAgeMs: 0 });
-    return 10_000;
+    return 0;
   }
 
-  const issue = store.nextIssueNeedingDetails();
+  const issue = store.nextIssueNeedingDetails(requestedList());
   if (issue) {
     activeJob = { type: 'details', seriesId: issue.series_id };
     await loadDetails(issue, { background: true });
-    return 10_000;
+    return 0;
   }
   return 60_000;
 }

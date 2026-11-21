@@ -4,9 +4,12 @@ import { fileURLToPath } from 'node:url';
 import * as store from './db.js';
 import { checkPassword, ensureAdmin, hashPassword, login, LoginLimitError, logout, requireAdmin, requireLogin, setSessionCookie } from './auth.js';
 import {
-  downloadCover, fetchImage, importSeries, libraryCoverUrls, loadDetails, removeCoverFiles, requestCovers, saveCoverUpload, searchSeries, startWorker, workerStatus,
+  downloadCover, fetchImage, importSeries, libraryCoverUrls, loadDetails, removeCoverFiles, requestCovers, saveCoverUpload, searchSeries, seriesCoverStatus, startWorker,
+  workerStatus,
 } from './catalog.js';
 import { GcdBusyError, GcdNotFoundError, usage } from './gcd.js';
+import { ComicVineBusyError, comicVineUsage, getVolume } from './comicvine.js';
+import { linkVolume, seriesCvStatus, startCoverWorker, volumeCandidates, wakeCovers } from './covers.js';
 import { lookupIsbn, parseCode } from './isbn.js';
 
 const PORT = Number(process.env.PORT || 3067);
@@ -131,6 +134,7 @@ app.post('/api/series/import', route(async (req, res) => {
   if (!gcdId) return res.status(400).json({ error: 'bad_request' });
   const seriesId = await importSeries(gcdId);
   store.setCollected(req.user.id, seriesId, true);
+  wakeCovers();
   res.json({ id: seriesId });
 }));
 
@@ -147,6 +151,7 @@ app.post('/api/series', (req, res) => {
   const numbers = expandNumbers(String(req.body.issues || ''));
   if (numbers.length) store.addCustomIssues(seriesId, numbers.map((number) => ({ number })));
   store.setCollected(req.user.id, seriesId, true);
+  wakeCovers();
   res.json({ id: seriesId });
 });
 
@@ -174,14 +179,31 @@ const seriesOr404 = (req, res) => {
 app.get('/api/series/:id', (req, res) => {
   const series = seriesOr404(req, res);
   if (!series) return;
-  const status = workerStatus();
   res.json({
     series,
     collected: store.isCollected(req.user.id, series.id),
     issues: store.issuesOfSeries(series.id, req.user.id),
-    coversRequested: status.requested.includes(series.id) || status.job?.seriesId === series.id,
+    covers: seriesCoverStatus(series.id),
+    comicvine: seriesCvStatus(series.id),
   });
 });
+
+// Comic Vine volumes that could supply this series' covers, best fits first
+app.get('/api/series/:id/comicvine', route(async (req, res) => {
+  const series = seriesOr404(req, res);
+  if (!series) return;
+  res.json(await volumeCandidates(series, String(req.query.q || '').trim()));
+}));
+
+// Links the series to a Comic Vine volume ({ volumeId }), or to none ({ volumeId: null })
+app.post('/api/series/:id/comicvine', route(async (req, res) => {
+  const series = seriesOr404(req, res);
+  if (!series) return;
+  const volumeId = req.body.volumeId == null ? null : id(req.body.volumeId);
+  if (Number.isNaN(volumeId)) return res.status(400).json({ error: 'bad_request' });
+  await linkVolume(series.id, volumeId ? await getVolume(volumeId) : null);
+  res.json(seriesCvStatus(series.id));
+}));
 
 app.patch('/api/series/:id', (req, res) => {
   const series = seriesOr404(req, res);
@@ -201,6 +223,7 @@ app.post('/api/series/:id/collect', (req, res) => {
   const series = seriesOr404(req, res);
   if (!series) return;
   store.setCollected(req.user.id, series.id, Boolean(req.body.collected));
+  wakeCovers();
   res.json({ ok: true });
 });
 
@@ -216,7 +239,7 @@ app.post('/api/series/:id/covers', (req, res) => {
   const series = seriesOr404(req, res);
   if (!series) return;
   requestCovers(series.id);
-  res.json({ ok: true });
+  res.json(seriesCoverStatus(series.id));
 });
 
 app.post('/api/series/:id/issues', (req, res) => {
@@ -384,7 +407,45 @@ app.post('/api/issues/:id/code', route(async (req, res) => {
 // --- settings & export ---
 
 app.get('/api/system', (req, res) => {
-  res.json({ gcd: usage(), worker: workerStatus(), covers: store.coverCount() });
+  res.json({
+    gcd: usage(),
+    worker: workerStatus(),
+    covers: store.coverCount(),
+    comicvine: { ...comicVineUsage(), waiting: store.countCvCoversWaiting() },
+  });
+});
+
+// What's going on in the background, per series of the collection: covers coming
+// from Comic Vine, series that need their Comic Vine series picked, GCD details.
+app.get('/api/activity', (req, res) => {
+  const gcd = usage();
+  const cv = comicVineUsage();
+  const series = [];
+  for (const p of store.collectionProgress(req.user.id)) {
+    const cvStatus = cv.enabled ? seriesCvStatus(p.id) : null;
+    const needsPick = cv.enabled && (p.cv_state === 'unmatched' || p.cv_state === null);
+    if (!p.covers_waiting && !p.details_waiting && !needsPick && !(cvStatus?.volume && !cvStatus.synced)) continue;
+    const details = p.details_waiting ? seriesCoverStatus(p.id) : null;
+    series.push({
+      id: p.id,
+      name: p.name,
+      cv: cvStatus && {
+        state: cvStatus.state,
+        volumeName: cvStatus.volume?.name ?? null,
+        synced: cvStatus.synced,
+        done: p.covers_done,
+        waiting: p.covers_waiting,
+        doneAt: cvStatus.doneAt,
+      },
+      details: { done: p.details_done, waiting: p.details_waiting, doneAt: details?.doneAt ?? null, requested: details?.requested ?? false },
+    });
+  }
+  const cvSeries = series.filter((s) => s.cv?.waiting);
+  res.json({
+    comicvine: { enabled: cv.enabled, cooldownUntil: cv.cooldownUntil, waiting: cvSeries.reduce((n, s) => n + s.cv.waiting, 0), doneAt: cvSeries.map((s) => s.cv.doneAt).sort().at(-1) ?? null },
+    gcd: { perHour: gcd.backgroundPerHour, pausedUntil: gcd.cooldownUntil, account: gcd.account },
+    series,
+  });
 });
 
 app.get('/api/export.json', (req, res) => {
@@ -423,6 +484,7 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err instanceof GcdBusyError) return res.status(503).json({ error: 'gcd_busy', retryAt: err.retryAt });
   if (err instanceof GcdNotFoundError) return res.status(404).json({ error: 'gcd_not_found' });
+  if (err instanceof ComicVineBusyError) return res.status(503).json({ error: 'comicvine_busy', retryAt: err.retryAt });
   // Body parser errors (bad JSON, too large) carry their own 4xx status
   const status = err.status ?? err.statusCode;
   if (status >= 400 && status < 500) return res.status(status).json({ error: err.type === 'entity.too.large' ? 'too_large' : 'bad_request' });
@@ -434,4 +496,5 @@ await ensureAdmin();
 app.listen(PORT, () => {
   console.log(`Stapel listening on :${PORT}`);
   startWorker();
+  startCoverWorker();
 });

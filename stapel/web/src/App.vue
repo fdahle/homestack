@@ -5,6 +5,8 @@ import { session } from './api.js';
 import { lang, t } from './i18n.js';
 import { toast } from './util.js';
 import Icon from './components/Icon.vue';
+import ActivityPanel from './components/ActivityPanel.vue';
+import { activityVisible } from './activity.js';
 
 const route = useRoute();
 const showNav = computed(() => session.user && route.name !== 'login');
@@ -31,7 +33,7 @@ function runToastAction() {
 </script>
 
 <template>
-  <div :class="{ 'has-nav': showNav }">
+  <div :class="{ 'has-nav': showNav, 'has-activity': showNav && activityVisible }">
     <RouterView v-slot="{ Component }">
       <component :is="Component" :key="route.fullPath.split('?')[0]" />
     </RouterView>
@@ -42,6 +44,8 @@ function runToastAction() {
         <span>{{ tab.label }}</span>
       </RouterLink>
     </nav>
+
+    <ActivityPanel v-if="showNav" />
 
     <div v-if="toast.text" class="toast" role="status">
       <span>{{ toast.text }}</span>

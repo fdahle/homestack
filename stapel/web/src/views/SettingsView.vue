@@ -120,12 +120,24 @@ const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString(session.user.la
       <h2>{{ t('settings.gcd') }}</h2>
       <p class="muted small">{{ t('settings.gcdHint') }}</p>
       <dl class="facts">
+        <dt>{{ t('settings.comicvine') }}</dt><dd :class="system.comicvine.enabled ? 'ok' : 'warn'">{{ system.comicvine.enabled ? t('settings.comicvineYes') : t('settings.comicvineNo') }}</dd>
+        <template v-if="system.comicvine.enabled"><dt>{{ t('settings.cvWaiting') }}</dt><dd>{{ system.comicvine.waiting }}</dd></template>
+        <dt>{{ t('settings.account') }}</dt><dd :class="system.gcd.account ? 'ok' : 'warn'">{{ system.gcd.account ? t('settings.accountYes') : t('settings.accountNo') }}</dd>
+        <dt>{{ t('settings.backgroundRate') }}</dt><dd>{{ t('settings.perHour', { n: system.gcd.backgroundPerHour }) }}</dd>
         <dt>{{ t('settings.requestsHour') }}</dt><dd>{{ system.gcd.hour }} / {{ system.gcd.limits.hour }}</dd>
         <dt>{{ t('settings.requestsDay') }}</dt><dd>{{ system.gcd.day }} / {{ system.gcd.limits.day }}</dd>
         <dt>{{ t('settings.pendingDetails') }}</dt><dd>{{ system.worker.pending }}</dd>
         <dt>{{ t('settings.storedCovers') }}</dt><dd>{{ system.covers }}</dd>
         <template v-if="system.gcd.cooldownUntil"><dt>{{ t('settings.pausedUntil') }}</dt><dd>{{ fmtTime(system.gcd.cooldownUntil) }}</dd></template>
       </dl>
+      <p v-if="!system.comicvine.enabled" class="muted small">
+        {{ t('settings.comicvineHint') }}
+        <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noopener">comicvine.gamespot.com</a>
+      </p>
+      <p v-if="!system.gcd.account" class="muted small">
+        {{ t('settings.accountHint') }}
+        <a href="https://www.comics.org/accounts/register/" target="_blank" rel="noopener">comics.org</a>
+      </p>
       <p class="muted small">{{ t('settings.attribution') }}</p>
     </section>
 
