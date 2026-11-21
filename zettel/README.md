@@ -1,107 +1,65 @@
 # Zettel
 
-A self-hosted personal planner / note-taking PWA with offline support, optional
-end-to-end encryption, and web push notifications.
+Self-hosted notes that work offline. Write on the phone in the train, on the laptop at home: every device keeps all your notes and syncs when it's online. The tasks that used to live here are going to their own app.
 
-Three services wired together: a Vue 3 SPA, an Express API (auth + push only),
-and CouchDB (notes sync directly via PouchDB). See [CLAUDE.md](CLAUDE.md) for the
-full architecture.
+- **Write with formatting, keep Markdown.** Headings, lists, **checklists**, quotes, code, links: from the toolbar or typed as Markdown (`- [ ] ` starts a checklist, `# ` a heading). What's stored is plain Markdown.
+- **Pictures and files** on a note: pick them, paste them or drop them on the note. Phone photos are made smaller first (longest side 2400 px).
+- **Labels** to sort notes, **pin** the important ones to the top, **archive** what you're done with, a **trash** that empties itself after 30 days, and undo after archiving or deleting.
+- **Search** across titles, text, labels and file names, on the device, so it's instant and works offline (`/` jumps to it, `N` writes a new note).
+- **Offline first.** The app itself and all notes are on the device. Changes made offline wait and are sent when the device is back online; the cloud in the top bar shows how many are waiting.
+- **Share into Zettel** from other apps on the phone (once it's installed to the home screen), and **export** everything as Markdown files in a ZIP.
+- On a computer a note opens beside the list, with your labels in the sidebar. German and English interface.
 
-## Features
+## How the sync works
 
-- Notes & tasks with due dates/times, priorities, recurrence, reminders
-- Multiple layouts: masonry, list, Kanban board, and a **month calendar**
-- Hierarchical views/labels, smart views (Today, Upcoming, Overdue, All Tasks)
-- **Global search** across every note (titles, content, labels, attachments)
-- **Note templates**, **archive** (separate from trash), and undo on delete
-- Offline-first sync, optional end-to-end encryption (envelope-based)
-- Web push + an optional **daily digest**, installable PWA with share-target,
-  app shortcuts, and an overdue-count badge
-- Admin user management (roles, password reset, deletion)
+Each device writes to its own copy first (IndexedDB in the browser) and puts the change into an outbox. `POST /api/sync` sends the outbox and gets back everything that changed since the device last asked; every change on the server gets the next number of one counter, so "since" is a number. Notes get their ids on the device, so a note written offline already exists before the server hears of it. Files picked offline are kept on the device and uploaded after their note.
 
-## Development
+When two devices change the text of the same note before either has synced, nothing is overwritten: the second text becomes a copy of the note, and the app says so. For everything else (title, labels, pinned, archived) the latest change wins. The details are in `server/notes.js` (server) and `web/src/store/notes.js` (device).
 
-Requires Node 20+ and Docker (for CouchDB).
+The service worker (`web/sw.js`) keeps the app's files so it opens without a network, and keeps every attached file once it has been shown.
 
-```bash
-cp .env.example .env                       # then fill in values
-cp couchdb/local.ini.example couchdb/local.ini   # set admin password + secrets
+## Deploy
+
+```sh
+cp .env.example .env        # set ADMIN_PASSWORD and maybe PORT
+docker compose up -d --build
+```
+
+The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`); offline use and installing it as an app both need HTTPS. The first start creates the account `ADMIN_USER`.
+
+**Update:** `docker compose up -d --build`. The data lives in the `zettel-data` volume (`zettel.db` plus `files/`).
+
+**Backup:** back up `zettel.db` with `sqlite3 zettel.db ".backup …"`, along with the `files/` folder from the volume. The export in the settings gives you readable Markdown as well.
+
+**Behind Authelia:** set `AUTH_PROXY_SECRET` (see [deploy/](../deploy/README.md#one-login-for-all-apps)). Offline, the app opens with the account it last saw; when the Authelia login has run out, the next sync online sends you to its login page.
+
+## Configuration
+
+| Variable | Default | |
+|---|---|---|
+| `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / – | Your account, created when there is none |
+| `AUTH_PROXY_SECRET` | – | Log in through Authelia instead of Zettel's own account |
+| `MAX_FILE_MB` | 25 | The largest file you can attach (nginx's `client_max_body_size` must allow it) |
+| `TRASH_DAYS` | 30 | Days before a note in the trash is deleted for good (0: never) |
+| `PORT` | 3070 | |
+| `DATA_DIR` | `/data` | Where `zettel.db` and `files/` live |
+
+Notes belong to the account that wrote them, so with Authelia each person gets their own.
+
+## Developing
+
+Needs Node 24 or newer (it uses the built-in `node:sqlite`).
+
+```sh
 npm install
-npm run dev          # CouchDB in Docker + API and client with hot reload
-npm run stop         # stop the CouchDB container
+cp .env.example .env    # set ADMIN_PASSWORD and DATA_DIR=./data
+npm run dev            # API on :3070, reads .env
+npm run dev:web        # Vue with hot reload on :5170
+npm test               # sync and merging, export, the ZIP writer, the Markdown preview
 ```
 
-- Client: http://localhost:5170
-- API: http://localhost:3070
-- CouchDB: http://localhost:5984 (bound to loopback only)
+`npm run build` builds the frontend into `dist/` (with `dist/sw.js`), which the server serves when it exists. The service worker only runs in the build, not with `dev:web`.
 
-### Tests
+Code map: `server/notes.js` holds the notes' SQL and the sync, `server/server.js` the routes, `server/export.js` and `server/zip.js` the export. In `web/src`, `store/notes.js` is the device's copy and the sync, `store/idb.js` the IndexedDB helpers, `session.js` lets the app start offline with the last known account, `components/NoteEditor.vue` the editor ([Tiptap](https://tiptap.dev) with [tiptap-markdown](https://github.com/aguingand/tiptap-markdown)), `lib/markdown.js` the previews in the list. `npm run icons` regenerates the app icons.
 
-```bash
-npm --prefix client test   # Vitest: crypto, date logic, markdown sanitizer
-npm --prefix api    test   # node:test: input validators
-```
-
-## Production deployment
-
-```bash
-npm --prefix client run build   # outputs to client/dist/
-docker compose up -d            # nginx + api + couchdb
-```
-
-The bundled `nginx` listens on **port 80 only** and does **not** terminate TLS.
-Run it behind your own HTTPS reverse proxy (Caddy, Traefik, Cloudflare, etc.).
-
-**TLS requirements** — the app sets the auth cookie with the `Secure` flag in
-production, so it only works over HTTPS:
-
-- Terminate TLS at your upstream proxy and forward to nginx on port 80.
-- Forward the standard headers, especially `X-Forwarded-Proto: https`
-  (Express runs with `trust proxy = 1`).
-- Keep `NODE_ENV=production` set for the API (already set in `docker-compose.yml`).
-
-**Do not expose CouchDB (5984) publicly.** It is bound to `127.0.0.1` in
-`docker-compose.yml`; all production traffic must go through nginx, which rate
-limits and only lets through the per-user `notes_<uuid>` databases.
-
-The upstream proxy must **append** the client address to `X-Forwarded-For`
-(nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`). The
-bundled nginx takes the last entry as the client IP for rate limiting.
-
-### Configuration
-
-See [.env.example](.env.example) for all variables. Notable ones:
-
-| Variable | Purpose |
-|----------|---------|
-| `COUCHDB_USER` / `COUCHDB_PASSWORD` | CouchDB admin credentials (must match `couchdb/local.ini`) |
-| `ENCRYPTION_ENABLED` | Client-side E2E encryption of note fields |
-| `ALLOW_SIGNUP` | `true` opens public registration (default `false`). Sign-ups never get admin. |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin account, created on API startup if it doesn't exist (see below) |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web push (generate with `npx web-push generate-vapid-keys`) |
-
-### First admin account
-
-Registration is closed by default and never grants the admin role, so a fresh
-server can't be claimed by whoever visits it first. Create the admin from the
-server side instead:
-
-1. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` (12+ characters) in `.env`.
-2. Start (or restart) the API: `docker compose up -d`. It creates the user with
-   the `admin` role if that username doesn't exist yet. Existing users are never
-   modified, so you can clear `ADMIN_PASSWORD` afterwards.
-3. Sign in. Add more users by setting `ALLOW_SIGNUP=true` temporarily, or grant
-   admin to others from Settings → Admin.
-
-### A note on end-to-end encryption
-
-When `ENCRYPTION_ENABLED=true`, note fields and attachments are encrypted in the
-browser with a key derived from your password — the server never sees plaintext.
-Consequences:
-
-- **There is no password recovery.** If you forget your password, the notes are
-  unrecoverable by design.
-- Notes are encrypted with a random data key that is itself wrapped by your
-  password (envelope encryption). Changing your password only re-wraps that key —
-  it's instant and never re-encrypts your notes.
-- Exported backups are written in **plaintext** (so they remain restorable).
+The old Zettel (notes and tasks on CouchDB, with end-to-end encryption) is in the git history before this version.
