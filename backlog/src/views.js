@@ -57,6 +57,7 @@ function layout({ title, header, body, flash }) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f6f3ee" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
+${raw(`<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>`)}
 <title>${title ? `${title} · Backlog` : 'Backlog'}</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
@@ -341,6 +342,13 @@ export function toolsPage({ origin, authEnabled }) {
   </div>
 </div>
 
+<h2 class="section">Appearance</h2>
+<div class="segmented" id="theme-choice" role="radiogroup" aria-label="Appearance">
+  <button type="button" role="radio" data-theme-choice="auto">Automatic</button>
+  <button type="button" role="radio" data-theme-choice="light">Light</button>
+  <button type="button" role="radio" data-theme-choice="dark">Dark</button>
+</div>
+
 ${authEnabled ? html`<h2 class="section">Session</h2><form method="post" action="/logout"><button class="btn">Log out</button></form>` : ''}`,
   });
 }
@@ -352,7 +360,8 @@ export function loginPage({ next = '/', error } = {}) {
     body: html`
 <form method="post" action="/login" class="form narrow">
   <input type="hidden" name="next" value="${next}">
-  <label>Password <input name="password" type="password" autocomplete="current-password" required autofocus></label>
+  <label>Username <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus></label>
+  <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
   ${error ? html`<p class="banner error">${error}</p>` : ''}
   <button class="btn primary wide">Log in</button>
 </form>`,

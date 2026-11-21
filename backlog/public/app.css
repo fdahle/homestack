@@ -1,36 +1,28 @@
 :root {
-  --bg: #f6f3ee;
-  --surface: #fffdf9;
-  --text: #22201c;
-  --muted: #77716a;
-  --line: #e4ded4;
-  --accent: #b4532a;
-  --accent-text: #ffffff;
-  --accent-soft: #f3e2d6;
-  --ok: #3f7d4f;
-  --danger: #b3261e;
-  --star: #c98a12;
+  --bg: light-dark(#f6f3ee, #18181b);
+  --surface: light-dark(#fffdf9, #222226);
+  --text: light-dark(#22201c, #ecebe8);
+  --muted: light-dark(#77716a, #9c9a96);
+  --line: light-dark(#e4ded4, #34343a);
+  --accent: light-dark(#b4532a, #e08a5f);
+  --accent-text: light-dark(#ffffff, #1a1310);
+  --accent-soft: light-dark(#f3e2d6, #3a2a22);
+  --ok: light-dark(#3f7d4f, #7cc38d);
+  --danger: light-dark(#b3261e, #f28b82);
+  --star: light-dark(#c98a12, #f0b84a);
   --radius: 14px;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
+  --shadow: 0 1px 2px light-dark(rgb(0 0 0 / 0.05), transparent), 0 2px 8px light-dark(rgb(0 0 0 / 0.04), transparent);
   color-scheme: light dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #18181b;
-    --surface: #222226;
-    --text: #ecebe8;
-    --muted: #9c9a96;
-    --line: #34343a;
-    --accent: #e08a5f;
-    --accent-text: #1a1310;
-    --accent-soft: #3a2a22;
-    --ok: #7cc38d;
-    --danger: #f28b82;
-    --star: #f0b84a;
-    --shadow: none;
-  }
-}
+/* Colours are light-dark() pairs: the system decides, unless the Tools page pins one */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+.segmented { display: flex; padding: 3px; gap: 2px; background: var(--line); border-radius: 999px; }
+.segmented button { flex: 1; min-height: 36px; border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.segmented button.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
+
 
 * { box-sizing: border-box; }
 

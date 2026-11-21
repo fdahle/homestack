@@ -309,4 +309,44 @@ if ($('[data-poll-discover]')) {
   }, 3000);
 }
 
+// --- light, dark or automatic (the Tools page; per device, like the other homestack apps) ---
+// The page's colours follow data-theme on <html> (set before the first paint in the page's
+// <head>); the phone's status bar follows <meta name="theme-color">, which gets the chosen
+// theme's colour, or its light/dark pair back for "automatic".
+(() => {
+  const metas = $$('meta[name="theme-color"]').map((el) => ({ el, content: el.content, dark: /dark/.test(el.media) }));
+  const read = () => {
+    try {
+      const t = localStorage.getItem('theme');
+      return t === 'light' || t === 'dark' ? t : 'auto';
+    } catch {
+      return 'auto';
+    }
+  };
+  function apply(choice) {
+    const root = document.documentElement;
+    if (choice === 'auto') delete root.dataset.theme;
+    else root.dataset.theme = choice;
+    const color = metas.find((m) => m.dark === (choice === 'dark'))?.content;
+    for (const m of metas) m.el.content = choice === 'auto' ? m.content : color || m.content;
+    for (const b of $$('[data-theme-choice]')) {
+      b.classList.toggle('active', b.dataset.themeChoice === choice);
+      b.setAttribute('aria-checked', String(b.dataset.themeChoice === choice));
+    }
+  }
+  apply(read());
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-theme-choice]');
+    if (!button) return;
+    const choice = button.dataset.themeChoice;
+    try {
+      if (choice === 'auto') localStorage.removeItem('theme');
+      else localStorage.setItem('theme', choice);
+    } catch {
+      // only for this page
+    }
+    apply(choice);
+  });
+})();
+
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

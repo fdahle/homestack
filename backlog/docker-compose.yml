@@ -9,7 +9,9 @@ services:
     # A small init as PID 1, so `docker stop` shuts the server down cleanly
     init: true
     environment:
-      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in .env}
+      # Your account. APP_PASSWORD (the old name) still works instead of ADMIN_PASSWORD.
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-${APP_PASSWORD:?Set ADMIN_PASSWORD in .env}}
       SCAN_INTERVAL_HOURS: ${SCAN_INTERVAL_HOURS:-12}
       READ_LANGUAGES: ${READ_LANGUAGES:-en,de}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

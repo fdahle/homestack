@@ -1,15 +1,17 @@
-// Single-password login with a long-lived signed cookie.
-// If APP_PASSWORD is unset, the app is open (e.g. when nginx does basic auth instead).
+// One account (username and password from the environment) with a long-lived signed cookie,
+// like the other homestack apps: ADMIN_USER / ADMIN_PASSWORD. APP_PASSWORD, the old name, still
+// works. Without a password the app is open (e.g. when nginx does basic auth instead).
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sessionSecret } from './db.js';
 
-const PASSWORD = process.env.APP_PASSWORD || '';
+const USERNAME = (process.env.ADMIN_USER || 'admin').trim();
+const PASSWORD = process.env.ADMIN_PASSWORD || process.env.APP_PASSWORD || '';
 const COOKIE = 'backlog_session';
 const MAX_AGE_MS = 400 * 24 * 3600_000; // the longest browsers allow
 
-// Token depends on the password, so changing APP_PASSWORD logs out every device.
-const sessionToken = () => createHmac('sha256', sessionSecret()).update(`session:${PASSWORD}`).digest('base64url');
+// Token depends on the username and password, so changing either logs out every device.
+const sessionToken = () => createHmac('sha256', sessionSecret()).update(`session:${USERNAME.toLowerCase()}:${PASSWORD}`).digest('base64url');
 
 const sameString = (a, b) => {
   const ha = createHash('sha256').update(a).digest();
@@ -53,10 +55,13 @@ function failureWindow() {
 
 // 'ok', 'wrong' or 'blocked'. Counting happens before the first await, so parallel
 // requests can't all slip past the limit together.
-export async function checkPassword(password, ip) {
+export async function checkLogin(username, password, ip) {
   failureWindow();
   if (failsTotal >= MAX_FAILS_TOTAL || (failsByIp.get(ip) || 0) >= MAX_FAILS_PER_IP) return 'blocked';
-  if (sameString(String(password || ''), PASSWORD)) {
+  // Both compared in full, so a wrong name takes as long as a wrong password (names ignore case)
+  const nameOk = sameString(String(username || '').trim().toLowerCase(), USERNAME.toLowerCase());
+  const passwordOk = sameString(String(password || ''), PASSWORD);
+  if (nameOk && passwordOk) {
     failsByIp.delete(ip);
     return 'ok';
   }

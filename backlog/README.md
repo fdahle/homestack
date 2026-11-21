@@ -17,7 +17,7 @@ On the server:
 
 ```sh
 git clone <this repo> backlog && cd backlog
-cp .env.example .env        # set APP_PASSWORD
+cp .env.example .env        # set ADMIN_USER and ADMIN_PASSWORD
 docker compose up -d --build
 ```
 
@@ -89,7 +89,7 @@ The very first suggestions appear once about a quarter of your posts have been v
 
 | Variable | Default | |
 |---|---|---|
-| `APP_PASSWORD` | – | Login password. If empty, the app has no login (e.g. if nginx does basic auth) |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / – | Your login, like the other homestack apps (`APP_PASSWORD`, the old name, still works). Without a password the app has no login (e.g. if nginx does basic auth) |
 | `SCAN_INTERVAL_HOURS` | 12 | How often each blog is rescanned |
 | `REQUEST_DELAY_MS` | 1000 | Pause between requests to the same site |
 | `HARVEST_LINKS` | 1 | Set to `0` to stop visiting posts for links (sitemap titles are still fetched) |
@@ -106,7 +106,7 @@ Needs Node 24 or newer (it uses the built-in `node:sqlite`).
 
 ```sh
 npm install
-APP_PASSWORD=test DATA_DIR=./data npm start   # http://localhost:3066
+ADMIN_PASSWORD=test DATA_DIR=./data npm start   # http://localhost:3066, user admin
 ```
 
 Code map: `src/discover.js` finds posts (one function per strategy), `src/scanner.js` queues and schedules scans and runs the background post visits, `src/suggest.js` builds the Discover suggestions, `src/db.js` holds all SQL, `src/views.js` holds the HTML, `public/app.js` holds the client-side interactions. `npm run icons` regenerates the app icons.

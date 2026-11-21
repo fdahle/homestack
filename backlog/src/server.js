@@ -2,7 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'node:url';
 import * as store from './db.js';
 import * as views from './views.js';
-import { authEnabled, checkPassword, clearSessionCookie, requireLogin, setSessionCookie } from './auth.js';
+import { authEnabled, checkLogin, clearSessionCookie, requireLogin, setSessionCookie } from './auth.js';
 import { collect, detect, STRATEGIES } from './discover.js';
 import { isScanning, queueScan, startHarvester, startScheduler } from './scanner.js';
 import { aiEnabled, discoveryRunning, runDiscovery, startDiscoveryScheduler } from './suggest.js';
@@ -44,16 +44,19 @@ const safeNext = (next) => {
 
 app.get('/login', (req, res) => res.send(String(views.loginPage({ next: safeNext(req.query.next) }))));
 app.post('/login', async (req, res) => {
-  const result = await checkPassword(req.body.password, req.ip);
+  const result = await checkLogin(req.body.username, req.body.password, req.ip);
   if (result === 'blocked') {
-    return res.status(429).send(String(views.loginPage({ next: safeNext(req.body.next), error: 'Too many wrong passwords. Try again in 15 minutes.' })));
+    return res.status(429).send(String(views.loginPage({ next: safeNext(req.body.next), error: 'Too many wrong attempts. Try again in 15 minutes.' })));
   }
   if (result !== 'ok') {
-    return res.status(401).send(String(views.loginPage({ next: safeNext(req.body.next), error: 'Wrong password' })));
+    return res.status(401).send(String(views.loginPage({ next: safeNext(req.body.next), error: 'Wrong username or password' })));
   }
   setSessionCookie(req, res);
   res.redirect(safeNext(req.body.next));
 });
+
+// For Docker's health check: no login, says nothing
+app.get('/healthz', (req, res) => res.type('text').send('ok'));
 
 app.use(requireLogin);
 
@@ -321,7 +324,7 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Backlog listening on :${PORT}${authEnabled ? '' : ' (no APP_PASSWORD set, login disabled)'}`);
+  console.log(`Backlog listening on :${PORT}${authEnabled ? '' : ' (no ADMIN_PASSWORD set, login disabled)'}`);
   startScheduler();
   startHarvester();
   startDiscoveryScheduler();

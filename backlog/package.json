@@ -8,7 +8,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.js",
     "icons": "node scripts/make-icons.js"
   },
   "dependencies": {
