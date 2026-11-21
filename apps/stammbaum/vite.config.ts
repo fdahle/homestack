@@ -3,7 +3,6 @@ import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, searchForWorkspaceRoot, type Plugin } from 'vite';
-import tailwindcss from '@tailwindcss/vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { familyApi } from './server/api';
 
@@ -82,7 +81,7 @@ export default defineConfig(({ mode }) => ({
     assetsInlineLimit: mode === 'single' ? 100 * 1024 * 1024 : 4096,
     target: 'es2022',
   },
-  plugins: mode === 'single' ? [tailwindcss(), viteSingleFile()] : [tailwindcss(), familyApiPlugin()],
+  plugins: mode === 'single' ? [viteSingleFile()] : [familyApiPlugin()],
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],

@@ -27,6 +27,8 @@ const APPS = {
   todo: LAYOUT,
   stapel: LAYOUT,
   backlog: LAYOUT,
+  // Stammbaum keeps its own layout (src/, a TypeScript server): it takes the kit's web part only
+  stammbaum: { web: 'src/kit', scripts: 'scripts/kit' },
   fernweh: { web: 'client/src/kit', server: 'api/kit', scripts: 'scripts/kit' },
 };
 

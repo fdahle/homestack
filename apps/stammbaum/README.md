@@ -352,24 +352,16 @@ choice is remembered. "Automatisch" follows the phone's own light/dark setting a
 switches with it; the two explicit modes override it. The phone's status bar
 colour follows along.
 
-The switching is daisyUI's, not hand-rolled:
+The switch is the homestack kit's ([`kit/theme.js`](../../kit/theme.js)), the same as in
+the other apps: it sets `data-theme` on `<html>`, which pins `color-scheme`, and every
+colour is a `light-dark()` pair from the kit's palette, so one set of rules serves both.
+[`src/styles/base.css`](src/styles/base.css) maps that palette to the names
+[`src/styles/app.css`](src/styles/app.css) is written against (`--color-base-100…300`,
+`--color-base-content`, `--color-primary`, `--radius-*`, from the time Stammbaum used
+daisyUI) and draws the few buttons, badges and dialogs the code uses in the kit's style.
+A choice made before (`stammbaum-mode`) carries over once.
 
-```css
-@plugin "daisyui" {
-  themes: light --default, dark --prefersdark;
-}
-```
-
-`--prefersdark` is what makes the dark theme apply on its own under
-`prefers-color-scheme: dark`; setting `data-theme="light"` or `"dark"` on
-`<html>` overrides it. Adding another daisyUI theme — or a custom one — is a
-matter of putting its name in that list.
-
-Everything in [`src/styles/app.css`](src/styles/app.css) is written against
-daisyUI's semantic variables (`--color-base-100…300`, `--color-base-content`,
-`--color-primary`, `--color-error`, `--radius-*`), so both themes are handled by
-the same rules and nothing carries a hardcoded colour. The per-person avatar
-tint is mixed into the current surface rather than picked per theme:
+The per-person avatar tint is mixed into the current surface rather than picked per theme:
 
 ```css
 fill: color-mix(in oklab, hsl(var(--avatar-h) 70% 55%) 26%, var(--color-base-100));
@@ -380,21 +372,19 @@ second palette existing anywhere.
 
 ## How it is built
 
-Vite + TypeScript with Tailwind CSS 4 and daisyUI 5 for the styling and the
-theme system; no UI framework and no runtime JavaScript dependencies. Tailwind
-and daisyUI are build-time only, so the offline file still fetches nothing —
-about 157 kB of JavaScript and 140 kB of CSS, both tree-shaken to what the app
-actually uses. Icons are inline SVG, so there is no icon font either. The
+Vite + TypeScript, styled on the homestack [design kit](../../kit/README.md): its palette
+and light/dark switch (`src/kit`, copied by `node kit/sync.mjs`), plus `src/styles/base.css`
+and `src/styles/app.css`. Until 2026-11 the styling was Tailwind CSS 4 and daisyUI 5; the
+few daisyUI components the code uses are now drawn in base.css. The offline file still
+fetches nothing. Icons are inline SVG, so there is no icon font either. The
 server is about 70 kB of Node with nothing but its standard library, and shares
 the parser and the writer with the app.
 
 The overview is one SVG with a transform for pan and zoom, driven by Pointer
 Events so mouse, trackpad, pen and touch all take the same code path. The person
 view is HTML with connectors drawn into an SVG overlay after layout, so it
-reflows correctly from a 390 px phone up. daisyUI supplies the chrome — navbar,
-buttons, card, badges, menu — while the tree and the person view keep their own
-component classes, because utility strings inside generated SVG would be
-unreadable.
+reflows correctly from a 390 px phone up. The few shared pieces (buttons, badges, dialogs, the menu) are in base.css; the tree and
+the person view keep their own component classes in app.css.
 
 ```
 data/                   your family and its history/ — ignored here
@@ -423,7 +413,9 @@ src/views/relation.ts   how two people are related, and the path between them
 src/views/dates.ts      the birthdays and anniversaries coming up
 src/views/stats.ts      the numbers as tiles
 src/views/missing.ts    the checklist for whoever keeps the file
-src/styles/app.css      Tailwind + daisyUI setup and every component rule
+src/styles/base.css     the kit palette under daisyUI's old names, buttons, badges, dialogs
+src/styles/app.css      every component rule
+src/kit/                the homestack design kit (a copy; kit/sync.mjs)
 tests/                  parser, writer, server, family, kinship, age, calendar, stats, gaps, QR and layout (vitest)
 ```
 

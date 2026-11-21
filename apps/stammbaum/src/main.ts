@@ -1,4 +1,8 @@
+// The kit's palette, then the few components drawn in its style, then Stammbaum's own
+import './kit/tokens.css';
+import './styles/base.css';
 import './styles/app.css';
+import { applyTheme, theme as kitTheme } from './kit/theme.js';
 
 import { fetchChanges, loadSource, saveEdits, uploadPhoto, uploadThumb } from '@source';
 import { upcoming } from './calendar';
@@ -32,11 +36,6 @@ import { renderStats } from './views/stats';
 import { treeBar } from './views/tree-bar';
 import { addMenu, treeMenu } from './views/tree-menu';
 
-/**
- * Three-way appearance switch. "system" leaves the choice to the OS: daisyUI's
- * dark theme is registered with --prefersdark, so it applies on its own when no
- * data-theme attribute is set.
- */
 // Flags next to countries, unless the build left them out (STAMMBAUM_FLAGS=off).
 // A chunk of its own; the font is only fetched where the system draws no flags.
 if (__FLAGS__) void import('./flags');
@@ -687,7 +686,7 @@ function renderMenu(): void {
     save.append(button);
   }
 
-  const mode = (readStored('stammbaum-mode') ?? 'system') as Mode;
+  const mode: Mode = kitTheme.value === 'auto' ? 'system' : (kitTheme.value as Mode);
   // Only once the family has any to hide.
   const causes = family.people().some((person) => person.deathcause)
     ? [
@@ -1006,52 +1005,21 @@ function localize(): void {
 
 // ---- appearance -----------------------------------------------------------
 
+/**
+ * Three-way appearance switch, the homestack kit's (kit/theme.js): "system" follows the
+ * phone or computer, light and dark pin one; the kit also colours the phone's status bar.
+ */
 function applyMode(id: string): void {
   const mode = MODES.find((m) => m.id === id) ?? MODES[0];
-
-  // No attribute means "let daisyUI follow prefers-color-scheme".
-  if (mode.id === 'system') delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = mode.id;
-
-  // daisyUI sets color-scheme from inside a cascade layer, which any unlayered
-  // rule on a host page would win against. Setting it inline keeps scrollbars
-  // and form controls in step wherever the page is embedded.
-  document.documentElement.style.colorScheme = mode.id === 'system' ? 'light dark' : mode.id;
-
-  writeStored('stammbaum-mode', mode.id);
-  paintThemeColor();
+  applyTheme(mode.id === 'system' ? 'auto' : mode.id);
 }
 
-/** Keeps the phone's status bar in step with the theme. */
-function paintThemeColor(): void {
-  const meta = document.querySelector<HTMLMetaElement>('#theme-color');
-  if (!meta) return;
-  const shell = document.querySelector('.app-shell');
-  const surface = shell ? getComputedStyle(shell).backgroundColor : '';
-  if (surface) meta.content = toHex(surface) ?? surface;
+// A choice made before Stammbaum used the kit carries over once
+const before = readStored('stammbaum-mode');
+if (before === 'light' || before === 'dark') {
+  if (kitTheme.value === 'auto') applyMode(before);
+  writeStored('stammbaum-mode', 'moved');
 }
-
-/**
- * daisyUI's palette is oklch, which older browsers will not parse in a
- * theme-color tag. Painting one pixel and reading it back gives plain sRGB.
- */
-function toHex(color: string): string | undefined {
-  try {
-    const context = document.createElement('canvas').getContext('2d');
-    if (!context) return undefined;
-    context.fillStyle = color;
-    context.fillRect(0, 0, 1, 1);
-    const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
-    if (r === undefined || g === undefined || b === undefined) return undefined;
-    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-  } catch {
-    return undefined;
-  }
-}
-
-applyMode(readStored('stammbaum-mode') ?? 'system');
-// Following the system means reacting when it changes.
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintThemeColor);
 
 // ---- one-off gesture hint -------------------------------------------------
 

@@ -13,7 +13,7 @@ node kit/sync.mjs --check   # does every app match the kit?
 | `server/` | `apps/<app>/server/kit/` | `users.js` (accounts table), `auth.js` (login: own accounts or a login proxy), `http.js` (Express setup, `/healthz`, account routes, frontend, errors), `errors.js`, `auth.test.js` |
 | `scripts/` | `apps/<app>/scripts/kit/` | `icons.js`: draws the app icon (white symbol on a rounded square in the app's colour) |
 
-Apps using it: Backlog, Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do, and Fernweh for its colours, icon and login (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node kit/sync.mjs leute` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
+Apps using it: Backlog, Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do; Fernweh for its colours, icon and login, and Stammbaum for its colours, icon and light/dark switch (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node kit/sync.mjs leute` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
 
 ## Phone and computer
 
@@ -101,4 +101,5 @@ The app then trusts `Remote-User` only together with that secret, creates an acc
 | Fernweh | map pin | plum `#7b3fa0` |
 | Notizbuch | a note slip with a folded corner | amber `#b07c00` |
 | To-do | a tick swinging out of a box | raspberry `#b02058` |
+| Stammbaum | the little tree from its top bar | walnut `#7a4e2d` |
 

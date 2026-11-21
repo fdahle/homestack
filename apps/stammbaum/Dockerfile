@@ -2,7 +2,7 @@
 # docker-compose.yml mounts the data/ folder, which the server reads and
 # writes live — an edit in the app lands in data/family.md straight away.
 
-FROM node:22 AS build
+FROM node:24 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -11,7 +11,7 @@ COPY . .
 ARG STAMMBAUM_FLAGS=on
 RUN STAMMBAUM_FLAGS=$STAMMBAUM_FLAGS npm run build
 
-FROM node:22-slim
+FROM node:24-slim
 WORKDIR /app
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server

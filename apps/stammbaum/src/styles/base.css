@@ -1,0 +1,250 @@
+/*
+ * The few daisyUI components and Tailwind utilities Stammbaum's code uses, drawn here in the
+ * homestack kit's style instead (kit/tokens.css, loaded before this file). No Tailwind, no
+ * daisyUI: the colours are the kit's light-dark() pairs, so the shared light/dark setting
+ * applies (kit/theme.js). app.css is written against daisyUI's variable names; they're
+ * defined here from the kit's.
+ *
+ * Everything is in the layers app.css uses (base, components, utilities), declared here in
+ * that order, so Stammbaum's own rules (later in the same layers) still win where they adjust.
+ */
+
+@layer base, components, utilities;
+
+:root {
+  /* Stammbaum's own colour: walnut */
+  --accent: light-dark(#7a4e2d, #dcae84);
+  --accent-text: light-dark(#ffffff, #2a1808);
+  --accent-soft: light-dark(#f1e6dc, #3a2b20);
+  --bg: light-dark(#f5f3f0, #171615);
+  --surface: light-dark(#fffefc, #211f1d);
+  --line: light-dark(#e6e1da, #36332f);
+
+  --color-base-100: var(--surface);
+  --color-base-200: var(--bg);
+  --color-base-300: var(--line);
+  --color-base-content: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-content: var(--accent-text);
+  /* As daisyUI's light and dark themes had them: pink for the ring around whoever is
+     looking, teal for the few accents */
+  --color-secondary: light-dark(#e0307f, #f27fb6);
+  --color-accent: light-dark(#0f9e8e, #45d2c0);
+  --color-neutral: light-dark(#2b2926, #ebe8e3);
+  --color-neutral-content: light-dark(#ffffff, #1b1917);
+  --color-error: var(--danger);
+  --color-warning: var(--warn);
+  --color-success: var(--ok);
+  --radius-box: 1.5rem;
+  --radius-field: 0.75rem;
+  --radius-selector: 1rem;
+}
+
+@layer base {
+  /* The parts of Tailwind's reset (preflight) app.css was written on */
+  *, ::before, ::after, ::backdrop { box-sizing: border-box; margin: 0; padding: 0; border: 0 solid; }
+  html { line-height: 1.5; -webkit-text-size-adjust: 100%; tab-size: 4; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Twemoji Country Flags', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  }
+  h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; }
+  a { color: inherit; text-decoration: inherit; }
+  b, strong { font-weight: bolder; }
+  ol, ul, menu { list-style: none; }
+  img, svg, video, canvas { display: block; vertical-align: middle; }
+  img, video { max-width: 100%; height: auto; }
+  button, input, select, optgroup, textarea { font: inherit; letter-spacing: inherit; color: inherit; border-radius: 0; background-color: transparent; opacity: 1; }
+  button, [role='button'] { cursor: pointer; }
+  ::placeholder { opacity: 1; color: color-mix(in oklab, currentColor 50%, transparent); }
+  textarea { resize: vertical; }
+  summary { display: list-item; }
+  [hidden]:where(:not([hidden='until-found'])) { display: none !important; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+}
+
+@layer components {
+  /* --- buttons (as the kit's .btn) --- */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 42px;
+    padding: 8px 16px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 550;
+    font-size: 0.95rem;
+    line-height: 1.2;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    user-select: none;
+  }
+  .btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--text) 25%, var(--line)); }
+  .btn:disabled { opacity: 0.55; cursor: default; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: transparent; }
+  .btn-soft { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+  .btn-soft:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-soft) 80%, var(--accent)); border-color: transparent; }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .btn-ghost:hover:not(:disabled) { background: var(--line); border-color: transparent; }
+  .btn-sm { min-height: 34px; padding: 4px 12px; font-size: 0.88rem; }
+  .btn-xs { min-height: 26px; padding: 2px 9px; font-size: 0.78rem; }
+  .btn-lg { min-height: 52px; padding: 10px 22px; font-size: 1.05rem; }
+  .btn-circle { width: 42px; min-height: 42px; height: 42px; padding: 0; border-radius: 50%; }
+  .btn-circle.btn-sm { width: 34px; min-height: 34px; height: 34px; }
+  .btn-circle.btn-xs { width: 26px; min-height: 26px; height: 26px; }
+  .btn-circle.btn-lg { width: 52px; min-height: 52px; height: 52px; }
+  .link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+  /* --- fields --- */
+
+  .input, .select {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+  }
+  .input:focus, .select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .input-lg { min-height: 48px; font-size: 1.05rem; }
+  .checkbox { width: 18px; height: 18px; accent-color: var(--accent); flex: none; margin: 0; }
+  .checkbox-sm { width: 16px; height: 16px; }
+  .range { width: 100%; accent-color: var(--accent); }
+
+  /* --- badges (as the kit's .tag) --- */
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .badge-sm { padding: 1px 8px; font-size: 0.75rem; }
+  .badge-lg { padding: 4px 12px; font-size: 0.95rem; }
+  .badge-soft { background: var(--line); border-color: transparent; }
+  .badge-primary { color: var(--accent); border-color: currentColor; }
+  .badge-soft.badge-primary { background: var(--accent-soft); border-color: transparent; }
+
+  /* --- cards, alerts, the spinner --- */
+
+  .card { border: 1px solid var(--line); border-radius: var(--radius-box); background: var(--surface); box-shadow: var(--shadow); }
+  .alert { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); color: var(--text); }
+  .alert-warning { background: var(--warn-soft); }
+  .loading { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .loading-sm { width: 18px; height: 18px; border-width: 2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .loading { animation-duration: 2.4s; } }
+
+  /* --- the menu behind ☰ (a <details> with its panel) --- */
+
+  .dropdown { position: relative; }
+  .dropdown > summary { list-style: none; }
+  .dropdown > summary::-webkit-details-marker { display: none; }
+  .dropdown-content { position: absolute; z-index: 40; top: calc(100% + 6px); }
+  .dropdown-end .dropdown-content { right: 0; }
+  .menu { display: flex; flex-direction: column; gap: 2px; font-size: 0.875rem; }
+  .menu li > a, .menu li > button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .menu li > a:hover, .menu li > button:hover, .menu li > .active, .menu li > [aria-selected='true'] { background: color-mix(in srgb, var(--line) 60%, transparent); }
+  /* A row of choices that belong together, as the kit's .segmented */
+  .join { display: flex; flex-wrap: nowrap; gap: 2px; width: 100%; padding: 3px; border-radius: 999px; background: var(--line); }
+  .join > .join-item { flex: 1; min-height: 34px; padding: 4px 10px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-size: 0.88rem; }
+  .join > .join-item:hover:not(:disabled) { border-color: transparent; color: var(--text); }
+  .join > .join-item.btn-primary, .join > .join-item[aria-pressed='true'] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
+  .navbar { display: flex; align-items: center; }
+
+  /* --- dialogs: a sheet from the bottom on the phone, in the middle on a computer --- */
+
+  .modal { padding: 0; border: 0; background: transparent; color: var(--text); max-width: 100vw; max-height: 100dvh; }
+  .modal[open] { display: flex; position: fixed; inset: 0; width: 100%; height: 100%; margin: 0; z-index: 50; }
+  .modal::backdrop { background: rgb(0 0 0 / 0.4); }
+  .modal-bottom { align-items: flex-end; justify-content: center; }
+  .modal-box {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 32rem;
+    max-height: calc(100dvh - 3rem);
+    overflow-y: auto;
+    padding: 20px;
+    border-radius: var(--radius-box) var(--radius-box) 0 0;
+    background: var(--surface);
+    box-shadow: 0 -8px 30px rgb(0 0 0 / 0.2);
+  }
+  .modal-backdrop { position: fixed; inset: 0; z-index: 0; display: grid; }
+  .modal-backdrop button { opacity: 0; cursor: default; }
+  @media (min-width: 640px) {
+    .sm\:modal-middle { align-items: center; }
+    .sm\:modal-middle .modal-box { border-radius: var(--radius-box); }
+  }
+
+  /* --- the top bar in index.html (it used Tailwind utilities) --- */
+
+  .app-bar { position: relative; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-height: 3.5rem; padding: 0.5rem; border-bottom: 1px solid var(--line); background: var(--surface); }
+  .app-bar .brand { height: 3rem; min-height: 0; gap: 0.5rem; padding-inline: 0.5rem; border-radius: 0.75rem; font-size: 1rem; font-weight: 600; }
+  .crest { display: grid; flex-shrink: 0; place-items: center; width: 2rem; height: 2rem; border-radius: 0.75rem; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+  .family-title { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (min-width: 640px) { .family-title { max-width: none; } }
+  .app-actions { display: flex; align-items: center; gap: 0.25rem; margin-left: auto; }
+  .search-input { height: 3rem; border-radius: 999px; background: var(--bg); font-size: 1rem; }
+  .results { width: auto; padding: 0.5rem; border-radius: var(--radius-box); background: var(--surface); box-shadow: 0 12px 30px rgb(0 0 0 / 0.18); }
+}
+
+@layer utilities {
+  /* --- the Tailwind utilities the code uses --- */
+
+  .w-full { width: 100%; }
+  .w-auto { width: auto; }
+  .flex { display: flex; }
+  .flex-1 { flex: 1 1 0%; }
+  .flex-col { flex-direction: column; }
+  .items-baseline { align-items: baseline; }
+  .items-start { align-items: flex-start; }
+  .items-center { align-items: center; }
+  .self-start { align-self: flex-start; }
+  .justify-between { justify-content: space-between; }
+  .justify-start { justify-content: flex-start; }
+  .gap-1 { gap: 0.25rem; }
+  .gap-3 { gap: 0.75rem; }
+  .text-right { text-align: right; }
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+  .font-semibold { font-weight: 600; }
+  .opacity-60 { opacity: 0.6; }
+  .border-0 { border: 0; }
+  .rounded-full { border-radius: 999px; }
+  .bg-base-100 { background: var(--surface); }
+  .bg-base-200 { background: var(--bg); }
+  .bg-neutral { background: var(--color-neutral); }
+  .text-neutral-content { color: var(--color-neutral-content); }
+  .shadow-sm { box-shadow: 0 1px 2px rgb(0 0 0 / 0.06); }
+  .shadow-md { box-shadow: 0 4px 12px rgb(0 0 0 / 0.1); }
+  .shadow-lg { box-shadow: 0 8px 22px rgb(0 0 0 / 0.14); }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+}

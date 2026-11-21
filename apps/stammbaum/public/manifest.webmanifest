@@ -1,0 +1,15 @@
+{
+  "name": "Stammbaum",
+  "short_name": "Stammbaum",
+  "description": "Wer ist noch mal wer? Die Familie zum Mitnehmen",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f3f0",
+  "theme_color": "#fffefc",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

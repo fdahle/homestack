@@ -47,7 +47,7 @@ So that every app runs, deploys and gets maintained the same way:
 - **Server:** `GET /healthz` answers without a login (Docker's health check); `node:24-alpine`, the server runs as the user `node`, data in the volume `/data`, the port only on `127.0.0.1`.
 - **Offline apps** (Notizbuch, To-do) keep everything on the device and sync through the kit (`offline.js`, `sync.js`).
 
-Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a password chosen on the first visit), **Stammbaum** (TypeScript and daisyUI, no login of its own: it sits behind Authelia).
+Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a password chosen on the first visit), **Stammbaum** (TypeScript, its own page code on the kit's colours, moving to Vue step by step; no login of its own: it sits behind Authelia).
 
 ## Trying them on your computer
 
@@ -65,4 +65,4 @@ Each app's README explains how to run it with Docker. To update a server on ever
 
 ## Credits and licence
 
-Stammbaum was created by [Maximilian Pierzyna](https://github.com/maxiimilian) in [maxiimilian/stammbaum](https://github.com/maxiimilian/stammbaum) and continued here. It stays under the GPL-3.0 (see [stammbaum/LICENSE](stammbaum/LICENSE)), and his commits are part of this repository's history. More in [stammbaum/README.md](stammbaum/README.md#credits).
+Stammbaum was created by [Maximilian Pierzyna](https://github.com/maxiimilian) in [maxiimilian/stammbaum](https://github.com/maxiimilian/stammbaum) and continued here. It stays under the GPL-3.0 (see [apps/stammbaum/LICENSE](apps/stammbaum/LICENSE)), and his commits are part of this repository's history. More in [apps/stammbaum/README.md](apps/stammbaum/README.md#credits).

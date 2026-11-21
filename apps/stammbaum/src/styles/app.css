@@ -1,33 +1,11 @@
 /*
- * Tailwind CSS + daisyUI.
+ * Stammbaum's own components: the shell, the tree, the person view, sheets.
  *
- * daisyUI owns the palette and the light/dark switch: `light` is the default,
- * `dark` takes over automatically when the system asks for it, and setting
- * data-theme="light" | "dark" on <html> overrides that choice. Everything below
- * is written against daisyUI's semantic variables (--color-base-*, --color-
- * primary, --radius-*), so both themes — and any other daisyUI theme added to
- * the list — are handled by the same rules.
+ * The palette and the light/dark switch are the homestack kit's (kit/tokens.css,
+ * kit/theme.js); base.css, loaded before this file, maps them to the variable
+ * names used below (--color-base-*, --color-primary, --radius-*) and draws the
+ * few buttons, badges and dialogs the code uses in the kit's style.
  */
-
-@import 'tailwindcss';
-
-@plugin "daisyui" {
-  themes: light --default, dark --prefersdark;
-}
-
-/* Flags first: that font has nothing else, so all other text falls through. */
-@theme {
-  --font-sans: 'Twemoji Country Flags', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-}
-
-/* Rounder than the daisyUI defaults, closer to how current mobile UIs look. */
-:root,
-[data-theme='light'],
-[data-theme='dark'] {
-  --radius-box: 1.5rem;
-  --radius-field: 0.75rem;
-  --radius-selector: 1rem;
-}
 
 @layer base {
   html,

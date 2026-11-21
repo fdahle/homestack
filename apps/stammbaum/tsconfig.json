@@ -11,6 +11,9 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
+    // The homestack kit (src/kit, copied by kit/sync.mjs) is JavaScript
+    "allowJs": true,
+    "checkJs": false,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
