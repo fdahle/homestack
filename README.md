@@ -47,7 +47,7 @@ So that every app runs, deploys and gets maintained the same way:
 - **Server:** `GET /healthz` answers without a login (Docker's health check); `node:24-alpine`, the server runs as the user `node`, data in the volume `/data`, the port only on `127.0.0.1`.
 - **Offline apps** (Notizbuch, To-do) keep everything on the device and sync through the kit (`offline.js`, `sync.js`).
 
-Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a password chosen on the first visit), **Stammbaum** (TypeScript and daisyUI, no login of its own: it sits behind Authelia), **Backlog** (pages rendered on the server, no build step).
+Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a password chosen on the first visit), **Stammbaum** (TypeScript and daisyUI, no login of its own: it sits behind Authelia).
 
 ## Trying them on your computer
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR, FILE_DIR, openDatabase } from './db.js';
 import { exportZip } from './export.js';
 import { createAuth } from './kit/auth.js';
-import { BadRequest, createApp, errorHandler, mountAccount, route, serveFrontend } from './kit/http.js';
+import { BadRequest, bigJson, createApp, errorHandler, mountAccount, route, serveFrontend } from './kit/http.js';
 import { UUID } from './notes.js';
 
 const PORT = Number(process.env.PORT || 3070);
@@ -14,8 +14,8 @@ const TRASH_DAYS = Number(process.env.TRASH_DAYS || 30);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
 const { users, notes } = openDatabase();
-// A sync may carry many notes written offline
-const app = createApp({ jsonLimit: '20mb' });
+// A sync may carry many notes written offline: up to 20 MB, read only after the login check
+const app = createApp({ bigBodies: ['/api/sync'] });
 const auth = createAuth({ users, cookie: 'notizbuch_session' });
 
 // Login, logout, /api/me; everything under /api and /files after this needs a login
@@ -27,7 +27,7 @@ app.get('/api/settings', (req, res) => res.json({ maxFileMb: MAX_FILE_MB, trashD
 
 // --- keeping devices in step (see notes.js) ---
 
-app.post('/api/sync', (req, res) => {
+app.post('/api/sync', bigJson('20mb'), (req, res) => {
   const { answer, removedFiles } = notes.sync(req.user.id, req.body);
   removeFiles(removedFiles);
   res.json(answer);

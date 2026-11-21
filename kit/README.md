@@ -13,7 +13,7 @@ node kit/sync.mjs --check   # does every app match the kit?
 | `server/` | `apps/<app>/server/kit/` | `users.js` (accounts table), `auth.js` (login: own accounts or a login proxy), `http.js` (Express setup, `/healthz`, account routes, frontend, errors), `errors.js`, `auth.test.js` |
 | `scripts/` | `apps/<app>/scripts/kit/` | `icons.js`: draws the app icon (white symbol on a rounded square in the app's colour) |
 
-Apps using it: Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do, and Fernweh for its colours, icon and login (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node kit/sync.mjs leute` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
+Apps using it: Backlog, Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do, and Fernweh for its colours, icon and login (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node kit/sync.mjs leute` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
 
 ## Phone and computer
 
@@ -92,6 +92,7 @@ The app then trusts `Remote-User` only together with that secret, creates an acc
 
 | App | Symbol | Accent |
 |---|---|---|
+| Backlog | a bookmark with a tick | slate blue `#4b5d78` |
 | Leute | three friends | terracotta `#b2482a` |
 | Checkpoint | checkered flag | indigo `#5448c8` |
 | Stapel | pile of comics | blue `#2f5fa8` |

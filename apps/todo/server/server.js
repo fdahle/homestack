@@ -3,7 +3,7 @@ import { DATA_DIR, openDatabase } from './db.js';
 import { buildCalendar } from './ics.js';
 import { createReminders, isValidPushEndpoint } from './reminders.js';
 import { createAuth } from './kit/auth.js';
-import { BadRequest, createApp, errorHandler, mountAccount, route, serveFrontend } from './kit/http.js';
+import { BadRequest, bigJson, createApp, errorHandler, mountAccount, route, serveFrontend } from './kit/http.js';
 
 const PORT = Number(process.env.PORT || 3073);
 const TRASH_DAYS = Number(process.env.TRASH_DAYS || 7);
@@ -11,8 +11,8 @@ const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
 const store = openDatabase();
 const reminders = createReminders(store);
-// A sync after a long time offline may carry many changes
-const app = createApp({ jsonLimit: '5mb' });
+// A sync after a long time offline may carry many changes: up to 5 MB, read only after the login check
+const app = createApp({ bigBodies: ['/api/sync'] });
 const auth = createAuth({ users: store.users, cookie: 'todo_session' });
 
 // The calendar feed is opened by calendar apps, which have no login: the secret address is the key
@@ -29,7 +29,7 @@ mountAccount(app, { auth, users: store.users, protect: ['/api'] });
 
 // --- keeping devices in step (see tasks.js) ---
 
-app.post('/api/sync', (req, res) => res.json(store.tasks.sync(req.user.id, req.body)));
+app.post('/api/sync', bigJson('5mb'), (req, res) => res.json(store.tasks.sync(req.user.id, req.body)));
 
 // --- settings: reminders and the calendar feed ---
 

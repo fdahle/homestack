@@ -2,14 +2,17 @@
   "name": "backlog",
   "version": "1.0.0",
   "private": true,
-  "description": "Personal tracker for which blog posts you have read",
+  "description": "Tracks which blog posts you have read: every post of every blog you follow, what is next, and blogs you might like",
   "type": "module",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
-    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.js",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/server.js",
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server/server.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "test": "node --disable-warning=ExperimentalWarning --test \"server/kit/*.test.js\"",
     "icons": "node scripts/make-icons.js"
   },
   "dependencies": {
@@ -17,5 +20,11 @@
     "cheerio": "^1.2.0",
     "express": "^5.3.0",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "vite": "^8.3.5",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
   }
 }

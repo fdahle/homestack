@@ -16,19 +16,26 @@ export const toId = (v) => (Number.isInteger(Number(v)) ? Number(v) : NaN);
 
 // An Express app with the usual settings: one proxy (nginx) in front, JSON bodies,
 // and GET /healthz (no login, says nothing) for Docker's health check.
-export function createApp({ jsonLimit = '1mb' } = {}) {
+// bigBodies: paths whose JSON may be larger (a sync after long offline, a backup). They're
+// skipped here and read by the route itself with bigJson(limit), placed after the login
+// check, so nobody can send megabytes without being logged in.
+export function createApp({ jsonLimit = '1mb', bigBodies = [] } = {}) {
   const app = express();
   // req.ip is the address nginx saw, not a client-supplied X-Forwarded-For
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
   app.get('/healthz', (req, res) => res.type('text').send('ok'));
-  app.use(express.json({ limit: jsonLimit }));
+  const json = express.json({ limit: jsonLimit });
+  app.use((req, res, next) => (bigBodies.includes(req.path) ? next() : json(req, res, next)));
   app.use((req, res, next) => {
     req.body ??= {}; // Express 5 leaves it undefined for body-less requests
     next();
   });
   return app;
 }
+
+// For a route in createApp's bigBodies: reads its JSON body, up to `limit`
+export const bigJson = (limit) => express.json({ limit });
 
 const LANGS = ['de', 'en'];
 const publicUser = ({ password_hash, session_version, ...u }) => u;

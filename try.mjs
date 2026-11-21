@@ -25,7 +25,7 @@ const NODE = [process.execPath, '--disable-warning=ExperimentalWarning'];
 // are listed with their differences.
 const KIT = (port) => ({ port, build: ['run', 'build'], start: ['server/server.js'] });
 const APPS = {
-  backlog: { port: 3066, start: ['src/server.js'], env: { HARVEST_LINKS: '0' } },
+  backlog: { ...KIT(3066), env: { HARVEST_LINKS: '0' } },
   checkpoint: KIT(3069),
   fernweh: {
     port: 3063,

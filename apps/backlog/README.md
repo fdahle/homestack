@@ -10,6 +10,7 @@ A small self-hosted "Podcast Addict for blogs": it imports the **full** post his
 - Read-later stars, a "New posts" section, hiding non-posts, JSON export and import
 - **Discover**: suggests new blogs based on what your blogs link to, Substack recommendations, and (optionally) Claude
 - Rescans every blog every 12 h (configurable)
+- German and English, light or dark, on the phone and with a computer layout: the homestack [design kit](../../kit/README.md)
 
 ## Deploy
 
@@ -43,11 +44,11 @@ If nginx runs in Docker too, put both containers in the same network and use `pr
 
 **Update:** `git pull && docker compose up -d --build`. The data lives in the `backlog-data` volume, so rebuilding keeps it.
 
-**Backup:** Tools → Export, or copy `backlog.db` out of the volume.
+**Backup:** Settings → Backup → Export, or copy `backlog.db` out of the volume.
 
 ## Using it
 
-**Add a blog:** use the + button and paste the address. Backlog picks the best source on its own:
+**Add a blog:** use *Add* and paste the address. Backlog picks the best source on its own:
 
 | Blog runs on | Source used | Full history? |
 |---|---|---|
@@ -70,7 +71,7 @@ If nginx runs in Docker too, put both containers in the same network and use `pr
 
 **Marking posts as read while on the blog:**
 - *Android:* open Backlog in Chrome → menu → "Add to home screen" / "Install". After that, *Share → Backlog* on any post opens it in Backlog; one tap marks it read and offers the next one.
-- *Desktop:* drag the bookmarklet from the Tools page to your bookmarks bar.
+- *Desktop:* drag the bookmarklet from the settings to your bookmarks bar.
 - *iPhone:* make a Shortcut that accepts URLs from the share sheet and opens `https://your-host/mark?url=` plus the URL (use "URL Encode" on it first).
 
 ## Discover
@@ -89,7 +90,8 @@ The very first suggestions appear once about a quarter of your posts have been v
 
 | Variable | Default | |
 |---|---|---|
-| `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / – | Your login, like the other homestack apps (`APP_PASSWORD`, the old name, still works). Without a password the app has no login (e.g. if nginx does basic auth) |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / – | Your account, created when there is none (`APP_PASSWORD`, the old name, still works) |
+| `AUTH_PROXY_SECRET` | – | Log in through Authelia instead of Backlog's own account (see the [design kit](../../kit/README.md#login)) |
 | `SCAN_INTERVAL_HOURS` | 12 | How often each blog is rescanned |
 | `REQUEST_DELAY_MS` | 1000 | Pause between requests to the same site |
 | `HARVEST_LINKS` | 1 | Set to `0` to stop visiting posts for links (sitemap titles are still fetched) |
@@ -106,7 +108,9 @@ Needs Node 24 or newer (it uses the built-in `node:sqlite`).
 
 ```sh
 npm install
-ADMIN_PASSWORD=test DATA_DIR=./data npm start   # http://localhost:3066, user admin
+cp .env.example .env    # set ADMIN_PASSWORD and DATA_DIR=./data
+npm run dev            # API on :3066, reads .env
+npm run dev:web        # Vue with hot reload on :5166
 ```
 
-Code map: `src/discover.js` finds posts (one function per strategy), `src/scanner.js` queues and schedules scans and runs the background post visits, `src/suggest.js` builds the Discover suggestions, `src/db.js` holds all SQL, `src/views.js` holds the HTML, `public/app.js` holds the client-side interactions. `npm run icons` regenerates the app icons.
+Code map: `server/discover.js` finds posts (one function per strategy), `server/scanner.js` queues and schedules scans and runs the background post visits, `server/suggest.js` builds the Discover suggestions, `server/db.js` holds all SQL, `server/server.js` the JSON API. The Vue app is in `web/src` (`views/` per page, `articles.js` for what you do with a post, `i18n.js` for the German and English texts); login, the frame and the base styles come from the kit. `npm run icons` regenerates the app icons.

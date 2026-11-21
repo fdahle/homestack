@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createUserStore } from './kit/users.js';
 import { normalizeUrl } from './urls.js';
 
 const DATA_DIR = process.env.DATA_DIR || './data';
@@ -105,7 +105,8 @@ export function getSetting(key, init) {
   return value;
 }
 
-export const sessionSecret = () => getSetting('session_secret', () => randomBytes(32).toString('hex'));
+// Your account (the kit's accounts table; the settings table is the same one)
+export const users = createUserStore(db);
 
 export function readJsonSetting(key) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

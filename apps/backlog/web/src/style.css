@@ -1,0 +1,144 @@
+/* Backlog on top of the homestack kit (kit/tokens.css, kit/base.css): slate blue, the rows of
+   posts with their tick circles, the blog cards, suggestions and the sheet of choices.
+   Colours are light-dark() pairs, so the light/dark setting applies (kit/theme.js). */
+
+:root {
+  --bg: light-dark(#f3f4f6, #16181c);
+  --surface: light-dark(#fdfdfe, #1f2227);
+  --text: light-dark(#1b1e24, #e8eaee);
+  --muted: light-dark(#666d79, #9aa1ad);
+  --line: light-dark(#e0e3e9, #32363d);
+  --accent: light-dark(#4b5d78, #a7b6d1);
+  --accent-text: light-dark(#ffffff, #141b26);
+  --accent-soft: light-dark(#e3e8f0, #29303c);
+  --bar: light-dark(#6b7d99, #8a9bb8);
+}
+
+/* --- rows of posts --- */
+
+.art-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.art { display: flex; align-items: center; gap: 2px; min-height: 56px; padding: 2px 4px 2px 2px; }
+.art + .art { border-top: 1px solid var(--line); }
+.art .check {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  cursor: pointer;
+}
+.art .check::before { content: ''; position: absolute; inset: 11px; border: 2px solid var(--muted); border-radius: 50%; }
+.art .check .icon { position: relative; width: 14px; height: 14px; stroke-width: 3; }
+.art .check:hover { color: var(--accent); }
+.art.read .check { color: var(--accent-text); }
+.art.read .check::before { background: var(--accent); border-color: var(--accent); }
+.art-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 8px 4px; }
+.art-title { color: var(--text); line-height: 1.35; overflow-wrap: anywhere; }
+.art-title:hover { color: var(--accent); }
+.art.read .art-title { color: var(--muted); }
+.art .meta { font-size: 0.8rem; }
+.blog-name { font-weight: 600; }
+.star-mark { color: var(--star); }
+.star-mark .icon { width: 14px; height: 14px; fill: currentColor; }
+
+/* --- home --- */
+
+.suggestion-hint { margin-bottom: 4px; color: var(--accent); font-weight: 600; }
+.home-columns { display: flex; flex-direction: column; }
+/* On the phone your blogs come first, the lists of posts after them */
+.home-blogs { order: -1; }
+.show-all { margin-top: 6px; }
+.blog-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.blog-card { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.blog-link { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 12px; color: var(--text); }
+.blog-link:hover h3 { color: var(--accent); }
+.blog-top { display: flex; align-items: baseline; gap: 10px; }
+.blog-top h3 { flex: 1; min-width: 0; margin: 0; font-size: 1.02rem; overflow-wrap: anywhere; }
+.unread { font-weight: 700; font-variant-numeric: tabular-nums; }
+.unread small { font-weight: 500; color: var(--muted); }
+.blog-link .meta { font-size: 0.8rem; }
+.scanning { color: var(--accent); }
+.continue { display: block; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--accent-soft); color: var(--text); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.continue strong { color: var(--accent); margin-right: 4px; }
+.continue:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(--accent)); }
+
+/* --- a blog --- */
+
+.progress-line { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; font-size: 0.9rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.progress-line .progress { flex: 1; height: 8px; }
+.continue-btn { display: flex; width: 100%; margin: 4px 0 16px; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+main > .info { margin-bottom: 12px; }
+.list-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.list-tools .segmented { flex: 1; }
+.list-tools .segmented button { flex: 1; justify-content: center; }
+.segmented .count { margin-left: 4px; font-size: 0.75rem; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.filter-row input { flex: 1; }
+
+/* --- blog settings --- */
+
+.advanced summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.advanced[open] summary { margin-bottom: 12px; }
+.advanced small { display: block; margin-top: 4px; }
+.test-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+
+/* --- discover --- */
+
+.ai-box { display: flex; gap: 8px; margin-bottom: 14px; }
+.ai-box input { flex: 1; min-width: 0; }
+.suggestions { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.suggestion h2 { margin: 0 0 4px; font-size: 1.08rem; }
+.suggestion h2 a { color: var(--text); }
+.suggestion h2 a:hover { color: var(--accent); }
+.suggestion-desc { margin: 8px 0; font-size: 0.93rem; }
+.why { margin: 8px 0; padding-left: 18px; color: var(--muted); font-size: 0.86rem; }
+.samples { margin: 0 0 12px; padding-left: 18px; font-size: 0.88rem; }
+.browse-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 0.92rem; }
+
+/* --- settings --- */
+
+.bookmarklet { cursor: grab; }
+
+/* --- marking from the blog --- */
+
+.mark-card { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 28px 20px; }
+.mark-card h2 { margin: 0; font-size: 1.2rem; overflow-wrap: anywhere; }
+.mark-card p { margin: 0; }
+.mark-card .row-buttons { margin-top: 8px; }
+.row-buttons.center { justify-content: center; }
+.big-check { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--accent); color: var(--accent-text); }
+.big-check .icon { width: 34px; height: 34px; stroke-width: 2.6; }
+.break { overflow-wrap: anywhere; }
+
+/* --- the sheet of choices --- */
+
+.sheet {
+  width: min(480px, 100%);
+  max-width: 100%;
+  margin: auto auto 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  border: 0;
+  border-radius: 18px 18px 0 0;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 -8px 30px rgb(0 0 0 / 0.2);
+}
+.sheet[open] { display: flex; flex-direction: column; gap: 8px; }
+.sheet::backdrop { background: rgb(0 0 0 / 0.4); }
+.sheet-title { margin: 0 4px 6px; font-weight: 650; overflow-wrap: anywhere; }
+.sheet .btn { width: 100%; justify-content: flex-start; }
+
+@media (min-width: 1024px) {
+  .sheet { margin: auto; border-radius: var(--radius); padding: 18px; }
+  /* New posts and later on the left, the blogs on the right */
+  .home-blogs { order: 0; }
+  .home-columns { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); gap: 28px; align-items: start; }
+  .home-blogs .blog-cards { grid-template-columns: 1fr; }
+  .home-columns:not(:has(.home-lists > *)) { display: block; }
+  .home-columns:not(:has(.home-lists > *)) .home-blogs .blog-cards { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+}

@@ -80,7 +80,7 @@ Authelia's session cookie is set for `fdahle.de`, so it covers every subdomain: 
 2. `install -m 644 deploy/nginx/homestack-authelia.conf /etc/nginx/snippets/` (next to Authelia's own `authelia-location.conf` and `authelia-authrequest.conf`, which Stammbaum already uses).
 3. `install -d -m 750 -o root -g www-data /etc/nginx/homestack-secrets`
 
-**Per app** that uses the [design kit](../../kit/README.md#login) (Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do) or follows it (Fernweh), shown for Leute:
+**Per app** that uses the [design kit](../kit/README.md#login) (Backlog, Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do) or follows it (Fernweh), shown for Leute:
 
 ```sh
 secret=$(openssl rand -hex 32)
@@ -103,7 +103,7 @@ The app then has no login page of its own: it takes the user from Authelia and m
 | Checkpoint, Watchlist, Regal | Their own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above whenever you want |
 | Fernweh | Its own password; ready for Authelia too (`AUTH_PROXY_SECRET`, conf in its `deploy/`) |
 | Stapel | Its own password; ready for Authelia with the steps above (the first account is the admin who can add people; behind Authelia everyone gets an account by logging in there) |
-| Backlog | Its own username and password (`ADMIN_USER`/`ADMIN_PASSWORD`); behind Authelia it would ask for it once more per device |
+| Backlog | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above. The Android share target and the bookmarklet go through the login like everything else |
 | Notizbuch | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above. Opens offline with the account it last saw |
 | To-do | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above, with a bypass for `/ics/` like Leute's. Opens offline with the account it last saw |
 

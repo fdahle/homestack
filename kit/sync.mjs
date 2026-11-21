@@ -26,6 +26,7 @@ const APPS = {
   notizbuch: LAYOUT,
   todo: LAYOUT,
   stapel: LAYOUT,
+  backlog: LAYOUT,
   fernweh: { web: 'client/src/kit', server: 'api/kit', scripts: 'scripts/kit' },
 };
 
