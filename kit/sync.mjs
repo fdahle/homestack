@@ -22,7 +22,7 @@ const APPS = {
   checkpoint: LAYOUT,
   watchlist: LAYOUT,
   regal: LAYOUT,
-  leute: LAYOUT,
+  stammtisch: LAYOUT,
   notizbuch: LAYOUT,
   todo: LAYOUT,
   stapel: LAYOUT,

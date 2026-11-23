@@ -9,10 +9,10 @@ The newer apps share a look and some code through the [design kit](kit/): one se
 | [backlog/](apps/backlog/) | Tracks which blog posts you have read |
 | [checkpoint/](apps/checkpoint/) | Games you play: playing, finished, dropped, backlog; ratings, stats and a pick for what to play next |
 | [fernweh/](apps/fernweh/) | Map bookmarks: save places, sort them into collections, plan trips, share views |
-| [leute/](apps/leute/) | Friends: who they are, what you did together, what you have planned; events from WhatsApp messages, reminders, calendar feed |
 | [notizbuch/](apps/notizbuch/) | Notes that work offline: Markdown with checklists, labels, pictures and files, synced across your devices |
 | [regal/](apps/regal/) | Your books with covers: want to read, reading, read; synced from Calibre |
 | [stammbaum/](apps/stammbaum/) | A pocket who-is-who for family gatherings |
+| [stammtisch/](apps/stammtisch/) | Stammtisch: your friends, what you did together, what you have planned; events from WhatsApp messages, reminders, calendar feed |
 | [stapel/](apps/stapel/) | Tracks a comic collection: owned, read, missing |
 | [todo/](apps/todo/) | To-do: tasks as quick as a note, with due dates, repeats, priorities, subtasks, reminders and a calendar feed; works offline |
 | [watchlist/](apps/watchlist/) | Films and series, kept apart: watchlist, what you watched, episodes, what's next |
@@ -27,7 +27,7 @@ Each app has its own port, so all of them can run side by side on one machine, i
 | stammbaum | 3065 | 3065 | 5165 |
 | backlog | 3066 | 3066 | – |
 | stapel | 3067 | 3067 | 5167 |
-| leute | 3068 | 3068 | 5168 |
+| stammtisch | 3068 | 3068 | 5168 |
 | checkpoint | 3069 | 3069 | 5169 |
 | notizbuch | 3070 | 3070 | 5170 |
 | watchlist | 3071 | 3071 | 5171 |

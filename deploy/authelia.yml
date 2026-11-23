@@ -1,10 +1,10 @@
 # The parts of Authelia's configuration.yml for the homestack apps behind it.
 # Merge them into the existing file; don't replace it. See README.md#one-login-for-all-apps.
 #
-# Behind Authelia: the apps with personal data, Leute (friends.fdahle.de) and Stammbaum
+# Behind Authelia: the apps with personal data, Stammtisch (friends.fdahle.de) and Stammbaum
 # (family.fdahle.de). The lists (games, watch, books, comics, read) keep their own
 # password, and Fernweh and Notizbuch their own login (both ready for Authelia). To add one later, give it a rule
-# like Leute's and switch its nginx config to the Authelia version.
+# like Stammtisch's and switch its nginx config to the Authelia version.
 
 session:
   cookies:
@@ -19,7 +19,7 @@ access_control:
   rules:
     # --- what has to work without the login cookie (before the rules below) ---
 
-    # Calendar apps fetch Leute's feed on their own; the link carries its own secret token.
+    # Calendar apps fetch Stammtisch's feed on their own; the link carries its own secret token.
     # Phones fetch the icon and manifest when you add the app to the home screen,
     # sometimes without cookies. Nothing private in them.
     - domain: friends.fdahle.de
@@ -36,6 +36,70 @@ access_control:
       policy: two_factor
 
     # The family (Stammbaum) has its own rules for the `family` group; see stammbaum/deploy/authelia.yml.
+
+    # --- apps that are still on their own password, for the day they move behind Authelia ---
+    #
+    # Watchlist, Checkpoint, Regal, Backlog and Fernweh keep ONE library: whoever gets in may
+    # read, change, export and delete all of it (and Backlog's discovery spends Claude credit).
+    # So "only you", never a plain one_factor rule for everyone with an Authelia account.
+    # Also set AUTH_PROXY_USERS=felix in their .env: the app then lets nobody else in, even
+    # if a rule here is ever too wide. Stapel, Notizbuch and To-do keep each person's data
+    # apart; give them the people who should have an account (e.g. 'group:family').
+    #
+    # - domain: [watch.fdahle.de, games.fdahle.de, books.fdahle.de, read.fdahle.de]
+    #   subject: 'group:admin'
+    #   policy: one_factor
+    #
+    # Fernweh's share links work for people without an account (before its own rule):
+    # - domain: places.fdahle.de
+    #   resources:
+    #     - '^/share/'
+    #     - '^/api/public/share/'
+    #     - '^/assets/'
+    #     - '^/(icon.svg|icon-(180|192|512|maskable-512).png|manifest.webmanifest|sw.js)
+    # - domain: tasks.fdahle.de
+    #   resources: ['^/ics/', '^/(manifest.webmanifest|icon[^/]*.(png|svg)|favicon.ico|sw.js)
+# You are a user in the `admin` group (users_database.yml, hash with
+# `authelia crypto hash generate argon2`):
+#
+# users:
+#   felix:
+#     displayname: "Felix"
+#     password: "$argon2id$..."
+#     email: you@example.com
+#     groups: [admin]
+]
+    #   policy: bypass
+
+# You are a user in the `admin` group (users_database.yml, hash with
+# `authelia crypto hash generate argon2`):
+#
+# users:
+#   felix:
+#     displayname: "Felix"
+#     password: "$argon2id$..."
+#     email: you@example.com
+#     groups: [admin]
+
+    #   policy: bypass
+    # - domain: places.fdahle.de
+    #   subject: 'group:admin'
+    #   policy: one_factor
+    #
+    # To-do's calendar feed, like Stammtisch's (before the rule for tasks.fdahle.de):
+    # - domain: tasks.fdahle.de
+    #   resources: ['^/ics/', '^/(manifest.webmanifest|icon[^/]*.(png|svg)|favicon.ico|sw.js)
+# You are a user in the `admin` group (users_database.yml, hash with
+# `authelia crypto hash generate argon2`):
+#
+# users:
+#   felix:
+#     displayname: "Felix"
+#     password: "$argon2id$..."
+#     email: you@example.com
+#     groups: [admin]
+]
+    #   policy: bypass
 
 # You are a user in the `admin` group (users_database.yml, hash with
 # `authelia crypto hash generate argon2`):

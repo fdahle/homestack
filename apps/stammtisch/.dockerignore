@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+.env
+.git
+deploy
+scripts
+*.md
+*.test.js
+data-sample

@@ -53,16 +53,20 @@ Make a key pair just for this (`ssh-keygen -t ed25519 -N '' -f deploy-key`). The
 
 ## Once: the apps moved into apps/
 
-The apps used to sit at the top of the repository; now they're in `apps/`, the design kit is `kit/`, and Flimmer, Zettel and Haken are called Watchlist, Notizbuch and To-do. After the push with that change, the installed deploy script can't find the apps and leaves the running containers alone. Then, on the server:
+The apps used to sit at the top of the repository; now they're in `apps/`, the design kit is `kit/`, and Flimmer, Zettel, Haken and Leute are called Watchlist, Notizbuch, To-do and Stammtisch. After the push with that change, the installed deploy script can't find the apps and leaves the running containers alone. Then, on the server:
 
 ```sh
 git -C /srv/docker/homestack pull                    # as the checkout's owner
 sudo sh /srv/docker/homestack/deploy/move-to-apps.sh
 ```
 
-It moves each app's `.env`, `docker-compose.override.yml` and data folder (Fernweh's and Stammbaum's `data/`, after stopping them) into `apps/<app>/`, renames the three apps in `APPS`, installs the new deploy script and rebuilds everything. Docker keeps the same project names (Watchlist's `docker-compose.yml` says `name: flimmer`), so containers keep their volumes. The old Zettel's containers stop, because Notizbuch uses its port; its CouchDB volume stays until you remove it. In Notizbuch's `.env`, `ADMIN_USERNAME` is now called `ADMIN_USER`.
+It moves each app's `.env`, `docker-compose.override.yml` and data folder (Fernweh's and Stammbaum's `data/`, after stopping them) into `apps/<app>/`, renames the four apps in `APPS`, installs the new deploy script and rebuilds everything.
 
-The nginx configs only changed in their comments; the ports are the same.
+Stammtisch and Watchlist drop their old names in Docker too. The script stops and removes the old containers (Docker projects `bande` and `flimmer`) and copies their volumes into new ones, `stammtisch_stammtisch-data` and `watchlist_watchlist-data`, renaming `bande.db` and `flimmer.db` on the way. The old volumes stay as a backup: `docker volume rm bande_bande-data flimmer_flimmer-data` once everything works. It also renames the nginx secret `leute.conf` to `stammtisch.conf` (and the include in the installed site config), `LEUTE_…` to `STAMMTISCH_…` in Fernweh's `.env`, and the service `leute` to `stammtisch` in the `docker-compose.override.yml` files. The login cookies have new names, so you log in once more; Stammtisch's calendar events get new ids. Fernweh renames its own database columns when it starts.
+
+The old Zettel's containers stop, because Notizbuch uses its port; its CouchDB volume stays until you remove it. In Notizbuch's `.env`, `ADMIN_USERNAME` is now called `ADMIN_USER`.
+
+The nginx configs only changed in their comments and Stammtisch's secret file name (which the script fixes in the installed copy); the ports are the same.
 
 ## Day to day
 
@@ -76,36 +80,36 @@ Authelia's session cookie is set for `fdahle.de`, so it covers every subdomain: 
 
 **Server, once:**
 
-1. Merge [authelia.yml](authelia.yml) into Authelia's configuration (adjust the domains marked "yours") and put yourself into the `me` group. Restart Authelia.
+1. Merge [authelia.yml](authelia.yml) into Authelia's configuration (adjust the domains marked "yours") and put yourself into the `admin` group. Restart Authelia.
 2. `install -m 644 deploy/nginx/homestack-authelia.conf /etc/nginx/snippets/` (next to Authelia's own `authelia-location.conf` and `authelia-authrequest.conf`, which Stammbaum already uses).
 3. `install -d -m 750 -o root -g www-data /etc/nginx/homestack-secrets`
 
-**Per app** that uses the [design kit](../kit/README.md#login) (Backlog, Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do) or follows it (Fernweh), shown for Leute:
+**Per app** that uses the [design kit](../kit/README.md#login) (Backlog, Checkpoint, Watchlist, Regal, Stammtisch, Stapel, Notizbuch, To-do) or follows it (Fernweh), shown for Stammtisch:
 
 ```sh
 secret=$(openssl rand -hex 32)
-echo "AUTH_PROXY_SECRET=$secret" >> /srv/docker/homestack/leute/.env
-echo "proxy_set_header X-Auth-Proxy-Secret \"$secret\";" > /etc/nginx/homestack-secrets/leute.conf
-chmod 640 /etc/nginx/homestack-secrets/leute.conf
-cp leute/deploy/friends.fdahle.de.conf /etc/nginx/sites-available/   # the Authelia version
+echo "AUTH_PROXY_SECRET=$secret" >> /srv/docker/homestack/apps/stammtisch/.env
+echo "proxy_set_header X-Auth-Proxy-Secret \"$secret\";" > /etc/nginx/homestack-secrets/stammtisch.conf
+chmod 640 /etc/nginx/homestack-secrets/stammtisch.conf
+cp apps/stammtisch/deploy/friends.fdahle.de.conf /etc/nginx/sites-available/   # the Authelia version
 nginx -t && systemctl reload nginx
-cd /srv/docker/homestack/leute && docker compose up -d
+cd /srv/docker/homestack/apps/stammtisch && docker compose up -d
 ```
 
-The app then has no login page of its own: it takes the user from Authelia and makes an account for them the first time. The apps are for one person and their data doesn't belong to an account, so nothing is lost when you switch; only the language setting starts again at German. Fernweh simply treats whoever Authelia lets in as its one user. When the Authelia login runs out, the app reloads itself and lands on Authelia's login page.
+The app then has no login page of its own: it takes the user from Authelia and makes an account for them the first time. The apps are for one person and their data doesn't belong to an account, so nothing is lost when you switch; only the language setting starts again at German. Fernweh simply treats whoever Authelia lets in as its one user. That's why the apps with one shared library (Watchlist, Checkpoint, Regal, Backlog, Fernweh) need an Authelia rule for you alone, plus `AUTH_PROXY_USERS=felix` in their `.env` (names separated by commas): with it the app lets nobody else in, even if a rule is too wide. [authelia.yml](authelia.yml) has the rules ready. When the Authelia login runs out, the app reloads itself and lands on Authelia's login page.
 
 **Where each app stands:**
 
 | App | Login |
 |---|---|
-| Leute | Behind Authelia with a second factor (only you, group `admin`) |
+| Stammtisch | Behind Authelia with a second factor (only you, group `admin`) |
 | Stammbaum | Behind Authelia, with its own `STAMMBAUM_PROXY_SECRET` |
 | Checkpoint, Watchlist, Regal | Their own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above whenever you want |
 | Fernweh | Its own password; ready for Authelia too (`AUTH_PROXY_SECRET`, conf in its `deploy/`) |
 | Stapel | Its own password; ready for Authelia with the steps above (the first account is the admin who can add people; behind Authelia everyone gets an account by logging in there) |
 | Backlog | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above. The Android share target and the bookmarklet go through the login like everything else |
 | Notizbuch | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above. Opens offline with the account it last saw |
-| To-do | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above, with a bypass for `/ics/` like Leute's. Opens offline with the account it last saw |
+| To-do | Its own password (`ADMIN_PASSWORD`); ready for Authelia with the steps above, with a bypass for `/ics/` like Stammtisch's. Opens offline with the account it last saw |
 
 ## Apps that talk to each other
 
@@ -119,15 +123,15 @@ Each app that takes part joins it in its `docker-compose.override.yml` (next to 
 
 ```yaml
 services:
-  leute:              # the service name from the app's docker-compose.yml (Fernweh's is `app`)
+  stammtisch:         # the service name from the app's docker-compose.yml (Fernweh's is `app`)
     networks: [default, homestack]
 networks:
   homestack:
     external: true
 ```
 
-The apps then reach each other by container name, e.g. `http://leute:3000`. Each link has its own secret token on both sides.
+The apps then reach each other by container name, e.g. `http://stammtisch:3000`. Each link has its own secret token on both sides.
 
 | Link | Settings |
 |---|---|
-| Fernweh places your friends' addresses from Leute on the map (collection "Freunde"); "Auf der Karte" in Leute, "Open in Leute" in Fernweh | Leute: `LINK_TOKEN`, `FERNWEH_URL=https://places.fdahle.de`. Fernweh: `LEUTE_URL=http://leute:3000`, `LEUTE_LINK_TOKEN` (the same token), `LEUTE_PUBLIC_URL=https://friends.fdahle.de` |
+| Fernweh places your friends' addresses from Stammtisch on the map (collection "Freunde"); "Auf der Karte" in Stammtisch, "Open in Stammtisch" in Fernweh | Stammtisch: `LINK_TOKEN`, `FERNWEH_URL=https://places.fdahle.de`. Fernweh: `STAMMTISCH_URL=http://stammtisch:3000`, `STAMMTISCH_LINK_TOKEN` (the same token), `STAMMTISCH_PUBLIC_URL=https://friends.fdahle.de` |
