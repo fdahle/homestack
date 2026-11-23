@@ -40,6 +40,7 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 | `ADMIN_USER` / `ADMIN_PASSWORD` | `admin` / – | Your account, created when there is none |
 | `AUTH_PROXY_SECRET` | – | Log in through Authelia instead of Notizbuch's own account |
 | `MAX_FILE_MB` | 25 | The largest file you can attach (nginx's `client_max_body_size` must allow it) |
+| `MAX_USER_MB` | 2048 | All of one account's files together, so one account can't fill the disk |
 | `TRASH_DAYS` | 30 | Days before a note in the trash is deleted for good (0: never) |
 | `PORT` | 3070 | |
 | `DATA_DIR` | `/data` | Where `notizbuch.db` and `files/` live |

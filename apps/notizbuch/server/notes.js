@@ -146,15 +146,30 @@ export function createNoteStore(db) {
     return { answer, removedFiles: removed };
   }
 
-  // A file arrived (PUT /api/files/:id). Sending the same file again is fine.
-  function addFile(userId, { id, note_id: noteId, name, type, size, width, height }) {
+  // Bytes of a user's files (not those deleted for good), for the storage limit
+  const bytesUsed = (userId) => db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE user_id = ? AND purged = 0').get(userId).n;
+
+  // Before an upload touches the disk: may this file come in? Returns the file when this user
+  // sent it before (a retry whose answer got lost), null when it is new and may be written.
+  // An id that is taken (another account's file, or one deleted for good) is refused, so the
+  // upload can't overwrite or remove what's on the disk under that id.
+  function checkUpload(userId, { id, note_id: noteId, size }, maxBytes = Infinity) {
     const existing = getFile(id);
     if (existing) {
-      if (existing.user_id !== userId) throw new BadRequest('bad_id');
+      if (existing.user_id !== userId || existing.purged) throw new BadRequest('bad_id');
       return fileOut(existing);
     }
     const note = getNote(noteId);
     if (!note || note.user_id !== userId || note.purged) throw new BadRequest('bad_note');
+    if (bytesUsed(userId) + size > maxBytes) throw new BadRequest('storage_full');
+    return null;
+  }
+
+  // A file arrived (PUT /api/files/:id) and is on the disk. Sending the same file again is fine.
+  function addFile(userId, meta, maxBytes = Infinity) {
+    const sent = checkUpload(userId, meta, maxBytes);
+    if (sent) return sent;
+    const { id, note_id: noteId, name, type, size, width, height } = meta;
     db.prepare(`INSERT INTO files (id, user_id, note_id, name, type, size, width, height, created_at, seq)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, userId, noteId, name, type, size, width ?? null, height ?? null, new Date().toISOString(), nextSeq());
     return fileOut(getFile(id));
@@ -181,7 +196,7 @@ export function createNoteStore(db) {
     }));
   }
 
-  return { sync, addFile, fileFor, emptyOldTrash, notesForExport, getNote };
+  return { sync, checkUpload, addFile, fileFor, emptyOldTrash, notesForExport, getNote };
 }
 
 // --- checking what devices send ---

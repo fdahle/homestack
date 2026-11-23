@@ -1,8 +1,14 @@
 // A small ZIP writer for the export, without a library: each entry deflated (or stored when
-// that doesn't make it smaller), with the central directory at the end. Names are UTF-8.
+// that doesn't make it smaller, or when it is already compressed), with the central directory
+// at the end. Names are UTF-8. It hands out the ZIP piece by piece, so the export goes to the
+// browser as it is made instead of being put together in memory first.
 // Fine for a few thousand notes and their files; not for archives over 4 GB (no ZIP64).
 
-import { crc32, deflateRawSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { crc32, deflateRaw } from 'node:zlib';
+
+// Off the main thread: a big text file mustn't hold up everyone else's requests
+const deflate = promisify(deflateRaw);
 
 // The date in the old MS-DOS format ZIP uses, in local time
 function dosTime(date) {
@@ -14,17 +20,19 @@ function dosTime(date) {
   };
 }
 
-// entries: [{ name: 'Notizbuch/note.md', data: Buffer | string, date: Date }] → Buffer
-export function zip(entries) {
-  const parts = [];
+// entries: (async) iterable of { name: 'Notizbuch/note.md', data: Buffer | string, date: Date,
+// store: true for data that is already compressed (pictures, videos, …) } → yields Buffers.
+// Each entry is read whole, so its CRC and sizes go into its header before the data.
+export async function* zip(entries) {
   const central = [];
   let offset = 0;
+  let count = 0;
 
-  for (const entry of entries) {
+  for await (const entry of entries) {
     const name = Buffer.from(entry.name, 'utf8');
     const data = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(String(entry.data), 'utf8');
-    const deflated = deflateRawSync(data);
-    const stored = deflated.length >= data.length;
+    const deflated = entry.store ? null : await deflate(data);
+    const stored = !deflated || deflated.length >= data.length;
     const body = stored ? data : deflated;
     const crc = crc32(data);
     const { time, date } = dosTime(entry.date);
@@ -41,7 +49,8 @@ export function zip(entries) {
     local.writeUInt32LE(data.length, 22);
     local.writeUInt16LE(name.length, 26);
     local.writeUInt16LE(0, 28);
-    parts.push(local, name, body);
+    yield Buffer.concat([local, name]);
+    yield body;
 
     const head = Buffer.alloc(46);
     head.writeUInt32LE(0x02014b50, 0);
@@ -59,14 +68,15 @@ export function zip(entries) {
     central.push(head, name);
 
     offset += local.length + name.length + body.length;
+    count++;
   }
 
   const dir = Buffer.concat(central);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(entries.length, 8);
-  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt16LE(count, 8);
+  end.writeUInt16LE(count, 10);
   end.writeUInt32LE(dir.length, 12);
   end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...parts, dir, end]);
+  yield Buffer.concat([dir, end]);
 }

@@ -12,9 +12,11 @@ import Icon from '../kit/components/Icon.vue';
 // The note's text: you write with formatting (lists, checklists, headings, …), it's kept
 // as Markdown. Typing Markdown works too ("- [ ] " starts a checklist, "# " a heading).
 // Pictures and files pasted in become attachments (emitted as `files`), not part of the text.
+// tools: show the formatting buttons (they're only needed now and then).
 const props = defineProps({
   modelValue: { type: String, default: '' },
   editable: { type: Boolean, default: true },
+  tools: Boolean,
 });
 const emit = defineEmits(['update:modelValue', 'files']);
 
@@ -102,7 +104,7 @@ defineExpose({ focus });
 
 <template>
   <div class="note-editor">
-    <div v-if="editable && editor" class="format-bar" role="toolbar" :aria-label="t('note.format')">
+    <div v-if="tools && editable && editor" class="format-bar" role="toolbar" :aria-label="t('note.format')">
       <button
         v-for="tool in TOOLS"
         :key="tool.name"
@@ -118,6 +120,7 @@ defineExpose({ focus });
         <Icon :name="tool.icon" />
       </button>
     </div>
-    <EditorContent :editor="editor" />
+    <!-- The empty space under a short note belongs to the text too -->
+    <EditorContent :editor="editor" class="note-body" @click.self="focus()" />
   </div>
 </template>

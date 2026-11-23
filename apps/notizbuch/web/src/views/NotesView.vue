@@ -2,20 +2,24 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { t } from '../i18n.js';
-import { useShortcut } from '../util.js';
+import { useShortcut, wide } from '../util.js';
 import { plainText } from '../lib/markdown.js';
-import { filesOf, purgeNote, store } from '../store/notes.js';
+import { createNote, filesOf, purgeNote, store } from '../store/notes.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
-import SplitView from '../kit/components/SplitView.vue';
 import NoteCard from '../components/NoteCard.vue';
+import NoteMasonry from '../components/NoteMasonry.vue';
+import NoteModal from '../components/NoteModal.vue';
+import MoreMenu from '../components/MoreMenu.vue';
 import SyncState from '../components/SyncState.vue';
 
 // The notes, the archive or the trash (the route says which), with search and label filter.
-// A note opens beside the list on a computer, in its place on the phone.
+// A note opens on top of the list on a computer, in its place on the phone.
 const route = useRoute();
 const router = useRouter();
 const mode = route.matched[0].name; // notes | archive | trash
+const listPath = route.matched[0].path;
+const hasNote = computed(() => route.matched.length > 1);
 
 const q = ref(String(route.query.q || ''));
 const label = ref(String(route.query.label || ''));
@@ -34,8 +38,14 @@ watch(() => route.query.label, (value) => {
 });
 
 const searchInput = ref(null);
-useShortcut('/', () => searchInput.value?.focus());
-useShortcut('n', () => router.push(newNote.value));
+useShortcut('/', () => {
+  if (hasNote.value) return false;
+  searchInput.value?.focus();
+});
+useShortcut('n', () => {
+  if (hasNote.value || mode !== 'notes') return false;
+  write();
+});
 
 const IN_MODE = {
   notes: (n) => !n.deleted_at && !n.archived_at,
@@ -67,9 +77,28 @@ const shown = computed(() => {
 const pinned = computed(() => (mode === 'notes' ? shown.value.filter((n) => n.pinned) : []));
 const others = computed(() => (mode === 'notes' ? shown.value.filter((n) => !n.pinned) : shown.value));
 
-const title = computed(() => (mode === 'notes' ? t('notes.title') : t(`nav.${mode}`)));
-const newNote = computed(() => (label.value ? { path: '/new', query: { label: label.value } } : '/new'));
+const title = computed(() => t(`nav.${mode}`));
+// Two columns on the phone, as many as fit on a computer
+const columns = computed(() => (wide.value ? { minWidth: 230, gap: 14 } : { minWidth: 150, gap: 8 }));
 const cardLink = (n) => ({ name: `${mode}-note`, params: { id: n.id } });
+const menu = computed(() => [
+  { to: '/archive', icon: 'archive', label: t('nav.archive') },
+  { to: '/trash', icon: 'trash', label: t('nav.trash') },
+  { to: '/settings', icon: 'gear', label: t('nav.settings') },
+]);
+
+// A new note opens right on top of the list (with the label that's filtered by)
+function write() {
+  const note = createNote(label.value ? { labels: [label.value] } : {});
+  router.push({ name: 'notes-note', params: { id: note.id }, query: { new: '' } });
+}
+
+// Back to the list, with its search and label as they were when you came from it
+function closeNote() {
+  const previous = window.history.state?.back;
+  if (previous && previous.split('?')[0] === listPath) router.back();
+  else router.push(listPath);
+}
 
 function reset() {
   q.value = '';
@@ -84,71 +113,90 @@ function emptyTrash() {
 </script>
 
 <template>
-  <SplitView>
-    <TopBar :title="title">
-      <SyncState />
-      <template v-if="mode === 'notes'">
-        <RouterLink to="/trash" class="icon-btn phone-only" :aria-label="t('nav.trash')"><Icon name="trash" /></RouterLink>
-        <RouterLink to="/settings" class="icon-btn phone-only" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
-      </template>
-    </TopBar>
-    <main class="wide">
-      <p v-if="!store.ready" class="muted center">{{ t('note.loading') }}</p>
-
-      <template v-else>
-        <div v-if="all.length" class="search-box">
+  <div class="notes" :class="{ 'has-note': hasNote }">
+    <div class="notes-list">
+      <!-- The notes: the search is the header, like a notepad you look things up in -->
+      <header v-if="mode === 'notes'" class="top notes-top">
+        <div class="search-box top-search">
           <Icon name="search" />
           <input ref="searchInput" v-model="q" type="search" :placeholder="t('notes.search')" :aria-label="t('notes.search')" />
-          <kbd class="desktop-only">/</kbd>
+          <kbd v-if="!q" class="desktop-only">/</kbd>
         </div>
+        <div class="actions">
+          <SyncState />
+          <MoreMenu class="phone-only" :items="menu" />
+        </div>
+      </header>
+      <TopBar v-else :title="title" back="/" sidebar-page>
+        <SyncState />
+      </TopBar>
 
-        <div v-if="labels.length" class="chips" :class="{ 'phone-only': mode === 'notes' }" role="group" :aria-label="t('notes.labels')">
-          <button class="chip" :class="{ active: !label }" @click="label = ''">{{ t('notes.allLabels') }}</button>
-          <button v-for="[l, n] in labels" :key="l" class="chip" :class="{ active: label === l }" @click="label = label === l ? '' : l">
-            {{ l }}<span class="chip-count">{{ n }}</span>
-          </button>
-        </div>
-        <div v-if="mode === 'notes' && label" class="filter-line desktop-only">
-          <span class="chip active"><Icon name="tag" />{{ label }}</span>
-          <button class="link-btn small" @click="label = ''"><Icon name="close" />{{ t('notes.reset') }}</button>
-        </div>
-
-        <RouterLink v-if="mode === 'notes' && all.length" :to="newNote" class="write-box desktop-only">
-          <Icon name="edit" /><span class="grow">{{ t('notes.write') }}</span><kbd>N</kbd>
-        </RouterLink>
-
-        <div v-if="mode === 'trash' && all.length" class="info trash-info">
-          <Icon name="info" />
-          <span class="grow">{{ t('notes.trashHint', { days: store.settings.trashDays }) }}</span>
-          <button class="btn small danger" @click="emptyTrash">{{ t('notes.emptyTrash') }}</button>
-        </div>
-
-        <div v-if="!all.length" class="empty">
-          <img src="/icon.svg" alt="" width="72" height="72" />
-          <p>{{ mode === 'notes' ? t('notes.empty') : mode === 'archive' ? t('notes.archiveEmpty') : t('notes.trashEmpty') }}</p>
-          <div v-if="mode === 'notes'" class="row-buttons">
-            <RouterLink to="/new" class="btn primary"><Icon name="plus" />{{ t('notes.write') }}</RouterLink>
-          </div>
-        </div>
-
-        <div v-else-if="!shown.length" class="empty">
-          <p>{{ t('notes.noMatch') }}</p>
-          <button class="btn" @click="reset">{{ t('notes.reset') }}</button>
-        </div>
+      <main class="wide">
+        <p v-if="!store.ready" class="muted center">{{ t('note.loading') }}</p>
 
         <template v-else>
-          <template v-if="pinned.length">
-            <h2 class="section">{{ t('notes.pinned') }}</h2>
-            <div class="note-grid">
-              <NoteCard v-for="n in pinned" :key="n.id" :note="n" :to="cardLink(n)" :selected="route.params.id === n.id" />
-            </div>
-            <h2 v-if="others.length" class="section">{{ t('notes.others') }}</h2>
-          </template>
-          <div class="note-grid">
-            <NoteCard v-for="n in others" :key="n.id" :note="n" :to="cardLink(n)" :selected="route.params.id === n.id" />
+          <div v-if="mode !== 'notes' && all.length" class="search-box">
+            <Icon name="search" />
+            <input ref="searchInput" v-model="q" type="search" :placeholder="t('notes.search')" :aria-label="t('notes.search')" />
+            <kbd v-if="!q" class="desktop-only">/</kbd>
           </div>
+
+          <button v-if="mode === 'notes' && all.length" type="button" class="write-box desktop-only" @click="write">
+            <span class="grow">{{ t('notes.write') }}</span><kbd>N</kbd><Icon name="edit" />
+          </button>
+
+          <div v-if="labels.length" class="chips" :class="{ 'phone-only': mode === 'notes' }" role="group" :aria-label="t('notes.labels')">
+            <button class="chip" :class="{ active: !label }" @click="label = ''">{{ t('notes.allLabels') }}</button>
+            <button v-for="[l, n] in labels" :key="l" class="chip" :class="{ active: label === l }" @click="label = label === l ? '' : l">
+              {{ l }}<span class="chip-count">{{ n }}</span>
+            </button>
+          </div>
+          <div v-if="mode === 'notes' && label" class="filter-line desktop-only">
+            <span class="chip active"><Icon name="tag" />{{ label }}</span>
+            <button class="link-btn small" @click="label = ''"><Icon name="close" />{{ t('notes.reset') }}</button>
+          </div>
+
+          <div v-if="mode === 'trash' && all.length" class="info trash-info">
+            <Icon name="info" />
+            <span class="grow">{{ t('notes.trashHint', { days: store.settings.trashDays }) }}</span>
+            <button class="btn small danger" @click="emptyTrash">{{ t('notes.emptyTrash') }}</button>
+          </div>
+
+          <div v-if="!all.length" class="empty">
+            <img src="/icon.svg" alt="" width="72" height="72" />
+            <p>{{ mode === 'notes' ? t('notes.empty') : mode === 'archive' ? t('notes.archiveEmpty') : t('notes.trashEmpty') }}</p>
+            <div v-if="mode === 'notes'" class="row-buttons">
+              <button type="button" class="btn primary" @click="write"><Icon name="plus" />{{ t('notes.write') }}</button>
+            </div>
+          </div>
+
+          <div v-else-if="!shown.length" class="empty">
+            <p>{{ t('notes.noMatch') }}</p>
+            <button class="btn" @click="reset">{{ t('notes.reset') }}</button>
+          </div>
+
+          <template v-else>
+            <template v-if="pinned.length">
+              <h2 class="section">{{ t('notes.pinned') }}</h2>
+              <NoteMasonry :items="pinned" v-bind="columns" v-slot="{ item: n }">
+                <NoteCard :note="n" :to="cardLink(n)" :selected="route.params.id === n.id" />
+              </NoteMasonry>
+              <h2 v-if="others.length" class="section">{{ t('notes.others') }}</h2>
+            </template>
+            <NoteMasonry :items="others" v-bind="columns" v-slot="{ item: n }">
+              <NoteCard :note="n" :to="cardLink(n)" :selected="route.params.id === n.id" />
+            </NoteMasonry>
+          </template>
         </template>
-      </template>
-    </main>
-  </SplitView>
+      </main>
+
+      <button v-if="mode === 'notes' && store.ready" type="button" class="fab phone-only" :aria-label="t('notes.write')" :title="t('notes.write')" @click="write"><Icon name="plus" /></button>
+    </div>
+
+    <RouterView v-slot="{ Component, route: inner }">
+      <NoteModal v-if="Component" @close="closeNote">
+        <component :is="Component" :key="inner.path" />
+      </NoteModal>
+    </RouterView>
+  </div>
 </template>

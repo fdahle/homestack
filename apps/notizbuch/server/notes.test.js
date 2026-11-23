@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { openDatabase } from './db.js';
 import { cleanPatch } from './notes.js';
-import { noteMarkdown, safeName } from './export.js';
+import { exportZip, noteMarkdown, safeName } from './export.js';
 import { zip } from './zip.js';
 
 function setup() {
@@ -139,8 +142,32 @@ test('export: Markdown with front matter, names every file system takes', () => 
   assert.equal(safeName('...'), 'Notiz');
 });
 
-test('zip: entries can be read back', () => {
-  const data = zip([{ name: 'Notizbuch/ä.md', data: 'hallo '.repeat(100), date: new Date() }, { name: 'Notizbuch/x', data: Buffer.from([1, 2, 3]) }]);
+// The whole ZIP from the pieces zip() hands out
+const collect = async (chunks) => Buffer.concat(await Array.fromAsync(chunks));
+
+// Every entry as the central directory lists it, read back through its local header
+function readZip(data) {
+  const end = data.length - 22;
+  assert.equal(data.readUInt32LE(end), 0x06054b50);
+  const out = [];
+  let at = data.readUInt32LE(end + 16);
+  for (let i = 0; i < data.readUInt16LE(end + 10); i++) {
+    assert.equal(data.readUInt32LE(at), 0x02014b50);
+    const nameLen = data.readUInt16LE(at + 28);
+    const local = data.readUInt32LE(at + 42);
+    assert.equal(data.readUInt32LE(local), 0x04034b50);
+    const method = data.readUInt16LE(local + 8);
+    const size = data.readUInt32LE(local + 18);
+    const start = local + 30 + data.readUInt16LE(local + 26);
+    const body = data.subarray(start, start + size);
+    out.push({ name: data.subarray(at + 46, at + 46 + nameLen).toString('utf8'), method, data: method === 8 ? inflateRawSync(body) : body });
+    at += 46 + nameLen;
+  }
+  return out;
+}
+
+test('zip: entries can be read back', async () => {
+  const data = await collect(zip([{ name: 'Notizbuch/ä.md', data: 'hallo '.repeat(100), date: new Date() }, { name: 'Notizbuch/x', data: Buffer.from([1, 2, 3]) }]));
   assert.equal(data.readUInt32LE(0), 0x04034b50);
   const nameLen = data.readUInt16LE(26);
   assert.equal(data.subarray(30, 30 + nameLen).toString('utf8'), 'Notizbuch/ä.md');
@@ -150,6 +177,35 @@ test('zip: entries can be read back', () => {
   // End of central directory: two entries
   assert.equal(data.readUInt32LE(data.length - 22), 0x06054b50);
   assert.equal(data.readUInt16LE(data.length - 12), 2);
+  assert.deepEqual(readZip(data).map((e) => [e.name, e.method]), [['Notizbuch/ä.md', 8], ['Notizbuch/x', 0]]);
+});
+
+test('export: pictures are stored as they are, text is deflated, missing files left out', async () => {
+  const { notes, me } = setup();
+  const dir = mkdtempSync(join(tmpdir(), 'notizbuch-'));
+  try {
+    const id = randomUUID();
+    const photo = randomUUID();
+    const text = randomUUID();
+    notes.sync(me, { changes: [create(id, { title: 'Urlaub', body: 'Strand' })] });
+    for (const [fileId, name, type] of [[photo, 'a.jpg', 'image/jpeg'], [text, 'b.txt', 'text/plain'], [randomUUID(), 'gone.pdf', 'application/pdf']]) {
+      notes.addFile(me, { id: fileId, note_id: id, name, type, size: 600 });
+    }
+    writeFileSync(join(dir, photo), 'x'.repeat(600));
+    writeFileSync(join(dir, text), 'y'.repeat(600));
+    const entries = readZip(await collect(exportZip(notes.notesForExport(me), dir)));
+    assert.deepEqual(entries.map((e) => [e.name, e.method]), [
+      ['Notizbuch/files/Urlaub - a.jpg', 0],
+      ['Notizbuch/files/Urlaub - b.txt', 8],
+      ['Notizbuch/Urlaub.md', 8],
+    ]);
+    assert.equal(entries[0].data.toString(), 'x'.repeat(600));
+    assert.equal(entries[1].data.toString(), 'y'.repeat(600));
+    assert.match(entries[2].data.toString(), /!\[a\.jpg\]\(<files\/Urlaub - a\.jpg>\)/);
+    assert.doesNotMatch(entries[2].data.toString(), /gone\.pdf/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a file is deleted through a sync, and other devices learn about it', () => {
@@ -165,4 +221,44 @@ test('a file is deleted through a sync, and other devices learn about it', () =>
   assert.deepEqual(removedFiles, [fileId]);
   assert.equal(answer.items.file.at(-1).purged, true);
   assert.equal(notes.fileFor(me, fileId), null);
+});
+
+test("an upload can't take an id that is taken: another account's file, or one deleted for good", () => {
+  const { notes, me, other } = setup();
+  const mine = randomUUID();
+  const theirs = randomUUID();
+  const fileId = randomUUID();
+  notes.sync(me, { changes: [create(mine)] });
+  notes.sync(other, { changes: [create(theirs)] });
+  const meta = { id: fileId, note_id: mine, name: 'a.jpg', type: 'image/jpeg', size: 3 };
+  assert.equal(notes.checkUpload(me, meta), null, 'new: may be written');
+  notes.addFile(me, meta);
+  assert.equal(notes.checkUpload(me, meta).id, fileId, 'sent again: comes back, nothing written');
+  // The other account sends the same id (for its own note): refused before the disk is touched
+  assert.throws(() => notes.checkUpload(other, { ...meta, note_id: theirs }), { code: 'bad_id' });
+  assert.throws(() => notes.addFile(other, { ...meta, note_id: theirs }), { code: 'bad_id' });
+  // Deleted for good: sending it again doesn't bring it (or its bytes) back
+  notes.sync(me, { changes: [{ kind: 'file', id: fileId, patch: { purge: true } }] });
+  assert.throws(() => notes.checkUpload(me, meta), { code: 'bad_id' });
+  // Someone else's note
+  assert.throws(() => notes.checkUpload(other, { ...meta, id: randomUUID() }), { code: 'bad_note' });
+});
+
+test('an account has a storage limit for its files; deleted ones no longer count', () => {
+  const { notes, me, other } = setup();
+  const id = randomUUID();
+  notes.sync(me, { changes: [create(id)] });
+  const file = (size) => ({ id: randomUUID(), note_id: id, name: 'a', type: 'text/plain', size });
+  const first = file(600);
+  notes.addFile(me, first, 1000);
+  assert.throws(() => notes.checkUpload(me, file(500), 1000), { code: 'storage_full' });
+  assert.equal(notes.checkUpload(me, file(400), 1000), null, 'exactly full is fine');
+  // Sending the same file again doesn't count it twice
+  assert.equal(notes.checkUpload(me, first, 1000).id, first.id);
+  notes.sync(me, { changes: [{ kind: 'file', id: first.id, patch: { purge: true } }] });
+  assert.equal(notes.checkUpload(me, file(900), 1000), null);
+  // Per account
+  const theirs = randomUUID();
+  notes.sync(other, { changes: [create(theirs)] });
+  assert.equal(notes.checkUpload(other, { ...file(900), note_id: theirs }, 1000), null);
 });

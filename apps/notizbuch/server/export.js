@@ -38,8 +38,17 @@ export function noteMarkdown(note, fileLinks = []) {
   return parts.join('\n');
 }
 
-export async function exportZip(notes, fileDir, root = 'Notizbuch') {
-  const entries = [];
+// Already compressed: deflating these again costs time and saves next to nothing
+const COMPRESSED = /^(image\/(?!svg|bmp|x-icon)|video\/|audio\/|font\/woff)|^application\/(pdf|zip|gzip|x-gzip|x-7z-compressed|x-rar-compressed|vnd\.rar|x-bzip2|x-xz|zstd|epub\+zip|vnd\.openxmlformats|vnd\.oasis\.opendocument)/;
+export const isCompressed = (type) => COMPRESSED.test(type || '');
+
+// The ZIP as Buffers, one after the other (see zip.js). Files are read when their turn comes,
+// so only one of them is in memory at a time.
+export function exportZip(notes, fileDir, root = 'Notizbuch') {
+  return zip(entries(notes, fileDir, root));
+}
+
+async function* entries(notes, fileDir, root) {
   const used = new Set();
   const unique = (path) => {
     let candidate = path;
@@ -61,10 +70,9 @@ export async function exportZip(notes, fileDir, root = 'Notizbuch') {
         continue; // missing on disk: leave it out rather than fail the whole export
       }
       const path = unique(`${dir}files/${safeName(base)} - ${safeName(file.name, 'Datei')}`);
-      entries.push({ name: `${root}/${path}`, data, date: new Date(file.created_at) });
+      yield { name: `${root}/${path}`, data, date: new Date(file.created_at), store: isCompressed(file.type) };
       links.push({ name: file.name, path: path.slice(dir.length), image: file.type.startsWith('image/') });
     }
-    entries.push({ name: `${root}/${mdPath}`, data: noteMarkdown(note, links), date: new Date(note.updated_at) });
+    yield { name: `${root}/${mdPath}`, data: noteMarkdown(note, links), date: new Date(note.updated_at) };
   }
-  return zip(entries);
 }

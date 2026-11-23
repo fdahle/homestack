@@ -12,6 +12,7 @@ services:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       MAX_FILE_MB: ${MAX_FILE_MB:-25}
+      MAX_USER_MB: ${MAX_USER_MB:-2048}
       TRASH_DAYS: ${TRASH_DAYS:-30}
       # Set to log in through Authelia instead of the own account (kit/README.md)
       AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}

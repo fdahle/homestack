@@ -1,6 +1,10 @@
 import express from 'express';
-import { rename, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { renameSync, rmSync } from 'node:fs';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR, FILE_DIR, openDatabase } from './db.js';
 import { exportZip } from './export.js';
@@ -10,12 +14,16 @@ import { UUID } from './notes.js';
 
 const PORT = Number(process.env.PORT || 3070);
 const MAX_FILE_MB = Number(process.env.MAX_FILE_MB || 25);
+// All of one account's files together: a full disk would stop everyone's notes from saving
+const MAX_USER_BYTES = Number(process.env.MAX_USER_MB || 2048) * 1024 * 1024;
 const TRASH_DAYS = Number(process.env.TRASH_DAYS || 30);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
 const { users, notes } = openDatabase();
-// A sync may carry many notes written offline: up to 20 MB, read only after the login check
-const app = createApp({ bigBodies: ['/api/sync'] });
+// A sync may carry many notes written offline: up to 20 MB, read only after the login check.
+// An upload (/api/files/<id>) is read raw by its own route, so the kit's JSON parser must leave
+// it alone too: a .json file would arrive parsed, not as the file.
+const app = createApp({ bigBodies: ['/api/sync', '/api/files/'] });
 const auth = createAuth({ users, cookie: 'notizbuch_session' });
 
 // Login, logout, /api/me; everything under /api and /files after this needs a login
@@ -55,17 +63,34 @@ app.put('/api/files/:id', express.raw({ type: () => true, limit: `${MAX_FILE_MB}
     width: dimension(req.query.width),
     height: dimension(req.query.height),
   };
+  // Checked before anything touches the disk: an id that is taken (another account's file, one
+  // deleted for good) is refused, a file sent before comes back as it is
+  const sent = notes.checkUpload(req.user.id, meta, MAX_USER_BYTES);
+  if (sent) return res.json(sent);
   // Write first, then record it: a row never points at a missing file
-  const already = notes.fileFor(req.user.id, id);
-  if (!already) {
-    const tmp = join(FILE_DIR, `${id}.part`);
-    await writeFile(tmp, req.body);
-    await rename(tmp, join(FILE_DIR, id));
+  const tmp = join(FILE_DIR, `${id}.${randomUUID()}.part`);
+  await writeFile(tmp, req.body).catch(async (err) => {
+    await rm(tmp, { force: true }); // a half-written file (disk full) mustn't stay behind
+    throw err;
+  });
+  // Nothing awaits from here until the row is in, so two uploads of the same id can't cross:
+  // the check again (the other one may have finished meanwhile), then move it in place
+  const path = join(FILE_DIR, id);
+  try {
+    const meanwhile = notes.checkUpload(req.user.id, meta, MAX_USER_BYTES);
+    if (meanwhile) {
+      rmSync(tmp, { force: true });
+      return res.json(meanwhile);
+    }
+    renameSync(tmp, path);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
   }
   try {
-    res.json(notes.addFile(req.user.id, meta));
+    res.json(notes.addFile(req.user.id, meta, MAX_USER_BYTES));
   } catch (err) {
-    if (!already) await rm(join(FILE_DIR, id), { force: true });
+    rmSync(path, { force: true });
     throw err;
   }
 }));
@@ -90,10 +115,16 @@ app.get('/files/:id', (req, res) => {
 
 // --- export ---
 
+// Sent as it is made (see zip.js), one file at a time, so a big export doesn't sit in memory
 app.get('/api/export', route(async (req, res) => {
-  const data = await exportZip(notes.notesForExport(req.user.id), FILE_DIR);
   const day = new Date().toISOString().slice(0, 10);
-  res.set('Content-Type', 'application/zip').attachment(`Notizbuch ${day}.zip`).send(data);
+  res.set('Content-Type', 'application/zip').attachment(`Notizbuch ${day}.zip`);
+  try {
+    await pipeline(Readable.from(exportZip(notes.notesForExport(req.user.id), FILE_DIR)), res);
+  } catch (err) {
+    if (res.destroyed && err.code === 'ERR_STREAM_PREMATURE_CLOSE') return; // the download was cancelled
+    throw err;
+  }
 }));
 
 serveFrontend(app, distDir);

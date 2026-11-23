@@ -6,10 +6,11 @@ import LabelNav from './components/LabelNav.vue';
 
 const tabs = computed(() => [
   { to: '/', name: 'notes', icon: 'note', label: t('nav.notes') },
-  { to: '/new', name: 'new', icon: 'plus', label: t('nav.new') },
-  { to: '/archive', name: 'archive', icon: 'archive', label: t('nav.archive') },
 ]);
+// In the sidebar on a computer; on the phone (which has no tabs, only the + on the notes)
+// behind the ⋮ on the notes page. A new note: the box above the notes, or the +.
 const extras = computed(() => [
+  { to: '/archive', name: 'archive', icon: 'archive', label: t('nav.archive') },
   { to: '/trash', name: 'trash', icon: 'trash', label: t('nav.trash') },
   { to: '/settings', name: 'settings', icon: 'gear', label: t('nav.settings') },
 ]);

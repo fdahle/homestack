@@ -203,7 +203,7 @@ async function uploadFiles({ local, isOwner, requeue }) {
     } catch (err) {
       // The server won't take it (too large, note gone): waiting won't change that
       if (!(err instanceof ApiError) || ![400, 413].includes(err.status)) throw err;
-      showToast(t(err.status === 413 ? 'files.tooLarge' : 'files.notTaken', { name: meta.name, mb: store.settings.maxFileMb }));
+      showToast(t(err.status === 413 ? 'files.tooLarge' : err.code === 'storage_full' ? 'files.storageFull' : 'files.notTaken', { name: meta.name, mb: store.settings.maxFileMb }));
       dropFile(up.id);
     }
   }

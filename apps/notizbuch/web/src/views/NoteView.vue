@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { lang, t } from '../i18n.js';
-import { relativeDay, showToast } from '../util.js';
+import { relativeDay, rememberedRef, showToast } from '../util.js';
 import {
   addFiles, archiveNote, filesOf, isEmpty, pinNote, purgeNote, restoreNote, store, trashNote, updateNote,
 } from '../store/notes.js';
@@ -126,6 +126,11 @@ function purge() {
   back();
 }
 
+// The formatting buttons: hidden until asked for (typing "- [ ] ", "# ", … works without them).
+// This device remembers whether they're out.
+const tools = rememberedRef('notizbuch.format', 'off', { allowed: ['on', 'off'] });
+const toggleTools = () => (tools.value = tools.value === 'on' ? 'off' : 'on');
+
 function setLabels(labels) {
   updateNote(props.id, { labels });
 }
@@ -159,16 +164,17 @@ const edited = computed(() => {
   const time = d.toLocaleTimeString(lang.value, { hour: '2-digit', minute: '2-digit' });
   return t('note.edited', { when: today ? time : `${relativeDay(at)}, ${time}` });
 });
-const created = computed(() => (note.value ? new Date(note.value.created_at).toLocaleDateString(lang.value, { day: 'numeric', month: 'long', year: 'numeric' }) : ''));
+const created = computed(() => (note.value ? t('note.created', { date: new Date(note.value.created_at).toLocaleDateString(lang.value, { day: 'numeric', month: 'long', year: 'numeric' }) }) : ''));
+// The footer shows when it was edited; a tap there shows when it was made
+const showCreated = ref(false);
 </script>
 
 <template>
   <TopBar :title="''" :back="listPath">
     <template v-if="note && !trashed">
+      <button class="icon-btn" :class="{ active: tools === 'on' }" :aria-label="t('note.format')" :aria-pressed="tools === 'on'" :title="t('note.format')" @click="toggleTools"><Icon name="format" /></button>
       <button class="icon-btn" :class="{ on: note.pinned }" :aria-label="note.pinned ? t('note.unpin') : t('note.pin')" :aria-pressed="note.pinned" :title="note.pinned ? t('note.unpin') : t('note.pin')" @click="togglePin"><Icon name="pin" /></button>
-      <button class="icon-btn" :aria-label="t('note.attach')" :title="t('note.attach')" @click="fileInput.click()"><Icon name="paperclip" /></button>
       <button class="icon-btn" :aria-label="note.archived_at ? t('note.unarchive') : t('note.archive')" :title="note.archived_at ? t('note.unarchive') : t('note.archive')" @click="toggleArchive"><Icon :name="note.archived_at ? 'unarchive' : 'archive'" /></button>
-      <button class="icon-btn" :aria-label="t('note.trash')" :title="t('note.trash')" @click="toTrash"><Icon name="trash" /></button>
     </template>
     <template v-else-if="note">
       <button class="btn small" @click="restore"><Icon name="restore" />{{ t('note.restore') }}</button>
@@ -208,14 +214,18 @@ const created = computed(() => (note.value ? new Date(note.value.created_at).toL
 
       <Attachments :files="files" :readonly="trashed" />
 
-      <NoteEditor ref="editor" :key="note.id" :model-value="draft.body" :editable="!trashed" @update:model-value="setBody" @files="attach" />
+      <NoteEditor ref="editor" :key="note.id" :model-value="draft.body" :editable="!trashed" :tools="tools === 'on'" @update:model-value="setBody" @files="attach" />
 
+      <!-- Under the text, at the bottom of the screen however short the note is -->
       <LabelEditor :model-value="note.labels" :disabled="trashed" @update:model-value="setLabels" />
 
-      <p class="note-dates muted small">
-        <span>{{ edited }}</span>
-        <span>{{ t('note.created', { date: created }) }}</span>
-      </p>
+      <footer class="note-foot">
+        <button v-if="!trashed" class="icon-btn" :aria-label="t('note.attach')" :title="t('note.attach')" @click="fileInput.click()"><Icon name="paperclip" /></button>
+        <span v-else></span>
+        <button type="button" class="note-dates" :title="showCreated ? edited : created" @click="showCreated = !showCreated">{{ showCreated ? created : edited }}</button>
+        <button v-if="!trashed" class="icon-btn" :aria-label="t('note.trash')" :title="t('note.trash')" @click="toTrash"><Icon name="trash" /></button>
+        <span v-else></span>
+      </footer>
 
       <input ref="fileInput" type="file" multiple hidden @change="onPick" />
       <div v-if="dragging" class="drop-hint"><Icon name="paperclip" />{{ t('files.dropHere') }}</div>

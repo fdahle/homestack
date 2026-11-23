@@ -59,29 +59,60 @@
 
 /* --- the list --- */
 
+/* The search is the header of the notes */
+.notes-top { gap: 8px; }
+.top-search { flex: 1; min-width: 0; margin: 0; }
+.top-search input { min-height: 44px; font-size: 1rem; border-color: transparent; background: color-mix(in srgb, var(--line) 60%, var(--surface)); }
+.top-search input:focus { background: var(--surface); }
+
+/* ⋮ and its pages */
+.more-menu { position: relative; }
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
+}
+.menu-pop a { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px; color: var(--text); font-weight: 500; }
+.menu-pop a:hover { background: var(--line); }
+.menu-pop .icon { width: 20px; height: 20px; color: var(--muted); }
+
+/* "Write a note", on a computer: a slim box above the notes */
 .write-box {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 18px;
-  padding: 12px 16px;
+  width: min(600px, 100%);
+  margin: 6px auto 26px;
+  padding: 12px 14px 12px 18px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 12px;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: 0 1px 2px light-dark(rgb(0 0 0 / 0.1), transparent), 0 2px 10px light-dark(rgb(0 0 0 / 0.07), transparent);
   color: var(--muted);
+  font-weight: 550;
+  text-align: left;
+  cursor: text;
 }
-.write-box:hover { border-color: var(--accent); color: var(--text); }
-.write-box .icon { width: 19px; height: 19px; }
+.write-box:hover { border-color: color-mix(in srgb, var(--text) 22%, var(--line)); color: var(--text); }
+.write-box .icon { width: 20px; height: 20px; }
 .filter-line { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .trash-info { margin-bottom: 16px; flex-wrap: wrap; }
 
-.note-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
-  align-items: start;
-  gap: 12px;
-}
+/* Columns like Keep's (NoteMasonry places the cards) */
+.masonry { position: relative; }
+.masonry-item { position: absolute; top: 0; left: 0; }
+.masonry-item > .note-card { height: auto; }
+.masonry.settled .masonry-item { transition: transform 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .masonry.settled .masonry-item { transition: none; } }
 
 .note-card {
   display: flex;
@@ -128,7 +159,9 @@
 
 /* --- a note --- */
 
-.note-page { position: relative; }
+/* A column whose text grows, so labels and the footer stay at the bottom however short the note */
+.note-page { position: relative; display: flex; flex-direction: column; }
+.note-editor, .note-body { flex: 1; display: flex; flex-direction: column; }
 .note-page.dragging { outline: 2px dashed var(--accent); outline-offset: -6px; border-radius: var(--radius); }
 .archived-tag { margin: 0 0 6px; }
 .note-page > .info { margin-bottom: 10px; }
@@ -168,7 +201,8 @@
 
 /* The text itself (Tiptap's ProseMirror) */
 .note-text {
-  min-height: 38vh;
+  flex: 1;
+  min-height: 6em;
   padding: 8px 0 24px;
   outline: none;
   font-size: 1.02rem;
@@ -215,7 +249,37 @@
 .label-input:focus { outline: none; }
 .label-input::-webkit-calendar-picker-indicator { display: none !important; }
 
-.note-dates { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 6px 0 0; }
+/* The footer: attach · when · delete */
+.note-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -10px;
+  padding: 4px 6px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+.note-foot .icon-btn { color: var(--muted); }
+.note-foot .icon-btn:hover { color: var(--text); }
+.note-dates {
+  justify-self: center;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.note-dates:hover { color: var(--text); }
 
 .attachments { margin: 6px 0 10px; display: flex; flex-direction: column; gap: 8px; }
 .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
@@ -261,11 +325,92 @@
 .label-rename { flex: 1; display: flex; align-items: center; gap: 6px; }
 .label-rename input { min-height: 36px; }
 
-@media (min-width: 1024px) {
-  .format-bar { top: 58px; }
-  .note-page { padding-top: 14px; }
-  .split-detail .format-bar { margin: 0 -8px 4px; }
-  .split-detail .note-text { min-height: 50vh; }
-  /* Beside the list the cards get a little narrower */
-  .split.has-detail .note-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+/* Above an open note */
+.drop-hint, .toast { z-index: 40; }
+
+/* --- the open note: the page on the phone, a sheet over the list on a computer --- */
+
+/* The phone has no tabs: a + for a new note, the other pages behind the ⋮ */
+.fab {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.18), 0 8px 22px rgb(0 0 0 / 0.16);
+  cursor: pointer;
 }
+.fab:active { transform: scale(0.96); }
+.fab .icon { width: 28px; height: 28px; stroke-width: 2.4; }
+
+@media (max-width: 1023px) {
+  /* Two notes side by side: a little tighter */
+  .note-card-image { max-height: 140px; }
+  .note-card-body { padding: 10px 11px; }
+  .note-card-title { font-size: 0.95rem; }
+  .preview { font-size: 0.85rem; max-height: 13em; }
+  .note-card-foot .tag { font-size: 0.72rem; }
+
+  .app-nav { display: none; }
+  /* Room under the last notes for the + */
+  .has-nav main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
+
+  /* The note takes the list's place (which stays alive underneath) */
+  .notes.has-note > .notes-list { display: none; }
+  .note-layer, .note-sheet { display: contents; }
+  .has-nav .note-page { min-height: calc(100dvh - 58px - env(safe-area-inset-top)); padding-bottom: 0; }
+  .note-foot { margin: 0 -16px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); }
+}
+
+@media (min-width: 1024px) {
+  /* The list underneath doesn't jump when the sheet takes its scrollbar away */
+  html { scrollbar-gutter: stable; }
+  .top-search { max-width: 720px; margin: 0 auto; }
+  .modal-open { overflow: hidden; }
+
+  .note-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 7vh 32px 32px calc(var(--side-w) + 32px);
+    background: light-dark(rgb(40 32 15 / 0.42), rgb(0 0 0 / 0.6));
+    animation: fade-in 0.14s ease-out;
+  }
+  .note-sheet {
+    display: flex;
+    flex-direction: column;
+    width: min(680px, 100%);
+    max-height: 86vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: 0 18px 56px rgb(0 0 0 / 0.3);
+    outline: none;
+    animation: sheet-in 0.16s ease-out;
+  }
+  .note-sheet .top { min-height: 52px; padding: 6px 8px 0 16px; border-bottom: 0; background: var(--surface); backdrop-filter: none; }
+  .note-sheet .note-page { flex: 1; width: 100%; max-width: none; margin: 0; padding: 0 22px; }
+  .note-sheet .note-title { margin-top: 0; }
+  .note-sheet .format-bar { top: 52px; margin: 0 -8px 4px; background: var(--surface); }
+  .note-sheet .note-text { min-height: 7em; }
+  .note-sheet .note-foot { margin: 0 -22px; padding: 6px 14px; background: var(--surface); border-top: 1px solid var(--line); }
+  .note-sheet .label-editor { border-top: 0; }
+}
+
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
+@media (prefers-reduced-motion: reduce) { .note-layer, .note-sheet { animation: none; } }

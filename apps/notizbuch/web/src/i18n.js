@@ -71,6 +71,7 @@ const de = {
     tooLarge: '„{name}“ ist größer als {mb} MB.',
     unreadable: '„{name}“ ließ sich nicht lesen.',
     notTaken: '„{name}“ wurde vom Server nicht angenommen.',
+    storageFull: '„{name}“ passt nicht mehr: dein Platz für Dateien ist voll. Lösche alte Anhänge (auch im Papierkorb).',
     dropHere: 'Zum Anhängen loslassen',
   },
   sync: {
@@ -177,6 +178,7 @@ const en = {
     tooLarge: '“{name}” is larger than {mb} MB.',
     unreadable: "“{name}” couldn't be read.",
     notTaken: "The server didn't accept “{name}”.",
+    storageFull: "“{name}” doesn't fit: your space for files is full. Delete old attachments (in the trash too).",
     dropHere: 'Drop to attach',
   },
   sync: {
