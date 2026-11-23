@@ -6,15 +6,21 @@
 //   node try.mjs todo            one app
 //   node try.mjs todo notizbuch  several
 //   node try.mjs all             all of them
+//   node try.mjs todo --sample   with sample data instead of yours
+//   node try.mjs todo --sample --fresh   the sample data made again from scratch
 //
 // The first time, an app gets its packages and, if it has no .env yet, a local one with the
 // account felix and a password printed below (an existing .env is used as it is). Data goes
 // to the app's own data/ folder (ignored by git), so it stays out of your real server data.
+//
+// --sample uses data-sample/ instead, filled by the app's scripts/sample.js (if it has one yet),
+// on the port + 1000 (To-do: 4073). The other port keeps the browser's copy of the sample data,
+// its login and its service worker apart from your own local data. Same account as without it.
 // Ctrl+C stops everything.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,10 +28,17 @@ const root = dirname(fileURLToPath(import.meta.url));
 const NODE = [process.execPath, '--disable-warning=ExperimentalWarning'];
 
 // How each app is installed, built and started. Most follow the design kit's layout; the rest
-// are listed with their differences.
+// are listed with their differences. For --sample: dataEnv points the app at its data folder
+// (DATA_DIR unless it says otherwise), sampleEnv keeps it off the network, sampleLogin is the
+// login to print.
 const KIT = (port) => ({ port, build: ['run', 'build'], start: ['server/server.js'] });
 const APPS = {
-  backlog: { ...KIT(3066), env: { HARVEST_LINKS: '0' } },
+  backlog: {
+    ...KIT(3066),
+    env: { HARVEST_LINKS: '0' },
+    // The sample blogs are made up: no rescans and no discovery, or they'd all show "scan failed"
+    sampleEnv: { SCAN_INTERVAL_HOURS: 'Infinity', DISCOVER_INTERVAL_DAYS: 'Infinity' },
+  },
   checkpoint: KIT(3069),
   fernweh: {
     port: 3063,
@@ -34,29 +47,46 @@ const APPS = {
     start: ['api/index.js'],
     // Fernweh has its own login: the first visitor chooses the password
     env: () => ({ SESSION_SECRET: randomBytes(32).toString('hex') }),
+    dataEnv: (data) => ({ MAPPER_DB_PATH: join(data, 'mapper.db') }),
     noAccount: 'choose a password on the first visit',
+    sampleLogin: 'password fernweh-sample',
   },
   todo: KIT(3073),
-  leute: KIT(3068),
-  regal: KIT(3072),
+  stammtisch: KIT(3068),
+  // The sample's own small Calibre library (never the one in .env: the sample script rewrites it)
+  regal: { ...KIT(3072), dataEnv: (data) => ({ DATA_DIR: data, CALIBRE_LIBRARY: join(data, 'calibre') }) },
   stammbaum: {
     port: 3065,
     build: ['run', 'build'],
     start: ['dist-server/main.js'],
     // Without your family file it shows the sample family (a copy, so editing doesn't touch the sample)
-    prepare: (dir) => {
-      if (!existsSync(join(dir, 'data', 'family.md'))) cpSync(join(dir, 'sample'), join(dir, 'data'), { recursive: true });
+    prepare: (dir, data) => {
+      if (!existsSync(join(data, 'family.md'))) cpSync(join(dir, 'sample'), data, { recursive: true });
     },
+    hasSample: true,
     noAccount: 'no login locally (on the server it sits behind Authelia)',
   },
   notizbuch: KIT(3070),
-  stapel: KIT(3067),
+  stapel: {
+    ...KIT(3067),
+    // No Comic Vine or GCD for the sample, even for a series added by hand
+    sampleEnv: { COMICVINE_API_KEY: '', GCD_EMAIL: '', GCD_PASSWORD: '' },
+    sampleLoginExtra: 'also anna / local-anna, tom / local-tom',
+  },
   watchlist: KIT(3071),
 };
 
-const names = process.argv.slice(2);
+const args = process.argv.slice(2);
+const sample = args.includes('--sample');
+const fresh = args.includes('--fresh');
+const badFlags = args.filter((a) => a.startsWith('-') && !['--sample', '--fresh'].includes(a));
+if (badFlags.length || (fresh && !sample)) {
+  console.error(badFlags.length ? `Unknown: ${badFlags.join(', ')}` : '--fresh only goes with --sample (it never touches your own data)');
+  process.exit(1);
+}
+const names = args.filter((a) => !a.startsWith('-'));
 if (!names.length) {
-  console.log('node try.mjs <app> [<app> …] | all\n');
+  console.log('node try.mjs <app> [<app> …] | all  [--sample [--fresh]]\n');
   for (const [name, app] of Object.entries(APPS).sort()) console.log(`  ${name.padEnd(11)} http://localhost:${app.port}`);
   process.exit(0);
 }
@@ -118,7 +148,22 @@ for (const name of chosen) {
     login = env.ADMIN_PASSWORD || env.APP_PASSWORD ? `${env.ADMIN_USER || 'admin'} / the password in ${name}/.env` : `see ${name}/.env`;
   }
 
-  app.prepare?.(dir);
+  // Your local data, or the sample data on its own port
+  const data = join(dir, sample ? 'data-sample' : 'data');
+  const port = sample ? app.port + 1000 : app.port;
+  if (fresh && existsSync(data)) {
+    try {
+      rmSync(data, { recursive: true, force: true });
+    } catch (err) {
+      if (!['EPERM', 'EBUSY'].includes(err.code)) throw err;
+      // Windows keeps a folder an app still has open
+      console.error(`Can't remove ${name}/data-sample: is the sample of ${name} still running (port ${port})? Stop it first.`);
+      process.exit(1);
+    }
+    console.log(`removed ${name}/data-sample`);
+  }
+  mkdirSync(data, { recursive: true });
+  app.prepare?.(dir, data);
   if (app.build) {
     console.log(`building ${name}`);
     npm(app.build, dir);
@@ -129,9 +174,24 @@ for (const name of chosen) {
     DATA_DIR: './data',
     ...(typeof app.env === 'object' ? app.env : {}),
     ...readEnv(envFile),
-    PORT: String(app.port),
+    ...(sample ? (app.dataEnv || ((d) => ({ DATA_DIR: d })))(data) : {}),
+    ...(sample ? app.sampleEnv : {}),
+    PORT: String(port),
   };
   delete env.NODE_ENV; // not "production": cookies work over plain http on localhost
+
+  if (sample) {
+    if (app.sampleLogin) login = app.sampleLogin;
+    if (app.sampleLoginExtra) login += `; ${app.sampleLoginExtra}`;
+    const script = join(dir, 'scripts', 'sample.js');
+    if (existsSync(script)) {
+      const r = spawnSync(NODE[0], [...NODE.slice(1), script], { cwd: dir, env, stdio: 'inherit' });
+      if (r.status !== 0) throw new Error(`scripts/sample.js failed in ${name}`);
+    } else if (!app.hasSample) {
+      console.log(`${name} has no sample data yet (scripts/sample.js): it starts empty`);
+    }
+  }
+
   const child = spawn(NODE[0], [...NODE.slice(1), ...app.start], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const prefix = `[${name}] `;
   const relay = (stream, out) => {
@@ -146,11 +206,11 @@ for (const name of chosen) {
   relay(child.stderr, process.stderr);
   child.on('exit', (code) => code && console.log(`${prefix}stopped (${code})`));
   children.push(child);
-  summary.push([name, `http://localhost:${app.port}`, login]);
+  summary.push([name, `http://localhost:${port}`, login]);
 }
 
 setTimeout(() => {
-  console.log('\nRunning:');
+  console.log(sample ? '\nRunning with sample data (data-sample/):' : '\nRunning:');
   for (const [name, url, login] of summary) console.log(`  ${name.padEnd(11)} ${url.padEnd(24)} ${login}`);
   console.log('\nOffline mode: DevTools → Network → Offline. Ctrl+C stops everything.\n');
 }, 1500);

@@ -9,3 +9,4 @@ docker-compose.override.yml
 *.md
 *.test.js
 server/calibre-fixture.js
+data-sample

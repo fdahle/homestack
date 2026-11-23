@@ -7,3 +7,4 @@ scripts
 deploy
 *.md
 *.test.js
+data-sample

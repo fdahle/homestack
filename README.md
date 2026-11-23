@@ -47,7 +47,7 @@ So that every app runs, deploys and gets maintained the same way:
 - **Server:** `GET /healthz` answers without a login (Docker's health check); `node:24-alpine`, the server runs as the user `node`, data in the volume `/data`, the port only on `127.0.0.1`.
 - **Offline apps** (Notizbuch, To-do) keep everything on the device and sync through the kit (`offline.js`, `sync.js`).
 
-Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a password chosen on the first visit), **Stammbaum** (TypeScript, its own page code on the kit's colours, moving to Vue step by step; no login of its own: it sits behind Authelia).
+Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a password chosen on the first visit), **Stammbaum** (TypeScript; the kit's colours and a Vue frame like the others, its pages still drawn by its own code; no login of its own: it sits behind Authelia).
 
 ## Trying them on your computer
 
@@ -55,9 +55,13 @@ Exceptions, on purpose: **Fernweh** (`client/` and `api/`, its own login with a 
 node try.mjs              # which apps there are
 node try.mjs todo         # one app (or several: node try.mjs todo notizbuch)
 node try.mjs all          # all of them
+node try.mjs todo --sample           # with sample data, on port + 1000 (To-do: 4073)
+node try.mjs todo --sample --fresh   # the sample data made again from scratch
 ```
 
 It installs what's missing, builds each app like the server does (service worker included, so offline works too) and starts it on its port. An app without a `.env` gets a local one with the account `felix` and a password, both printed at the end; an existing `.env` is used as it is. Data stays in each app's `data/` folder. Ctrl+C stops everything.
+
+**Sample data:** with `--sample`, an app runs on `data-sample/` instead, filled once by its `scripts/sample.js`: entries for the awkward cases too (overdue, empty, very long, a list with 200 items), with dates relative to today. It's on its own port, so the browser keeps the sample's offline copy and login apart from your own. `--fresh` throws `data-sample/` away and fills it again, e.g. after a change to the schema. The script only runs locally, never on the server, and the sample stays off the network: no TMDB, IGDB, Comic Vine or geocoding, made-up blogs that are never scanned, and Regal reads a small Calibre library of its own in `data-sample/calibre/`. Logins are the usual ones from `.env`, except Fernweh (`fernweh-sample`) and Stapel's two extra accounts (`anna` / `local-anna`, `tom` / `local-tom`), all printed at the end.
 
 ## Running them on a server
 

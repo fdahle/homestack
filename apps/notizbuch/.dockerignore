@@ -8,3 +8,4 @@ scripts
 docker-compose.override.yml
 *.md
 *.test.js
+data-sample
