@@ -90,6 +90,12 @@ Every server from `createApp()` refuses changes under `/api` (anything but GET/H
 
 Logging out on a device runs the steps apps register with `onLogout()` (`web/api.js`): the offline apps send what's waiting, then delete the device's copy; To-do also ends the device's reminders.
 
+## Offline (Notizbuch, To-do)
+
+The device keeps everything and syncs through `POST /api/sync`: `web/offline.js` on the device, `server/sync.js` on the server (how each works is at the top of the file).
+
+**A backup put back, or a new database:** every database has its own name (made on its first start), and the counter of its changes only goes up. When a device's copy names another database, or has seen more of the counter than the server has (the server went back in time), the server asks it to start over. The device fetches everything, then sends back what the server lost (`web/startover.js`): items the server doesn't have, and the fields of items the device changed at least as late as the server did. Changes the server has made since win, and so do items deleted for good. Kinds a sync can't create (Notizbuch's files) are left out with `sendBack`. Only a device that missed so much that the server's counter has passed its copy again, before that device syncs, can't tell. It then gets what came after its copy, but not what the restore lost.
+
 ## Icons
 
 `scripts/make-icons.js` in each app describes only its symbol and calls `writeIcons({ accent, glyph, svg, out })` from `scripts/kit/icons.js`. `npm run icons` writes the PNGs and `icon.svg` to `web/public/`.

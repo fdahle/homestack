@@ -30,7 +30,7 @@ docker compose up -d --build
 
 The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`); offline use, reminders and installing it as an app all need HTTPS. The first start creates the account `ADMIN_USER`. Reminders need no setup: the push keys are made on the first start and kept in the database.
 
-**Update:** `docker compose up -d --build`. Everything lives in the `todo-data` volume (`todo.db`). **Backup:** `sqlite3 todo.db ".backup …"`.
+**Update:** `docker compose up -d --build`. Everything lives in the `todo-data` volume (`todo.db`). **Backup:** `sqlite3 todo.db ".backup …"`. After putting a backup back, each device notices on its next sync: it fetches everything again and sends back the tasks and lists the backup is missing ([kit](../../kit/README.md#offline-notizbuch-to-do)).
 
 **Behind Authelia:** set `AUTH_PROXY_SECRET` (see [deploy/](../../deploy/README.md#one-login-for-all-apps)), and let `/ics/` through without a login (calendar apps can't log in; the address itself is the secret), like Stammtisch's rule in [authelia.yml](../../deploy/authelia.yml).
 

@@ -31,7 +31,7 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 
 **Update:** `docker compose up -d --build`. The data lives in the `notizbuch-data` volume (`notizbuch.db` plus `files/`).
 
-**Backup:** back up `notizbuch.db` with `sqlite3 notizbuch.db ".backup …"`, along with the `files/` folder from the volume. The export in the settings gives you readable Markdown as well.
+**Backup:** back up `notizbuch.db` with `sqlite3 notizbuch.db ".backup …"`, along with the `files/` folder from the volume. The export in the settings gives you readable Markdown as well. After putting a backup back, each device notices on its next sync: it fetches everything again and sends back the notes the backup is missing ([kit](../../kit/README.md#offline-notizbuch-to-do)). Files added after the backup can't come back that way: the devices don't keep them once they're uploaded.
 
 **Behind Authelia:** set `AUTH_PROXY_SECRET` (see [deploy/](../../deploy/README.md#one-login-for-all-apps)). Offline, the app opens with the account it last saw; when the Authelia login has run out, the next sync online sends you to its login page.
 

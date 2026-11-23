@@ -1,10 +1,16 @@
 // Keeping devices in step, for apps that work offline (Notizbuch, To-do). The device keeps
 // everything and writes there first; its changes wait in an outbox until POST /api/sync:
 //
-//   { since, changes: [{ kind, id, base_seq, patch }] }
-//   → { seq, items: { <kind>: [rows changed after `since`] }, rejected: [{ kind, id, error }], conflicts: [...] }
+//   { database, since, changes: [{ kind, id, base_seq, patch }] }
+//   → { database, seq, items: { <kind>: [rows changed after `since`] }, rejected: [{ kind, id, error }], conflicts: [...] }
 //
 // Every write gets the next number of one counter (`seq`), so "since" is just a number.
+// `database` names this database (made on its first start). When the device's copy can't come
+// from this database's history, the server answers only { database, seq, start_over: true }
+// and leaves the changes alone:
+//   - the device names another database (a fresh one, another server's), or
+//   - its `since` is past this counter: the database went back in time (a backup put back).
+// The device then fetches everything and sends back what the server lost (web/startover.js).
 // Ids come from the device (UUIDs), so an item exists before the server has heard of it.
 // Changes are patches; by default the latest change to a field wins. An app can take a kind's
 // changes itself (Notizbuch: two devices changing the same note's text keep both).
@@ -17,13 +23,19 @@
 //   apply(ctx) → {} | { conflict }   optional: take the change yourself (ctx below)
 // }
 
+import { randomUUID } from 'node:crypto';
 import { BadRequest } from './errors.js';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_CHANGES = 500;
 
 export function createSync(db, { kinds }) {
-  db.exec('CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS sync_info (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+  `);
+  db.prepare("INSERT OR IGNORE INTO sync_info (name, value) VALUES ('database', ?)").run(randomUUID());
+  const database = db.prepare("SELECT value FROM sync_info WHERE name = 'database'").get().value;
 
   const nextSeq = () =>
     db.prepare("INSERT INTO counters (name, value) VALUES ('seq', 1) ON CONFLICT (name) DO UPDATE SET value = value + 1 RETURNING value").get().value;
@@ -90,13 +102,17 @@ export function createSync(db, { kinds }) {
     for (const [name, kind] of Object.entries(kinds)) {
       items[name] = db.prepare(`SELECT * FROM ${kind.table} WHERE user_id = ? AND seq > ? ORDER BY seq`).all(userId, since).map(kind.out);
     }
-    return { seq: currentSeq(), items };
+    return { database, seq: currentSeq(), items };
   }
 
   // → { answer, removed }: `removed` collects what the app has to clean up afterwards (Notizbuch: files on the disk)
-  function sync(userId, { since, changes = [] } = {}) {
+  function sync(userId, { database: theirs, since, changes = [] } = {}) {
     if (!Array.isArray(changes) || changes.length > MAX_CHANGES) throw new BadRequest('bad_sync');
     const after = Number.isInteger(since) && since > 0 ? since : 0;
+    // Not this database's history (see the top): the device starts over, its changes wait
+    if ((typeof theirs === 'string' && theirs && theirs !== database) || after > currentSeq()) {
+      return { answer: { database, seq: currentSeq(), start_over: true }, removed: [] };
+    }
     const rejected = [];
     const conflicts = [];
     const removed = [];
@@ -115,7 +131,7 @@ export function createSync(db, { kinds }) {
     return { answer: { ...changesSince(userId, after), rejected, conflicts }, removed };
   }
 
-  return { sync, nextSeq, currentSeq, transaction };
+  return { sync, nextSeq, currentSeq, transaction, database };
 }
 
 // --- checking what devices send ---

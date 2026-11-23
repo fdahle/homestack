@@ -12,7 +12,7 @@
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server/server.js",
     "dev:web": "vite",
     "build": "vite build",
-    "test": "node --disable-warning=ExperimentalWarning --test \"server/*.test.js\" \"server/kit/*.test.js\" \"web/src/lib/*.test.js\"",
+    "test": "node --disable-warning=ExperimentalWarning --test \"server/*.test.js\" \"server/kit/*.test.js\" \"web/src/lib/*.test.js\" \"web/src/kit/*.test.js\"",
     "icons": "node scripts/make-icons.js"
   },
   "dependencies": {

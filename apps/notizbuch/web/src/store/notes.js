@@ -21,6 +21,9 @@ const blobUrls = new Map();
 const off = createOffline({
   name: 'notizbuch',
   kinds: { note: 'notes', file: 'files' },
+  // A server that lost notes (a backup put back) gets them back from the device; files only
+  // come in by upload, so for those the server's list stands
+  sendBack: ['note'],
   extraStores: ['uploads'],
   async onOpen(local) {
     for (const up of await local.all('uploads')) {

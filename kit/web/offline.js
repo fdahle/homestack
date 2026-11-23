@@ -5,11 +5,18 @@
 // again, every minute, a moment after a change) sends it. Each account has its own local
 // database, opened when it logs in.
 //
+// When the server's database isn't the one this copy came from (a backup put back, a new
+// database; see server/sync.js), the device starts over: it fetches everything and sends back
+// what only it still has (startover.js).
+//
 //   const off = createOffline({
 //     name: 'todo',                           // IndexedDB "todo-<user id>"
 //     kinds: { task: 'tasks', list: 'lists' }, // kind (as the server calls it) → local store
+//     sendBack: ['note'],                     // kinds a device may send back to a server that
+//                                             // lost them (default: all; Notizbuch's files can't)
 //     extraStores: ['uploads'],               // the app's own local stores (Notizbuch)
-//     onOpen: async (local) => {},            // read them when an account's data opens
+//     onOpen: async (local) => {},            // read them when an account's data opens (again
+//                                             // after starting over)
 //     onClose: () => {},
 //     afterChanges: async ({ local, owner }) => false,  // a step after the changes went out
 //                                             // (Notizbuch uploads files); true: pull once more
@@ -23,10 +30,11 @@
 import { reactive, watch } from 'vue';
 import { api, ApiError, onLogout, session } from './api.js';
 import { deleteLocal, openLocal, plain } from './localdb.js';
+import { startOver } from './startover.js';
 
 export { plain };
 
-export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, afterChanges, onAnswer, batchSize = 200 }) {
+export function createOffline({ name, kinds, sendBack = Object.keys(kinds), extraStores = [], onOpen, onClose, afterChanges, onAnswer, batchSize = 200 }) {
   const storeOf = kinds; // kind → local store name
   const stores = [...Object.values(kinds), ...extraStores, 'outbox', 'meta'];
 
@@ -43,6 +51,7 @@ export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, 
   let local = null;
   let owner = null;
   let seq = 0;
+  let database = null; // the server's database this copy comes from
   const outbox = new Map(); // '<kind>:<id>' → { id, kind, item, base_seq, patch, v }
   const countPending = () => (state.pending = outbox.size + state.extraPending);
 
@@ -59,6 +68,7 @@ export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, 
     for (const [kind, store] of Object.entries(storeOf)) state.items[kind] = new Map((await local.all(store)).map((x) => [x.id, x]));
     for (const entry of await local.all('outbox')) outbox.set(entry.id, entry);
     seq = metaValue('seq', 0);
+    database = metaValue('database', null);
     state.lastSync = metaValue('lastSync', null);
     state.settings = metaValue('settings', null);
     await onOpen?.(local);
@@ -79,6 +89,7 @@ export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, 
     local = null;
     owner = null;
     seq = 0;
+    database = null;
     outbox.clear();
     onClose?.();
     state.ready = false;
@@ -178,7 +189,7 @@ export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, 
     const sent = new Map(changes.map((e) => [e.id, e.v]));
     const answer = await api('/sync', {
       method: 'POST',
-      body: { since: seq, changes: changes.map(({ kind, item, base_seq, patch }) => ({ kind, id: item, base_seq, patch })) },
+      body: { database, since: seq, changes: changes.map(({ kind, item, base_seq, patch }) => ({ kind, id: item, base_seq, patch })) },
     });
     return { answer, sent };
   }
@@ -190,12 +201,21 @@ export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, 
     }
     const me = owner;
     state.status = 'syncing';
+    let startedOver = false;
     try {
       for (;;) {
         const all = [...outbox.values()];
         const batch = all.slice(0, batchSize);
         const { answer, sent } = await exchange(batch);
         if (me !== owner) return;
+        if (answer.start_over) {
+          // Once per run: a server that keeps asking is broken, not restored
+          if (startedOver) throw new Error('The server keeps asking to start over');
+          startedOver = true;
+          await restart(answer.database, me);
+          if (me !== owner) return;
+          continue;
+        }
         await take(answer, sent);
         if (all.length <= batch.length) break;
       }
@@ -267,14 +287,44 @@ export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, 
     }
 
     seq = answer.seq;
+    database = answer.database ?? database;
     await Promise.all([
       ...Object.entries(puts).map(([s, list]) => local.put(s, list)),
       ...Object.entries(removes).map(([s, list]) => local.remove(s, list)),
       local.put('outbox', outboxPuts),
       local.remove('outbox', outboxRemoves),
-      local.put('meta', { key: 'seq', value: seq }),
+      local.put('meta', [{ key: 'seq', value: seq }, { key: 'database', value: database }]),
     ]);
     onAnswer?.(answer);
+  }
+
+  // The server's database isn't the one this copy came from: fetch everything, rebuild the
+  // copy from it, and queue what only this device still has (startover.js). Memory changes in
+  // one go, with nothing awaited in between, so a change made meanwhile lands on top. The new
+  // seq and database are saved last: if the page closes halfway, the next start starts over
+  // again, from a copy that still holds everything this device had.
+  async function restart(theirs, me) {
+    const answer = await api('/sync', { method: 'POST', body: { database: theirs, since: 0, changes: [] } });
+    if (me !== owner) return;
+    if (answer.start_over) throw new Error('The server asked to start over again');
+    const db = local;
+    const result = startOver({ kinds: Object.keys(storeOf), sendBack, server: answer.items || {}, local: state.items, outbox: [...outbox.values()] });
+
+    const writes = [db.put('outbox', result.outbox.map(plain))];
+    for (const [kind, store] of Object.entries(storeOf)) {
+      const next = result.items[kind];
+      const gone = [...state.items[kind].keys()].filter((id) => !next.has(id));
+      state.items[kind] = next;
+      writes.push(db.remove(store, gone), db.put(store, [...next.values()].map(plain)));
+    }
+    for (const entry of result.outbox) outbox.set(entry.id, entry);
+    seq = answer.seq;
+    database = answer.database;
+    countPending();
+    await Promise.all(writes);
+    await db.put('meta', [{ key: 'seq', value: answer.seq }, { key: 'database', value: answer.database }]);
+    console.info(`Sync: the server's data isn't this device's (a backup put back?). Started over, sending back ${result.sentBack} item(s).`);
+    if (me === owner) await onOpen?.(db);
   }
 
   // The app's own pending work (uploads) counts in state.pending too
