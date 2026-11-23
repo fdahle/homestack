@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { checkBlogSettings } from './discover.js';
 import { createUserStore } from './kit/users.js';
 import { normalizeUrl } from './urls.js';
 
@@ -397,20 +398,28 @@ export function exportAll() {
 // articles are added if missing, and read/starred flags are merged in.
 export function importAll(data) {
   if (data?.app !== 'backlog' || !Array.isArray(data.blogs)) throw new Error('Not a Backlog export file');
+  // The same checks as the settings form, all before anything is written
+  const settings = data.blogs.map((blog, i) => {
+    try {
+      return checkBlogSettings(blog ?? {});
+    } catch (err) {
+      throw new Error(`Blog ${i + 1} (${String(blog?.name ?? blog?.url ?? '').slice(0, 100)}): ${err.message}`);
+    }
+  });
   const findBlog = db.prepare('SELECT id, url FROM blogs');
   const update = db.prepare(`UPDATE articles SET
       read_at = COALESCE(read_at, ?), starred = MAX(starred, ?), ignored = MAX(ignored, ?)
     WHERE blog_id = ? AND norm_url = ?`);
   let blogsAdded = 0;
-  for (const blog of data.blogs) {
-    const existing = findBlog.all().find((b) => normalizeUrl(b.url) === normalizeUrl(blog.url));
+  for (const [i, blog] of data.blogs.entries()) {
+    const existing = findBlog.all().find((b) => normalizeUrl(b.url) === normalizeUrl(settings[i].url));
     let blogId = existing?.id;
     if (!blogId) {
-      blogId = createBlog({ name: blog.name, url: blog.url, strategy: blog.strategy, config: blog.config || {} });
+      blogId = createBlog(settings[i]);
       db.prepare('UPDATE blogs SET backfilled_at = ? WHERE id = ?').run(now(), blogId);
       blogsAdded++;
     }
-    const articles = blog.articles || [];
+    const articles = Array.isArray(blog.articles) ? blog.articles : [];
     upsertArticles(blogId, articles.map((a) => ({ url: a.url, title: a.title, published: a.published })));
     transaction(() => {
       for (const a of articles) {

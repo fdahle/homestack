@@ -11,12 +11,18 @@ import { BlockList, isIP } from 'node:net';
 import { pipeline } from 'node:stream';
 import { promisify } from 'node:util';
 import { createBrotliDecompress, createGunzip, createInflate, gunzip } from 'node:zlib';
+import { BadRequest } from './kit/errors.js';
 import { absoluteUrl, dateFromUrl, hostOf, isHttpUrl, normalizeUrl, titleFromSlug, toIsoDate } from './urls.js';
 
 const USER_AGENT = process.env.USER_AGENT || 'Mozilla/5.0 (compatible; Backlog/1.0; personal reading tracker)';
 const REQUEST_DELAY_MS = Number(process.env.REQUEST_DELAY_MS || 1000);
 const TIMEOUT_MS = 30_000; // per request, body included
-const MAX_BYTES = 50 * 1024 * 1024; // after decompression; the sitemap protocol's own limit
+// After decompression. Pages, feeds and JSON get parsed whole, so they get less room;
+// sitemaps may be as large as the sitemap protocol allows.
+const MAX_BYTES = 5 * 1024 * 1024;
+const SITEMAP_MAX_BYTES = 50 * 1024 * 1024;
+// Like Google, only the start of a robots.txt is read
+const ROBOTS_MAX_CHARS = 512 * 1024;
 const gunzipAsync = promisify(gunzip);
 
 export const STRATEGIES = {
@@ -105,15 +111,15 @@ function get(url, accept) {
 
 const DECODERS = { gzip: createGunzip, 'x-gzip': createGunzip, deflate: createInflate, br: createBrotliDecompress };
 
-// Decompresses as it reads and stops at MAX_BYTES, so zip bombs and endless bodies can't fill the memory.
-async function readBody(res, url) {
+// Decompresses as it reads and stops at maxBytes, so zip bombs and endless bodies can't fill the memory.
+async function readBody(res, url, maxBytes) {
   const decoder = DECODERS[String(res.headers['content-encoding'] || '').trim().toLowerCase()];
   const body = decoder ? pipeline(res, decoder(), () => {}) : res;
   const chunks = [];
   let size = 0;
   for await (const chunk of body) {
     size += chunk.length;
-    if (size > MAX_BYTES) {
+    if (size > maxBytes) {
       res.destroy();
       throw new Error(`Response too large for ${url}`);
     }
@@ -123,15 +129,15 @@ async function readBody(res, url) {
   // A gzipped file (sitemap.xml.gz) rather than a gzip transfer encoding
   if (buf[0] === 0x1f && buf[1] === 0x8b) {
     try {
-      buf = await gunzipAsync(buf, { maxOutputLength: MAX_BYTES });
+      buf = await gunzipAsync(buf, { maxOutputLength: maxBytes });
     } catch {
-      throw new Error(`Couldn't unpack ${url} (broken, or larger than ${MAX_BYTES / 1024 / 1024} MB)`);
+      throw new Error(`Couldn't unpack ${url} (broken, or larger than ${maxBytes / 1024 / 1024} MB)`);
     }
   }
   return buf.toString('utf8');
 }
 
-export async function fetchText(url, { accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' } = {}) {
+export async function fetchText(url, { accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', maxBytes = MAX_BYTES } = {}) {
   let current = url;
   for (let hop = 0; hop <= 5; hop++) {
     assertPublicUrl(current);
@@ -150,7 +156,7 @@ export async function fetchText(url, { accept = 'text/html,application/xhtml+xml
       res.destroy();
       throw new Error(`HTTP ${res.statusCode} for ${current}`);
     }
-    const text = await readBody(res, current);
+    const text = await readBody(res, current, maxBytes);
     return { text, finalUrl: current, headers: { get: (name) => res.headers[name.toLowerCase()] ?? null } };
   }
   throw new Error(`Too many redirects for ${url}`);
@@ -240,7 +246,11 @@ async function findSitemaps(origin) {
   const candidates = [];
   try {
     const { text } = await fetchText(`${origin}/robots.txt`, { accept: 'text/plain' });
-    for (const m of text.matchAll(/^\s*sitemap:\s*(\S+)/gim)) candidates.push(m[1]);
+    // Line by line: one /^\s*…/m over the whole file is quadratic on runs of newlines
+    for (const line of text.slice(0, ROBOTS_MAX_CHARS).split('\n')) {
+      const m = /^[ \t]*sitemap:[ \t]*(\S+)/i.exec(line);
+      if (m) candidates.push(m[1]);
+    }
   } catch {
     // no robots.txt is fine
   }
@@ -251,7 +261,7 @@ async function findSitemaps(origin) {
 async function readSitemap(url, budget, depth = 0, seen = new Set()) {
   if (depth > 3 || seen.has(url) || seen.size > 300) return [];
   seen.add(url);
-  const { text } = await fetchText(url, { accept: 'application/xml,text/xml' });
+  const { text } = await fetchText(url, { accept: 'application/xml,text/xml', maxBytes: SITEMAP_MAX_BYTES });
   const $ = cheerio.load(text, { xml: true });
   const children = $('sitemapindex > sitemap > loc').map((_, el) => $(el).text().trim()).get();
   if (children.length) {
@@ -334,20 +344,91 @@ export async function feed(blog) {
   return items.every((it) => it.published) ? items.sort((a, b) => a.published.localeCompare(b.published)) : items;
 }
 
-// --- Archive pages ---
+// --- A blog's settings, as sent from the settings form or found in a backup ---
 
-export function urlFilter(config) {
-  const include = config.include ? new RegExp(config.include, 'i') : null;
-  const exclude = config.exclude ? new RegExp(config.exclude, 'i') : null;
-  return (url) => (!include || include.test(url)) && (!exclude || !exclude.test(url));
+const CONFIG_URLS = ['apiUrl', 'feedUrl', 'sitemapUrl', 'archiveUrl'];
+const CONFIG_FIELDS = [...CONFIG_URLS, 'linkSelector', 'nextSelector', 'order', 'maxPages', 'include', 'exclude'];
+const MAX_NAME = 200;
+const MAX_URL = 2048;
+const MAX_SELECTOR = 300;
+// The patterns run on every URL of a scan, so keep them short
+const MAX_PATTERN = 200;
+const MAX_PAGES = 1000;
+
+const isUsableUrl = (url) => url.length <= MAX_URL && isHttpUrl(url);
+
+// Checked and cleaned: { name, url, strategy, config }. Throws BadRequest (bad_url, bad_selector,
+// bad_include, bad_exclude, bad_strategy) with a code the web app can show.
+export function checkBlogSettings({ name, url, strategy, config }) {
+  const checked = {
+    name: String(name ?? '').trim().slice(0, MAX_NAME),
+    url: String(url ?? '').trim(),
+    strategy,
+    config: {},
+  };
+  if (!isUsableUrl(checked.url)) throw new BadRequest('bad_url');
+  if (!checked.name) checked.name = hostOf(checked.url);
+  if (!Object.hasOwn(STRATEGIES, strategy)) throw new BadRequest('bad_strategy');
+  for (const key of CONFIG_FIELDS) {
+    const value = String(config?.[key] ?? '').trim();
+    if (value) checked.config[key] = value;
+  }
+  const c = checked.config;
+  for (const key of CONFIG_URLS) {
+    if (c[key] && !isUsableUrl(c[key])) throw new BadRequest('bad_url');
+  }
+  for (const key of ['linkSelector', 'nextSelector']) {
+    if (c[key]?.length > MAX_SELECTOR) throw new BadRequest('bad_selector');
+  }
+  if (c.order && c.order !== 'oldest-first') c.order = 'newest-first';
+  if (c.maxPages) {
+    const pages = Math.trunc(Number(c.maxPages));
+    if (Number.isFinite(pages)) c.maxPages = Math.min(Math.max(pages, 1), MAX_PAGES);
+    else delete c.maxPages;
+  }
+  for (const key of ['include', 'exclude']) {
+    if (c[key] && !compilePattern(c[key])) throw new BadRequest(`bad_${key}`);
+  }
+  return checked;
 }
 
-const filterByPatterns = (items, config) => items.filter((it) => urlFilter(config)(it.url));
+// null when too long or not a valid regex
+function compilePattern(source) {
+  if (source.length > MAX_PATTERN) return null;
+  try {
+    return new RegExp(source, 'i');
+  } catch {
+    return null;
+  }
+}
+
+// Settings saved before these checks may hold a pattern that no longer passes them
+function patternOrThrow(source, what) {
+  if (!source) return null;
+  const re = compilePattern(source);
+  if (!re) throw new Error(`The ${what} pattern is invalid or longer than ${MAX_PATTERN} characters (see blog settings)`);
+  return re;
+}
+
+export function urlFilter(config) {
+  const include = patternOrThrow(config.include, 'include');
+  const exclude = patternOrThrow(config.exclude, 'exclude');
+  if (!include && !exclude) return () => true;
+  // Overlong URLs don't count as matching, so a pattern never runs over megabytes of text
+  return (url) => url.length <= MAX_URL && (!include || include.test(url)) && (!exclude || !exclude.test(url));
+}
+
+const filterByPatterns = (items, config) => {
+  const matches = urlFilter(config);
+  return items.filter((it) => matches(it.url));
+};
+
+// --- Archive pages ---
 
 async function archive(blog, { known, full, budget }) {
   const { linkSelector, nextSelector } = blog.config;
   if (!linkSelector) throw new Error('Archive scraping needs a link selector (see blog settings)');
-  const maxPages = Number(blog.config.maxPages || 100);
+  const maxPages = Math.min(Number(blog.config.maxPages || 100), MAX_PAGES);
   const archiveUrl = blog.config.archiveUrl || blog.url;
   const items = [];
   const seen = new Set();

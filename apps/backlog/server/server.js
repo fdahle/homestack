@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import * as store from './db.js';
-import { collect, detect, STRATEGIES } from './discover.js';
+import { checkBlogSettings, collect, detect, STRATEGIES } from './discover.js';
 import { createAuth } from './kit/auth.js';
 import { BadRequest, bigJson, createApp, errorHandler, mountAccount, route, serveFrontend, toId } from './kit/http.js';
 import { isScanning, queueScan, startHarvester, startScheduler } from './scanner.js';
@@ -73,28 +73,14 @@ app.get('/api/blogs/:id/status', (req, res) => {
   res.json({ scanning: isScanning(blog.id), total: blog.total, status: blog.last_scan_status });
 });
 
-const CONFIG_FIELDS = ['apiUrl', 'feedUrl', 'sitemapUrl', 'archiveUrl', 'linkSelector', 'nextSelector', 'order', 'maxPages', 'include', 'exclude'];
-
 // The blog's settings as sent, checked (not saved)
 function editedBlog(blog, body) {
-  const edited = {
-    name: String(body.name || blog.name).trim(),
-    url: String(body.url || blog.url).trim(),
-    strategy: STRATEGIES[body.strategy] ? body.strategy : blog.strategy,
-    config: {},
-  };
-  for (const key of CONFIG_FIELDS) {
-    const value = String(body.config?.[key] ?? '').trim();
-    if (value) edited.config[key] = value;
-  }
-  for (const key of ['include', 'exclude']) {
-    try {
-      if (edited.config[key]) new RegExp(edited.config[key]);
-    } catch {
-      throw new BadRequest(`bad_${key}`);
-    }
-  }
-  return edited;
+  return checkBlogSettings({
+    name: body.name || blog.name,
+    url: body.url || blog.url,
+    strategy: Object.hasOwn(STRATEGIES, body.strategy) ? body.strategy : blog.strategy,
+    config: body.config,
+  });
 }
 
 app.patch('/api/blogs/:id', (req, res) => {

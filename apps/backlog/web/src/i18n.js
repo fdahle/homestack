@@ -190,8 +190,11 @@ const de = {
   errors: {
     url_required: 'Bitte eine Adresse eingeben.',
     site_failed: 'Die Seite ließ sich nicht laden.',
-    bad_include: 'Das Muster für „Nur Adressen“ ist kein gültiger regulärer Ausdruck.',
-    bad_exclude: 'Das Muster für „Auslassen“ ist kein gültiger regulärer Ausdruck.',
+    bad_include: 'Das Muster für „Nur Adressen“ ist kein gültiger regulärer Ausdruck oder länger als 200 Zeichen.',
+    bad_exclude: 'Das Muster für „Auslassen“ ist kein gültiger regulärer Ausdruck oder länger als 200 Zeichen.',
+    bad_url: 'Adressen müssen mit http:// oder https:// beginnen.',
+    bad_selector: 'Ein CSS-Selektor darf höchstens 300 Zeichen lang sein.',
+    bad_strategy: 'Unbekannte Methode.',
     import_failed: 'Die Sicherung ließ sich nicht wiederherstellen.',
   },
 };
@@ -383,8 +386,11 @@ const en = {
   errors: {
     url_required: 'Please enter an address.',
     site_failed: "Couldn't load that site.",
-    bad_include: 'The "only URLs" pattern is not a valid regular expression.',
-    bad_exclude: 'The "skip URLs" pattern is not a valid regular expression.',
+    bad_include: 'The "only URLs" pattern is not a valid regular expression, or longer than 200 characters.',
+    bad_exclude: 'The "skip URLs" pattern is not a valid regular expression, or longer than 200 characters.',
+    bad_url: 'Addresses must start with http:// or https://.',
+    bad_selector: 'A CSS selector can be at most 300 characters long.',
+    bad_strategy: 'Unknown method.',
     import_failed: "The backup couldn't be restored.",
   },
 };

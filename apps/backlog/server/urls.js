@@ -12,7 +12,8 @@ export function normalizeUrl(raw, base) {
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
   const host = u.hostname.toLowerCase().replace(/^www\./, '');
-  const path = u.pathname.replace(/\/amp\/?$/, '').replace(/\/+$/, '') || '/';
+  // (?<!\/): only the first slash of a run can start a match; plain /\/+$/ is quadratic on long runs
+  const path = u.pathname.replace(/\/amp\/?$/, '').replace(/(?<!\/)\/+$/, '') || '/';
   const params = [...u.searchParams].filter(([k]) => !TRACKING_PARAM.test(k)).sort();
   const query = params.length ? '?' + new URLSearchParams(params) : '';
   return host + path + query;
