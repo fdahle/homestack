@@ -7,17 +7,19 @@ const HEADING = /^#{1,6}\s+(.*)$/;
 const QUOTE = /^>\s?(.*)$/;
 const FENCE = /^\s*(```|~~~)/;
 
-// **bold**, _italic_, `code`, [text](url), ![alt](url), <url>, \escapes → their text
+// **bold**, _italic_, `code`, [text](url), ![alt](url), <url>, \escapes → their text.
+// A \ at the end of the line is a line break (an odd number of them: an escaped \ isn't).
 export function inlineText(text) {
   return text
+    .replace(/(^|[^\\])((?:\\\\)*)\\$/, '$1$2')
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/<(https?:\/\/[^>]+)>/g, '$1')
     .replace(/(\*\*|__)(.+?)\1/g, '$2')
-    .replace(/(^|[^\w*])[*_](?!\s)(.+?)[*_](?=[^\w*]|$)/g, '$1$2')
+    .replace(/(^|[^\w*\\])[*_](?!\s)(.+?)(?<!\\)[*_](?=[^\w*]|$)/g, '$1$2')
     .replace(/~~(.+?)~~/g, '$1')
     .replace(/`([^`]+)`/g, '$1')
-    .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, '$1')
+    .replace(/\\([\\`*_{}[\]()#+\-.!>~|=&])/g, '$1')
     .trim();
 }
 

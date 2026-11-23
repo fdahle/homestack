@@ -5,8 +5,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
+import { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from './db.js';
-import { cleanPatch } from './notes.js';
+import { createUserStore } from './kit/users.js';
+import { cleanPatch, createNoteStore } from './notes.js';
 import { exportZip, noteMarkdown, safeName } from './export.js';
 import { zip } from './zip.js';
 
@@ -261,4 +263,47 @@ test('an account has a storage limit for its files; deleted ones no longer count
   const theirs = randomUUID();
   notes.sync(other, { changes: [create(theirs)] });
   assert.equal(notes.checkUpload(other, { ...file(900), note_id: theirs }, 1000), null);
+});
+
+test('a colour is kept, changed and taken off; one the server does not know is rejected', () => {
+  const { notes, me } = setup();
+  const id = randomUUID();
+  const first = notes.sync(me, { changes: [create(id, { color: 'yellow' })] }).answer;
+  assert.equal(first.items.note[0].color, 'yellow');
+  const seq = first.seq;
+  assert.equal(notes.sync(me, { since: seq, changes: [{ kind: 'note', id, base_seq: seq, patch: { color: 'darkblue' } }] }).answer.items.note[0].color, 'darkblue');
+  assert.equal(notes.sync(me, { changes: [{ kind: 'note', id, base_seq: seq, patch: { color: '' } }] }).answer.items.note[0].color, '');
+  const { answer } = notes.sync(me, { changes: [{ kind: 'note', id, base_seq: seq, patch: { color: 'gold' } }] });
+  assert.deepEqual(answer.rejected, [{ kind: 'note', id, error: 'bad_color' }]);
+  assert.equal(notes.sync(me, { changes: [create(randomUUID())] }).answer.items.note.at(-1).color, '', 'none by default');
+});
+
+test('the copy made when two devices change the text keeps the colour', () => {
+  const { notes, me } = setup();
+  const id = randomUUID();
+  const base = notes.sync(me, { changes: [create(id, { body: 'a', color: 'green' })] }).answer.seq;
+  notes.sync(me, { changes: [{ kind: 'note', id, base_seq: base, patch: { body: 'b' } }] });
+  const { answer } = notes.sync(me, { since: base, changes: [{ kind: 'note', id, base_seq: base, patch: { body: 'c' } }] });
+  assert.equal(answer.items.note.find((n) => n.id === answer.conflicts[0].copy).color, 'green');
+});
+
+test('a database from before colours gets the column, and its notes have none', () => {
+  const db = new DatabaseSync(':memory:');
+  const users = createUserStore(db);
+  const me = users.createUser({ username: 'me', displayName: 'Me', passwordHash: 'x' });
+  db.exec(`CREATE TABLE notes (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+    labels TEXT NOT NULL DEFAULT '[]', pinned INTEGER NOT NULL DEFAULT 0, archived_at TEXT, deleted_at TEXT, purged INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, seq INTEGER NOT NULL, body_seq INTEGER NOT NULL DEFAULT 0)`);
+  const old = randomUUID();
+  db.prepare("INSERT INTO notes (id, user_id, title, created_at, updated_at, seq) VALUES (?, ?, 'Alt', ?, ?, 1)").run(old, me, at, at);
+  const notes = createNoteStore(db);
+  createNoteStore(db); // opening it again changes nothing
+  const { answer } = notes.sync(me, { changes: [create(randomUUID(), { color: 'pink' })] });
+  assert.equal(answer.items.note.find((n) => n.id === old).color, '');
+  assert.equal(answer.items.note.find((n) => n.id !== old).color, 'pink');
+});
+
+test('export: the colour is in the front matter', () => {
+  const md = noteMarkdown({ title: '', body: 'x', labels: [], color: 'teal', pinned: true, archived_at: null, created_at: at, updated_at: at });
+  assert.match(md, /^---\ncolor: teal\npinned: true\n/);
 });

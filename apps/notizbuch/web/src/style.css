@@ -3,7 +3,8 @@
 
 :root {
   --bg: light-dark(#f5f3ec, #181713);
-  --surface: light-dark(#fffdf7, #22201b);
+  --paper: light-dark(#fffdf7, #22201b);
+  --surface: var(--paper);
   --text: light-dark(#1f1d17, #ece9e1);
   --muted: light-dark(#6c675a, #a39e90);
   --line: light-dark(#e4e0d3, #36332c);
@@ -12,6 +13,40 @@
   --accent-soft: light-dark(#f5e9cc, #3b3220);
   --bar: light-dark(#b07c00, #d9a83a);
   --check: light-dark(#2e7d4f, #6cc48d);
+
+  /* A note's colours (the list is in store/notes.js): soft in the light, deep in the dark */
+  --note-red: light-dark(#f6d3cd, #4d2723);
+  --note-orange: light-dark(#f8dcc2, #4b3021);
+  --note-yellow: light-dark(#f8edb5, #463b18);
+  --note-green: light-dark(#dbeccb, #273d25);
+  --note-teal: light-dark(#c8e7df, #1c3d39);
+  --note-blue: light-dark(#d2e3f1, #1f3446);
+  --note-darkblue: light-dark(#c4d0ea, #262d4a);
+  --note-purple: light-dark(#e0d2ee, #37294b);
+  --note-pink: light-dark(#f5d6e3, #48273b);
+  --note-brown: light-dark(#e6d9c6, #3c3127);
+  --note-grey: light-dark(#e3e1dc, #34332f);
+}
+
+/* A card has its colour in data-color; the open note's is on <html data-note-color> */
+[data-color="red"], [data-note-color="red"] { --note: var(--note-red); }
+[data-color="orange"], [data-note-color="orange"] { --note: var(--note-orange); }
+[data-color="yellow"], [data-note-color="yellow"] { --note: var(--note-yellow); }
+[data-color="green"], [data-note-color="green"] { --note: var(--note-green); }
+[data-color="teal"], [data-note-color="teal"] { --note: var(--note-teal); }
+[data-color="blue"], [data-note-color="blue"] { --note: var(--note-blue); }
+[data-color="darkblue"], [data-note-color="darkblue"] { --note: var(--note-darkblue); }
+[data-color="purple"], [data-note-color="purple"] { --note: var(--note-purple); }
+[data-color="pink"], [data-note-color="pink"] { --note: var(--note-pink); }
+[data-color="brown"], [data-note-color="brown"] { --note: var(--note-brown); }
+[data-color="grey"], [data-note-color="grey"] { --note: var(--note-grey); }
+
+/* Coloured paper, with its lines and quiet text mixed from it so they stay readable */
+.note-card[data-color],
+:root[data-note-color] .note-sheet {
+  --surface: var(--note);
+  --line: color-mix(in srgb, var(--text) 13%, var(--note));
+  --muted: color-mix(in srgb, var(--text) 68%, var(--note));
 }
 
 
@@ -84,6 +119,25 @@
 .menu-pop a { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px; color: var(--text); font-weight: 500; }
 .menu-pop a:hover { background: var(--line); }
 .menu-pop .icon { width: 20px; height: 20px; color: var(--muted); }
+
+/* The colours of a note, behind the palette button. On plain paper even in a coloured note. */
+.color-pop { display: grid; grid-template-columns: repeat(4, 38px); gap: 8px; min-width: 0; padding: 10px; background: var(--paper); }
+.swatch {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--text);
+  cursor: pointer;
+}
+.swatch:hover { border-color: color-mix(in srgb, var(--text) 45%, transparent); }
+.swatch.current { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--accent); }
+.menu-pop .swatch .icon { width: 18px; height: 18px; color: var(--text); }
+.menu-pop .swatch.none:not(.current) .icon { color: var(--muted); }
 
 /* "Write a note", on a computer: a slim box above the notes */
 .write-box {
@@ -324,6 +378,9 @@
 .label-list li:last-child { border-bottom: 0; }
 .label-rename { flex: 1; display: flex; align-items: center; gap: 6px; }
 .label-rename input { min-height: 36px; }
+.takeout-link { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; font-weight: 600; }
+.takeout-link .icon { width: 15px; height: 15px; }
+.import-result { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 2px; }
 
 /* Above an open note */
 .drop-hint, .toast { z-index: 40; }
@@ -362,6 +419,13 @@
   /* Room under the last notes for the + */
   .has-nav main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   .toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
+
+  /* A coloured note colours the whole page, top bar included */
+  :root[data-note-color] {
+    --bg: var(--note);
+    --line: color-mix(in srgb, var(--text) 13%, var(--note));
+    --muted: color-mix(in srgb, var(--text) 68%, var(--note));
+  }
 
   /* The note takes the list's place (which stays alive underneath) */
   .notes.has-note > .notes-list { display: none; }

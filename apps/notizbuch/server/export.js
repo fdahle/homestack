@@ -24,6 +24,7 @@ export function noteMarkdown(note, fileLinks = []) {
     '---',
     note.title ? `title: ${JSON.stringify(note.title)}` : null,
     note.labels.length ? `labels: [${note.labels.map((l) => JSON.stringify(l)).join(', ')}]` : null,
+    note.color ? `color: ${note.color}` : null,
     note.pinned ? 'pinned: true' : null,
     note.archived_at ? `archived: ${note.archived_at}` : null,
     `created: ${note.created_at}`,

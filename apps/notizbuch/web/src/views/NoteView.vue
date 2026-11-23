@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router';
 import { lang, t } from '../i18n.js';
 import { relativeDay, rememberedRef, showToast } from '../util.js';
+import { wide } from '../kit/util.js';
+import { applyTheme, theme } from '../kit/theme.js';
 import {
   addFiles, archiveNote, filesOf, isEmpty, pinNote, purgeNote, restoreNote, store, trashNote, updateNote,
 } from '../store/notes.js';
@@ -11,6 +13,7 @@ import Icon from '../kit/components/Icon.vue';
 import NoteEditor from '../components/NoteEditor.vue';
 import LabelEditor from '../components/LabelEditor.vue';
 import Attachments from '../components/Attachments.vue';
+import ColorPicker from '../components/ColorPicker.vue';
 
 // One note, to read and write. What you type is kept as a draft and saved to the device a
 // moment after you stop (and when you leave); the sync takes it from there.
@@ -135,6 +138,32 @@ function setLabels(labels) {
   updateNote(props.id, { labels });
 }
 
+// The colour tints the open note: the sheet on a computer, the whole page on the phone
+// (style.css reads it from <html data-note-color>, as the page around the note isn't ours)
+const color = computed(() => note.value?.color || '');
+const setColor = (value) => updateNote(props.id, { color: value });
+watch(color, (value) => {
+  if (value) document.documentElement.dataset.noteColor = value;
+  else delete document.documentElement.dataset.noteColor;
+}, { immediate: true });
+// On the phone the status bar takes the note's colour too; the kit's colours come back after
+let painted = false;
+function unpaint() {
+  if (painted) applyTheme(theme.value, { store: false });
+  painted = false;
+}
+watch([color, wide], async ([value, isWide]) => {
+  await nextTick();
+  if (!value || isWide) return unpaint();
+  const bg = getComputedStyle(document.body).backgroundColor;
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.content = bg;
+  painted = true;
+}, { immediate: true });
+onBeforeUnmount(() => {
+  delete document.documentElement.dataset.noteColor;
+  unpaint();
+});
+
 // --- files ---
 
 const fileInput = ref(null);
@@ -174,6 +203,7 @@ const showCreated = ref(false);
     <template v-if="note && !trashed">
       <button class="icon-btn" :class="{ active: tools === 'on' }" :aria-label="t('note.format')" :aria-pressed="tools === 'on'" :title="t('note.format')" @click="toggleTools"><Icon name="format" /></button>
       <button class="icon-btn" :class="{ on: note.pinned }" :aria-label="note.pinned ? t('note.unpin') : t('note.pin')" :aria-pressed="note.pinned" :title="note.pinned ? t('note.unpin') : t('note.pin')" @click="togglePin"><Icon name="pin" /></button>
+      <ColorPicker :model-value="color" @update:model-value="setColor" />
       <button class="icon-btn" :aria-label="note.archived_at ? t('note.unarchive') : t('note.archive')" :title="note.archived_at ? t('note.unarchive') : t('note.archive')" @click="toggleArchive"><Icon :name="note.archived_at ? 'unarchive' : 'archive'" /></button>
     </template>
     <template v-else-if="note">

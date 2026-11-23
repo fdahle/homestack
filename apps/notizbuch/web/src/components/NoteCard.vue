@@ -22,7 +22,7 @@ const checks = computed(() => checklistCount(props.note.body));
 </script>
 
 <template>
-  <RouterLink :to="to" class="note-card" :class="{ selected }" :aria-current="selected ? 'page' : undefined">
+  <RouterLink :to="to" class="note-card" :class="{ selected }" :data-color="note.color || undefined" :aria-current="selected ? 'page' : undefined">
     <img v-if="image" :src="fileUrl(image)" class="note-card-image" alt="" loading="lazy" :width="image.width" :height="image.height" />
     <div class="note-card-body">
       <h3 v-if="note.title" class="note-card-title">

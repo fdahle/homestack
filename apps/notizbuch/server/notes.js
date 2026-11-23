@@ -3,7 +3,7 @@
 //
 // Notes merge like this: when two devices change the text of the same note before either has
 // synced, the second one doesn't overwrite the first. Its text becomes a copy of the note, and
-// the device is told. Everything else (title, labels, pinned, archived, …) takes the latest
+// the device is told. Everything else (title, labels, colour, pinned, archived, …) takes the latest
 // change. Files are uploaded on their own (PUT /api/files/:id); a sync only deletes them.
 
 import { randomUUID } from 'node:crypto';
@@ -13,11 +13,15 @@ import { createSync, isIso, isoOrNull, UUID } from './kit/sync.js';
 export { UUID };
 const MAX_BODY = 500_000;
 const MAX_LABELS = 30;
+// A note's colour ('' for none). The device has the same list (web/src/store/notes.js), and
+// web/src/style.css a light and a dark shade for each.
+export const COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'darkblue', 'purple', 'pink', 'brown', 'grey'];
 
 export function createNoteStore(db) {
   db.exec(`
     -- id: made by the device that wrote the note first.
     -- body: Markdown, checklists as "- [ ] …". labels: JSON array of strings.
+    -- color: one of COLORS, '' for none.
     -- archived_at / deleted_at: when it went into the archive or the trash (NULL: not there).
     -- purged = 1: deleted for good; only the id is left, so other devices learn about it.
     -- created_at / updated_at: from the device, when it was written (possibly offline).
@@ -28,6 +32,7 @@ export function createNoteStore(db) {
       title TEXT NOT NULL DEFAULT '',
       body TEXT NOT NULL DEFAULT '',
       labels TEXT NOT NULL DEFAULT '[]',
+      color TEXT NOT NULL DEFAULT '',
       pinned INTEGER NOT NULL DEFAULT 0,
       archived_at TEXT,
       deleted_at TEXT,
@@ -57,6 +62,10 @@ export function createNoteStore(db) {
     CREATE INDEX IF NOT EXISTS files_user_seq ON files (user_id, seq);
     CREATE INDEX IF NOT EXISTS files_note ON files (note_id);
   `);
+  // Databases from before colours
+  if (!db.prepare('PRAGMA table_info(notes)').all().some((c) => c.name === 'color')) {
+    db.exec("ALTER TABLE notes ADD COLUMN color TEXT NOT NULL DEFAULT ''");
+  }
 
   let engine;
   const nextSeq = () => engine.nextSeq();
@@ -64,9 +73,9 @@ export function createNoteStore(db) {
   const getFile = (id) => db.prepare('SELECT * FROM files WHERE id = ?').get(id);
 
   function insertNote(userId, note, seq) {
-    db.prepare(`INSERT INTO notes (id, user_id, title, body, labels, pinned, archived_at, deleted_at, created_at, updated_at, seq, body_seq)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      note.id, userId, note.title ?? '', note.body ?? '', JSON.stringify(note.labels ?? []), note.pinned ? 1 : 0,
+    db.prepare(`INSERT INTO notes (id, user_id, title, body, labels, color, pinned, archived_at, deleted_at, created_at, updated_at, seq, body_seq)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      note.id, userId, note.title ?? '', note.body ?? '', JSON.stringify(note.labels ?? []), note.color ?? '', note.pinned ? 1 : 0,
       note.archived_at ?? null, note.deleted_at ?? null, note.created_at, note.updated_at, seq, seq,
     );
   }
@@ -74,7 +83,7 @@ export function createNoteStore(db) {
   // Deletes a note for good. Returns the ids of its files, for the caller to remove from the disk.
   function purgeNote(row) {
     const seq = nextSeq();
-    db.prepare("UPDATE notes SET title = '', body = '', labels = '[]', pinned = 0, purged = 1, seq = ? WHERE id = ?").run(seq, row.id);
+    db.prepare("UPDATE notes SET title = '', body = '', labels = '[]', color = '', pinned = 0, purged = 1, seq = ? WHERE id = ?").run(seq, row.id);
     const files = db.prepare('SELECT id FROM files WHERE note_id = ? AND purged = 0').all(row.id).map((f) => f.id);
     db.prepare('UPDATE files SET purged = 1, seq = ? WHERE note_id = ? AND purged = 0').run(seq, row.id);
     return files;
@@ -98,7 +107,7 @@ export function createNoteStore(db) {
       if (row.body_seq > baseSeq) {
         // The text changed here since the device last saw it: keep both
         const copy = randomUUID();
-        insertNote(userId, { id: copy, title: patch.title ?? row.title, body: patch.body, labels: JSON.parse(row.labels), created_at: now, updated_at: patch.updated_at || now }, seq);
+        insertNote(userId, { id: copy, title: patch.title ?? row.title, body: patch.body, labels: JSON.parse(row.labels), color: patch.color ?? row.color, created_at: now, updated_at: patch.updated_at || now }, seq);
         delete patch.body;
         result.conflict = copy;
       } else {
@@ -107,7 +116,7 @@ export function createNoteStore(db) {
     }
     const sets = [];
     const values = [];
-    for (const key of ['title', 'body', 'archived_at', 'deleted_at', 'updated_at']) {
+    for (const key of ['title', 'body', 'color', 'archived_at', 'deleted_at', 'updated_at']) {
       if (key in patch) {
         sets.push(`${key} = ?`);
         values.push(patch[key]);
@@ -231,6 +240,10 @@ export function cleanPatch(patch) {
     out.body = patch.body;
   }
   if ('labels' in patch) out.labels = cleanLabels(patch.labels);
+  if ('color' in patch) {
+    if (patch.color !== '' && !COLORS.includes(patch.color)) throw new BadRequest('bad_color');
+    out.color = patch.color;
+  }
   if ('pinned' in patch) out.pinned = Boolean(patch.pinned);
   for (const key of ['archived_at', 'deleted_at']) if (key in patch) out[key] = isoOrNull(patch[key], key);
   // Written on the device, maybe offline; a clock running ahead doesn't get to write the future
@@ -256,6 +269,7 @@ export function noteOut(row) {
     title: row.title,
     body: row.body,
     labels: JSON.parse(row.labels),
+    color: row.color,
     pinned: Boolean(row.pinned),
     archived_at: row.archived_at,
     deleted_at: row.deleted_at,

@@ -4,11 +4,16 @@
 // once their note is on the server. How the server merges is in server/notes.js.
 
 import { computed } from 'vue';
-import { api, ApiError } from '../api.js';
+import { api, ApiError, session } from '../api.js';
 import { t } from '../i18n.js';
 import { showToast } from '../util.js';
 import { createOffline } from '../kit/offline.js';
 import { prepareFile } from '../lib/files.js';
+import { readTakeout } from '../lib/keep.js';
+
+// A note's colours ('' is none). The server checks against the same list (server/notes.js);
+// style.css has a light and a dark shade of each.
+export const NOTE_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'darkblue', 'purple', 'pink', 'brown', 'grey'];
 
 const uploads = new Map(); // id → { id, meta, blob }
 const blobUrls = new Map();
@@ -55,7 +60,7 @@ const CONTENT = ['title', 'body', 'labels'];
 
 export function createNote(fields = {}) {
   const at = now();
-  const note = { id: crypto.randomUUID(), title: '', body: '', labels: [], pinned: false, archived_at: null, deleted_at: null, created_at: at, updated_at: at, ...fields };
+  const note = { id: crypto.randomUUID(), title: '', body: '', labels: [], color: '', pinned: false, archived_at: null, deleted_at: null, created_at: at, updated_at: at, ...fields };
   store.notes.set(note.id, { ...note, seq: 0 });
   const { id, ...patch } = note;
   off.queue('note', store.notes.get(id), patch);
@@ -111,9 +116,11 @@ const filesByNote = computed(() => {
 });
 export const filesOf = (noteId) => filesByNote.value.get(noteId) || [];
 
-export async function addFiles(noteId, list) {
+// → how many were added. touch: false leaves the note's "edited" time as it is (an import).
+export async function addFiles(noteId, list, { touch = true } = {}) {
   const limit = store.settings.maxFileMb * 1024 * 1024;
   const local = off.local();
+  let added = 0;
   for (const original of list) {
     let prepared;
     try {
@@ -140,10 +147,12 @@ export async function addFiles(noteId, list) {
     uploads.set(meta.id, up);
     store.files.set(meta.id, { ...meta, pending: true });
     await local?.put('uploads', up);
+    added++;
   }
   off.setExtraPending(uploads.size);
-  if (store.notes.has(noteId)) updateNote(noteId, { updated_at: now() });
+  if (touch && store.notes.has(noteId)) updateNote(noteId, { updated_at: now() });
   else off.syncSoon();
+  return added;
 }
 
 // Off this device; true when the server has it and needs telling
@@ -209,6 +218,43 @@ async function uploadFiles({ local, isOwner, requeue }) {
   }
   off.setExtraPending(uploads.size);
   return uploaded;
+}
+
+// --- importing from Google Keep ---
+
+// files: what was picked (Takeout ZIPs, or the notes' JSON files and pictures; see lib/keep.js).
+// The notes are added like any others: on this device first, then synced, their pictures
+// uploaded after them. A note that's here already (imported before) is left as it is, so
+// importing again only brings what's new. Keep's trash is left out.
+// onProgress(done, total) → { added, existing, trashed, files, missing, unreadable: [names] }
+export async function importKeep(files, onProgress) {
+  const { notes, unreadable } = await readTakeout(files, { owner: String(session.user?.id ?? '') });
+  const result = { added: 0, existing: 0, trashed: 0, files: 0, missing: 0, unreadable, found: notes.length };
+  for (const [i, note] of notes.entries()) {
+    onProgress?.(i, notes.length);
+    if (note.trashed) {
+      result.trashed++;
+      continue;
+    }
+    if (store.notes.has(note.fields.id)) {
+      result.existing++;
+      continue;
+    }
+    createNote(note.fields);
+    result.added++;
+    result.missing += note.missing;
+    const picked = [];
+    for (const file of note.files) {
+      try {
+        picked.push(new File([await file.open()], file.name, { type: file.type }));
+      } catch {
+        result.missing++;
+      }
+    }
+    if (picked.length) result.files += await addFiles(note.fields.id, picked, { touch: false });
+  }
+  onProgress?.(notes.length, notes.length);
+  return result;
 }
 
 // --- reading ---

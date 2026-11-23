@@ -26,4 +26,6 @@ addIcons({
   file: '<path d="M14 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3.5V8h4.5"/>',
   'check-box': '<rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M8 12.3l2.7 2.7 5.3-5.6"/>',
   box: '<rect x="4" y="4" width="16" height="16" rx="3.5"/>',
+  palette: '<path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.1 0 1.8-.7 1.8-1.6 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2.1a3.9 3.9 0 0 0 3.9-3.9c0-4-3.8-7.4-8.5-7.4z"/><circle cx="7.6" cy="11.2" r="1.25" fill="currentColor" stroke="none"/><circle cx="10.4" cy="7.4" r="1.25" fill="currentColor" stroke="none"/><circle cx="15" cy="7.9" r="1.25" fill="currentColor" stroke="none"/>',
+  'color-off': '<circle cx="12" cy="12" r="8"/><path d="M6.4 6.4l11.2 11.2"/>',
 });
