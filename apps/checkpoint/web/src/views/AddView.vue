@@ -22,10 +22,13 @@ const usedPlatforms = ref([]);
 
 // Quick choices when adding; the rest can be set on the game's page
 const QUICK = ['playing', 'finished', 'backlog', 'wishlist'];
+const steam = ref(null); // { configured, waiting }
 
 onMounted(async () => {
   try {
-    igdb.value = (await api('/settings')).igdb;
+    const settings = await api('/settings');
+    steam.value = settings.steam;
+    igdb.value = settings.igdb;
     if (!igdb.value) openManual();
   } catch {
     // search still tries
@@ -105,6 +108,11 @@ async function addManual() {
 <template>
   <TopBar :title="t('add.title')" />
   <main>
+    <RouterLink v-if="steam?.configured && steam.waiting" to="/steam" class="steam-cta">
+      <Icon name="download" />
+      <span class="grow"><strong>{{ t('steam.fromSteam') }}</strong><small>{{ t('steam.waiting', { n: steam.waiting }) }}</small></span>
+      <Icon name="forward" />
+    </RouterLink>
     <template v-if="igdb">
       <form class="search-box" role="search" @submit.prevent="runSearch">
         <Icon name="search" />

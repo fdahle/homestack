@@ -81,3 +81,31 @@
   .pick-cover { flex-basis: 200px; }
   .pick-body h2 { font-size: 1.7rem; }
 }
+
+/* --- Steam --- */
+
+/* The way to the Steam page, at the top of the add page */
+.steam-cta { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 16px; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent); }
+.steam-cta .grow { display: flex; flex-direction: column; gap: 2px; }
+.steam-cta strong { font-size: 1.02rem; }
+.steam-cta small { color: var(--text); opacity: 0.75; }
+.steam-cta > .icon:first-child { width: 26px; height: 26px; }
+.steam-cta:hover { background: color-mix(in srgb, var(--accent-soft) 80%, var(--accent)); }
+
+.steam-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.steam-status p { margin: 0; }
+.steam-actions { margin: 4px 0 10px; }
+.steam-list li { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-bottom: 1px solid var(--line); }
+.steam-list li.picked { background: var(--accent-soft); }
+.steam-pick { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; padding: 8px 0; cursor: pointer; }
+.steam-pick input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.steam-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.steam-meta { display: flex; align-items: center; gap: 8px; flex: none; font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.steam-list .icon-btn { width: 36px; height: 36px; color: var(--muted); }
+.steam-list .icon-btn .icon { width: 18px; height: 18px; }
+/* The button to bring the picked games in stays in reach while you scroll */
+.steam-bar { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px); display: flex; justify-content: center; margin-top: 14px; }
+.steam-bar .btn { box-shadow: var(--shadow); }
+@media (min-width: 1024px) {
+  .steam-bar { bottom: 20px; }
+}

@@ -20,6 +20,8 @@ db.exec(`
   -- status: wishlist, backlog, playing, finished, completed (100 %), dropped.
   -- rating: 1–10, shown as half stars. played_on: JSON array of the platforms you played it on.
   -- started_on / finished_on: 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD', as precise as you remember it.
+  -- steam_*: the Steam game it is linked to, your play time there in minutes (all, and on a
+  -- Steam Deck) and the day you last played it; filled by the Steam sync (steam.js).
   CREATE TABLE IF NOT EXISTS games (
     id INTEGER PRIMARY KEY,
     igdb_id INTEGER UNIQUE,
@@ -43,10 +45,29 @@ db.exec(`
     started_on TEXT,
     finished_on TEXT,
     notes TEXT,
+    steam_appid INTEGER UNIQUE,
+    steam_minutes INTEGER,
+    steam_deck_minutes INTEGER,
+    steam_last_played TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS games_status ON games (status);
+
+  -- Your Steam library as the last sync saw it. A game in Checkpoint points here with
+  -- games.steam_appid; the rest wait on the Steam page until you bring them in or hide them.
+  -- igdb_id: the IGDB game for it (NULL: IGDB doesn't know it), looked up on igdb_checked.
+  CREATE TABLE IF NOT EXISTS steam_games (
+    appid INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    minutes INTEGER NOT NULL DEFAULT 0,
+    deck_minutes INTEGER NOT NULL DEFAULT 0,
+    last_played TEXT,
+    igdb_id INTEGER,
+    igdb_checked TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    seen_at TEXT NOT NULL
+  );
 `);
 
 export const now = () => new Date().toISOString();
@@ -64,6 +85,14 @@ export const users = createUserStore(db);
 const MIGRATIONS = [
   () => db.exec(`UPDATE games SET played_on = CASE WHEN played_on IS NULL OR trim(played_on) = '' THEN '[]'
     ELSE json_array(trim(played_on)) END`),
+  // 2: the Steam columns, for a database from before them (a new one has them already)
+  () => {
+    const has = new Set(db.prepare('PRAGMA table_info(games)').all().map((c) => c.name));
+    for (const [col, type] of [['steam_appid', 'INTEGER'], ['steam_minutes', 'INTEGER'], ['steam_deck_minutes', 'INTEGER'], ['steam_last_played', 'TEXT']]) {
+      if (!has.has(col)) db.exec(`ALTER TABLE games ADD COLUMN ${col} ${type}`);
+    }
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS games_steam_appid ON games (steam_appid)');
+  },
 ];
 for (let v = db.prepare('PRAGMA user_version').get().user_version; v < MIGRATIONS.length; v++) {
   db.exec('BEGIN');
@@ -84,6 +113,7 @@ const GAME_COLUMNS = [
   'igdb_id', 'name', 'slug', 'igdb_url', 'summary', 'release_date', 'platforms', 'genres', 'developer', 'franchise',
   'hours_main', 'hours_complete', 'igdb_cover_id', 'cover_file', 'cover_source',
   'status', 'rating', 'played_on', 'started_on', 'finished_on', 'notes',
+  'steam_appid', 'steam_minutes', 'steam_deck_minutes', 'steam_last_played',
 ];
 const JSON_COLUMNS = ['platforms', 'genres', 'played_on'];
 
@@ -105,9 +135,10 @@ function fromRow(row) {
 
 // The list leaves out the long texts
 const LIST_COLUMNS = `id, igdb_id, name, release_date, platforms, genres, developer, franchise, hours_main, hours_complete,
-  cover_file, status, rating, played_on, started_on, finished_on, created_at, updated_at`;
+  cover_file, status, rating, played_on, started_on, finished_on, steam_appid, steam_minutes, steam_last_played, created_at, updated_at`;
 
 export const listGames = () => db.prepare(`SELECT ${LIST_COLUMNS} FROM games ORDER BY name COLLATE NOCASE`).all().map(fromRow);
+export const allGames = () => db.prepare('SELECT * FROM games').all().map(fromRow);
 export const getGame = (id) => fromRow(db.prepare('SELECT * FROM games WHERE id = ?').get(id));
 export const gameByIgdbId = (igdbId) => db.prepare('SELECT id FROM games WHERE igdb_id = ?').get(igdbId)?.id ?? null;
 
@@ -127,11 +158,13 @@ export function insertGame(fields) {
   return Number(lastInsertRowid);
 }
 
-export function updateGame(id, fields) {
+// touch: false for changes that aren't yours (the Steam sync), so "recently changed" stays yours
+export function updateGame(id, fields, { touch = true } = {}) {
   const row = toRow(fields);
   const keys = Object.keys(row);
   if (!keys.length) return;
-  db.prepare(`UPDATE games SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...Object.values(row), now(), id);
+  const sets = [...keys.map((k) => `${k} = ?`), ...(touch ? ['updated_at = ?'] : [])];
+  db.prepare(`UPDATE games SET ${sets.join(', ')} WHERE id = ?`).run(...Object.values(row), ...(touch ? [now()] : []), id);
 }
 
 export const deleteGame = (id) => db.prepare('DELETE FROM games WHERE id = ?').run(id).changes > 0;
@@ -139,6 +172,55 @@ export const deleteGame = (id) => db.prepare('DELETE FROM games WHERE id = ?').r
 // Platforms you have played on, most used first (suggestions for "played on")
 export const usedPlatforms = () => db.prepare(`SELECT p.value AS name, COUNT(*) AS n FROM games, json_each(games.played_on) p
   WHERE json_valid(games.played_on) GROUP BY p.value COLLATE NOCASE ORDER BY n DESC, name`).all().map((r) => r.name);
+
+// --- Steam ---
+
+// The library as Steam sent it: new games added, the rest brought up to date
+export function saveSteamLibrary(owned, at = now()) {
+  const upsert = db.prepare(`INSERT INTO steam_games (appid, name, minutes, deck_minutes, last_played, seen_at) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT (appid) DO UPDATE SET name = excluded.name, minutes = excluded.minutes, deck_minutes = excluded.deck_minutes,
+      last_played = excluded.last_played, seen_at = excluded.seen_at`);
+  db.exec('BEGIN');
+  try {
+    for (const g of owned) upsert.run(g.appid, g.name, g.minutes, g.deck_minutes, g.last_played, at);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+// Steam games whose IGDB game hasn't been looked up, or wasn't found and was last tried before `before`
+export const steamGamesToMatch = (before) => db.prepare(`SELECT appid FROM steam_games
+  WHERE igdb_checked IS NULL OR (igdb_id IS NULL AND igdb_checked < ?)`).all(before).map((r) => r.appid);
+
+export function setSteamIgdb(appids, igdbByAppid, at = now()) {
+  const set = db.prepare('UPDATE steam_games SET igdb_id = ?, igdb_checked = ? WHERE appid = ?');
+  for (const appid of appids) set.run(igdbByAppid.get(appid) ?? null, at, appid);
+}
+
+export function steamGames(appids = null) {
+  if (appids && !appids.length) return [];
+  const where = appids ? `WHERE appid IN (${appids.map(() => '?').join(',')})` : '';
+  return db.prepare(`SELECT * FROM steam_games ${where}`).all(...(appids || []));
+}
+
+// Steam games not in Checkpoint (yet), most played first
+export const steamWaiting = () => db.prepare(`SELECT appid, name, minutes, last_played, igdb_id, hidden FROM steam_games s
+  WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.steam_appid = s.appid)
+  ORDER BY minutes DESC, name COLLATE NOCASE`).all();
+export const steamWaitingCount = () => db.prepare(`SELECT COUNT(*) AS n FROM steam_games s
+  WHERE hidden = 0 AND NOT EXISTS (SELECT 1 FROM games g WHERE g.steam_appid = s.appid)`).get().n;
+export const setSteamHidden = (appid, hidden) => db.prepare('UPDATE steam_games SET hidden = ? WHERE appid = ?').run(hidden ? 1 : 0, appid).changes > 0;
+
+export function getJsonSetting(key, fallback = null) {
+  try {
+    return JSON.parse(users.getSetting(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+export const setJsonSetting = (key, value) => users.setSetting(key, JSON.stringify(value));
 
 export const exportAll = () => ({
   games: db.prepare('SELECT * FROM games ORDER BY name COLLATE NOCASE').all().map(fromRow)

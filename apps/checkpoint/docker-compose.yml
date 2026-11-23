@@ -13,6 +13,9 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       IGDB_CLIENT_ID: ${IGDB_CLIENT_ID:-}
       IGDB_CLIENT_SECRET: ${IGDB_CLIENT_SECRET:-}
+      STEAM_API_KEY: ${STEAM_API_KEY:-}
+      STEAM_ID: ${STEAM_ID:-}
+      STEAM_SYNC_HOURS: ${STEAM_SYNC_HOURS:-6}
       # Set to log in through Authelia instead of the own account (kit/README.md)
       AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
       TZ: ${TZ:-Europe/Berlin}

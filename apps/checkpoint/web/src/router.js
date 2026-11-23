@@ -15,6 +15,7 @@ export const router = createRouter({
       children: [{ path: 'game/:id', name: 'game', component: () => import('./views/GameView.vue'), props: true }],
     },
     { path: '/add', name: 'add', component: () => import('./views/AddView.vue') },
+    { path: '/steam', name: 'steam', component: () => import('./views/SteamView.vue') },
     { path: '/next', name: 'next', component: () => import('./views/NextView.vue') },
     { path: '/stats', name: 'stats', component: () => import('./views/StatsView.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },

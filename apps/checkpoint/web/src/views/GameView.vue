@@ -107,6 +107,10 @@ const facts = computed(() => {
     g.franchise && [t('game.series'), g.franchise],
     g.genres.length && [t('game.genres'), g.genres.join(', ')],
     g.platforms.length && [t('game.platforms'), g.platforms.join(', ')],
+    g.steam_appid && g.steam_minutes != null && [t('game.steam'), [
+      g.steam_minutes ? t('game.steamPlayed', { h: formatHours(Math.round(g.steam_minutes / 6) / 10) }) : t('game.steamUnplayed'),
+      g.steam_last_played && t('game.steamLast', { when: formatPartial(g.steam_last_played) }),
+    ].filter(Boolean).join(' · ')],
     (g.hours_main || g.hours_complete) && [t('game.timeToBeat'), [
       g.hours_main && t('game.hoursMain', { h: formatHours(g.hours_main) }),
       g.hours_complete && t('game.hoursComplete', { h: formatHours(g.hours_complete) }),
@@ -282,7 +286,7 @@ async function remove() {
         </label>
       </section>
 
-      <section v-if="facts.length || game.summary" class="card">
+      <section v-if="facts.length || game.summary || game.steam_appid" class="card">
         <dl class="facts">
           <template v-for="[label, value] in facts" :key="label">
             <dt>{{ label }}</dt>
@@ -295,6 +299,9 @@ async function remove() {
         </template>
         <p v-if="igdbUrl" class="source">
           <a :href="igdbUrl" target="_blank" rel="noopener noreferrer"><Icon name="external" />{{ t('game.onIgdb') }}</a>
+        </p>
+        <p v-if="game.steam_appid" class="source">
+          <a :href="`https://store.steampowered.com/app/${game.steam_appid}/`" target="_blank" rel="noopener noreferrer"><Icon name="external" />{{ t('game.onSteam') }}</a>
         </p>
       </section>
     </template>

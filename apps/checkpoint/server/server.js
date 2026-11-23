@@ -8,6 +8,8 @@ import { createAuth } from './kit/auth.js';
 import { createApp, errorHandler, mountAccount, route, serveFrontend, servePrivateFiles, toId as id } from './kit/http.js';
 import { BadRequest, cleanGameInput, datesForStatusChange, datesInOrder, STATUSES } from './games.js';
 import { fetchImage, gameDetails, IGDB_ENABLED, IgdbError, isImageId, search } from './igdb.js';
+import { STEAM_ENABLED, STEAM_SYNC_HOURS } from './steam.js';
+import { importSteam, lastSteamSync, steamSyncRunning, syncSteam } from './steamsync.js';
 
 const PORT = Number(process.env.PORT || 3069);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
@@ -18,7 +20,9 @@ const auth = createAuth({ users: store.users, cookie: 'checkpoint_session' });
 // Login, logout, /api/me; everything under /api and /covers after this needs a login
 mountAccount(app, { auth, users: store.users, protect: ['/api', '/covers'] });
 
-app.get('/api/settings', (req, res) => res.json({ igdb: IGDB_ENABLED, statuses: STATUSES }));
+const steamSummary = () => ({ configured: STEAM_ENABLED, igdb: IGDB_ENABLED, syncHours: STEAM_SYNC_HOURS, last: lastSteamSync(), running: steamSyncRunning(), waiting: store.steamWaitingCount() });
+
+app.get('/api/settings', (req, res) => res.json({ igdb: IGDB_ENABLED, statuses: STATUSES, steam: steamSummary() }));
 
 // --- covers ---
 
@@ -109,9 +113,39 @@ app.delete('/api/games/:id', route(async (req, res) => {
   const game = store.getGame(id(req.params.id));
   if (!game) return res.status(404).json({ error: 'not_found' });
   store.deleteGame(game.id);
+  // A Steam game you deleted here doesn't wait to be brought in again (the Steam page can show it)
+  if (game.steam_appid) store.setSteamHidden(game.steam_appid, true);
   await removeCover(game.cover_file);
   res.json({ ok: true });
 }));
+
+// --- Steam ---
+
+// The library's games that aren't in Checkpoint, hidden ones included (the page can show them)
+app.get('/api/steam', (req, res) => res.json({ ...steamSummary(), games: store.steamWaiting() }));
+
+app.post('/api/steam/sync', route(async (req, res) => {
+  if (!STEAM_ENABLED) return res.status(400).json({ error: 'steam_not_configured' });
+  await syncSteam();
+  res.json({ ...steamSummary(), games: store.steamWaiting() });
+}));
+
+// { appids: [...] } → brought into Checkpoint; their covers follow in the background
+app.post('/api/steam/import', route(async (req, res) => {
+  const appids = Array.isArray(req.body.appids) ? [...new Set(req.body.appids.map(Number).filter((n) => Number.isInteger(n) && n > 0))] : [];
+  if (!appids.length || appids.length > 5000) throw new BadRequest('bad_appids');
+  const { added, linked } = await importSteam(appids);
+  res.json({ added: added.length, linked, ...steamSummary(), games: store.steamWaiting() });
+  (async () => {
+    for (const gameId of added) await fetchIgdbCover(gameId);
+  })().catch((err) => console.warn(`Steam covers: ${err.message}`));
+}));
+
+// { hidden: true/false }: a Steam game you don't want in Checkpoint, or back on the list
+app.patch('/api/steam/:appid', (req, res) => {
+  if (!store.setSteamHidden(id(req.params.appid), req.body.hidden === true)) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true });
+});
 
 // Fetches the game's IGDB data again (new platforms, time to beat, cover). Your own entries stay.
 app.post('/api/games/:id/refresh', route(async (req, res) => {
@@ -177,3 +211,9 @@ app.use(errorHandler((err, req, res) => {
 await auth.ensureAdmin();
 if (!IGDB_ENABLED) console.warn('IGDB_CLIENT_ID/IGDB_CLIENT_SECRET not set: no game search, only games entered by hand.');
 app.listen(PORT, () => console.log(`Checkpoint listening on :${PORT}`));
+
+// Steam: at the start, then every STEAM_SYNC_HOURS (0: only from the Steam page)
+if (STEAM_ENABLED) {
+  syncSteam();
+  if (STEAM_SYNC_HOURS > 0) setInterval(syncSteam, STEAM_SYNC_HOURS * 3_600_000).unref();
+}

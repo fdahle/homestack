@@ -25,5 +25,8 @@ test('"played on": one platform as text becomes a list, nothing becomes an empty
   const played = Object.fromEntries(store.db.prepare('SELECT id, played_on FROM games').all().map((r) => [r.id, JSON.parse(r.played_on)]));
   assert.deepEqual(played, { 1: ['Switch'], 2: [], 3: [], 4: ['PC'] });
   assert.deepEqual(store.usedPlatforms(), ['PC', 'Switch']);
-  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 1);
+  // And the Steam columns came along
+  const columns = store.db.prepare('PRAGMA table_info(games)').all().map((c) => c.name);
+  for (const c of ['steam_appid', 'steam_minutes', 'steam_deck_minutes', 'steam_last_played']) assert.ok(columns.includes(c), c);
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 2);
 });

@@ -92,14 +92,15 @@ export async function search(q) {
   return games.map(searchHit);
 }
 
+const GAME_FIELDS = `name, slug, url, summary, first_release_date, cover.image_id,
+    platforms.name, platforms.abbreviation, genres.name, involved_companies.developer, involved_companies.company.name,
+    franchises.name, collections.name`;
+
 // Everything Checkpoint keeps about a game, ready for the database
 export async function gameDetails(igdbId) {
   const id = Number(igdbId);
   if (!Number.isInteger(id) || id <= 0) throw new IgdbError('not_found');
-  const [game] = await query('games', `fields name, slug, url, summary, first_release_date, cover.image_id,
-    platforms.name, platforms.abbreviation, genres.name, involved_companies.developer, involved_companies.company.name,
-    franchises.name, collections.name;
-    where id = ${id};`);
+  const [game] = await query('games', `fields ${GAME_FIELDS}; where id = ${id};`);
   if (!game) throw new IgdbError('not_found');
   let timeToBeat = null;
   try {
@@ -109,6 +110,49 @@ export async function gameDetails(igdbId) {
     console.warn(`IGDB time to beat for ${id}: ${err.message}`);
   }
   return fromIgdb(game, timeToBeat);
+}
+
+// The same for many games at once (bringing in a Steam library): two requests per 200 games.
+// → Map igdbId → fields; games IGDB doesn't have are missing from it.
+export async function gameDetailsMany(igdbIds) {
+  const out = new Map();
+  const ids = [...new Set(igdbIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200).join(',');
+    const games = await query('games', `fields ${GAME_FIELDS}; where id = (${chunk}); limit 500;`);
+    let times = [];
+    try {
+      times = await query('game_time_to_beats', `fields game_id, hastily, normally, completely; where game_id = (${chunk}); limit 500;`);
+    } catch (err) {
+      console.warn(`IGDB time to beat: ${err.message}`);
+    }
+    const timeOf = new Map(times.map((t) => [t.game_id, t]));
+    for (const g of games) out.set(g.id, fromIgdb(g, timeOf.get(g.id)));
+  }
+  return out;
+}
+
+// The IGDB game of each Steam game, by its Steam app id (IGDB keeps them as external games,
+// source 1 = Steam). → Map appid → igdbId; games IGDB doesn't know are missing from it.
+export async function igdbIdsForSteam(appids) {
+  const out = new Map();
+  for (let i = 0; i < appids.length; i += 250) {
+    const uids = appids.slice(i, i + 250).map((a) => `"${Number(a)}"`).join(',');
+    let rows;
+    try {
+      rows = await query('external_games', `fields game, uid; where external_game_source = 1 & uid = (${uids}); limit 500;`);
+    } catch (err) {
+      // Older name of the same field
+      if (err.code !== 'igdb_failed') throw err;
+      rows = await query('external_games', `fields game, uid; where category = 1 & uid = (${uids}); limit 500;`);
+    }
+    // The lowest id first: the game itself rather than a later bundle or edition with the same app
+    for (const r of rows.sort((a, b) => a.game - b.game)) {
+      const appid = Number(r.uid);
+      if (r.game && Number.isInteger(appid) && !out.has(appid)) out.set(appid, r.game);
+    }
+  }
+  return out;
 }
 
 // Cover images are public on IGDB's image server. Sizes: cover_small (90×128), cover_big (264×374), cover_big_2x (528×748).
