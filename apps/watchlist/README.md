@@ -2,14 +2,14 @@
 
 A self-hosted log of the films and series you watch: what's on your watchlist, what you've seen, how far you are in each show, and what comes next. For one person; nobody else sees it. Films and series are kept apart everywhere: two libraries, two ways of adding, two sets of stats. A switch at the top (in the sidebar on a computer) takes you from one to the other, and the series side has a bluer accent, so you always see where you are.
 
-- **Look a title up, add it in two taps.** Search [TMDB](https://www.themoviedb.org) by title, tap a result and pick a status. Poster, year, runtime, genres, director or creators, cast, description (in English when TMDB has no German one) and where to stream it come along; for series every season and episode. Titles TMDB doesn't know can be entered by hand.
+- **Look a title up, add it in two taps.** Search [TMDB](https://www.themoviedb.org) by title, tap a result and pick a status. Poster, year, runtime, genres, the country it comes from, director or creators, cast, description (in English when TMDB has no German one) and where to stream it come along; for series every season and episode. Titles TMDB doesn't know can be entered by hand.
 - **Films:** *Merkliste*, *Gesehen* or *Abgebrochen*, a rating in half stars, notes, and a watch log: each time you watched it, as precise as you remember (a year is enough). Marking a film as watched notes today; *Noch mal gesehen* adds a rewatch.
 - **Series:** *Merkliste*, *Schaue ich*, *Pausiert*, *Fertig* or *Abgebrochen*, rating and notes, and the episodes season by season: tick one, a whole season, or everything up to an episode. Ticking the first episode of a show on your watchlist moves it to *Schaue ich*; seeing the last aired episode of a show that has ended moves it to *Fertig* (with *Rückgängig* in case you didn't mean to).
 - **Als Nächstes:** for every show you're watching, the next episode with a one-tap *Gesehen*, and *Demnächst*: the coming air dates of the shows you follow. Shows that are still running get TMDB's data once a day, so new episodes show up by themselves (or right away with the refresh button on the show's page).
-- **Library** per side as a poster grid, with the shows you're watching at the top, filters for status and genre, search and several sort orders. On a computer the title opens beside the list.
-- **Stats** per side: films seen and how often, hours watched, per year, genres, decades, directors, your ratings and top-rated; for series also episodes per year and where the hours went.
-- **Where to stream it** (subscription, free, rent, buy) for your country, from JustWatch through TMDB.
-- Import from Watcharr, your own poster photos, German and English interface, JSON export, installable on the phone's home screen.
+- **Library** per side as a poster grid, with the shows you're watching at the top, filters for status, genre and country, search and several sort orders (the last one you picked is remembered; *Zufällig* shuffles once a day, at 04:00). On a computer the title opens beside the list.
+- **Stats** per side: films seen and how often, hours watched, per year, genres, countries, decades, directors, your ratings and top-rated; for series also episodes per year and where the hours went.
+- **Where to stream it** (subscription, free, rent, buy) for the country you pick in the settings, from JustWatch through TMDB.
+- A one-time import from Watcharr (on the server), your own poster photos, German and English interface, JSON export, installable on the phone's home screen.
 
 ## TMDB
 
@@ -20,14 +20,13 @@ The film and series data come from TMDB's API, which is free for personal use:
 
 Watchlist asks TMDB one request at a time, at least 150 ms apart (TMDB allows about 40 a second). Adding a film costs one request, a series two or three (all episodes come in batches of 20 seasons). Posters are stored by Watchlist; search thumbnails and streaming logos go through the server, so your browser only ever talks to Watchlist. Streaming offers are fetched again when you open a title whose offers are more than three days old. Without a token, search is off and you enter titles by hand.
 
-`TMDB_LANGUAGE` (default `de-DE`) decides the language of titles, genres and descriptions; `WATCH_REGION` (default `DE`) the country whose streaming services are shown.
+`TMDB_LANGUAGE` (default `de-DE`) decides the language of titles, genres and descriptions; the country whose streaming services are shown is picked in the settings (*Wo du schaust*); `WATCH_REGION` (default `DE`) is only where it starts.
 
 ## Moving over from Watcharr
 
-Watchlist reads what [Watcharr](https://github.com/sbondCo/Watcharr) keeps per title: status, rating, thoughts, the activity log (when you watched something) and the watched seasons and episodes of shows. Every title is looked up on TMDB again, so the import needs `TMDB_TOKEN` or `TMDB_API_KEY`. Two ways in:
+Watchlist reads what [Watcharr](https://github.com/sbondCo/Watcharr) keeps per title: status, rating, thoughts, the activity log (when you watched something) and the watched seasons and episodes of shows. Every title is looked up on TMDB again, so the import needs `TMDB_TOKEN` or `TMDB_API_KEY`. It's a one-time move, so it isn't in the app's settings but a command on the server:
 
-- **Export file, in the app:** in Watcharr, *Profile → Export* gives a `watcharr-export.json`. In Watchlist, *Einstellungen → Aus Watcharr übernehmen* uploads it; the page shows how far it is and a report at the end.
-- **Database, on the server:** `npm run import:watcharr -- /path/to/watcharr.db` reads Watcharr's SQLite file, read-only (stop Watcharr first, so everything it wrote is in that file). With several Watcharr accounts in one database, add `--user <name>`. The same command also takes an export file. In Docker:
+`npm run import:watcharr -- /path/to/watcharr.db` reads Watcharr's SQLite file, read-only (stop Watcharr first, so everything it wrote is in that file). With several Watcharr accounts in one database, add `--user <name>`. The same command also takes Watcharr's export file (*Profile → Export*, a `watcharr-export.json`). In Docker:
 
   ```sh
   docker compose cp /srv/docker/watcharr/data/watcharr.db watchlist:/data/watcharr.db
@@ -58,9 +57,9 @@ docker compose up -d --build
 
 The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`); installing it as an app needs HTTPS. The first start creates the account `ADMIN_USER`.
 
-**Update:** `docker compose up -d --build`. The data lives in the `flimmer-data` volume (`flimmer.db` plus `posters/`). These, the login cookie and the Docker project keep the app's first name, Flimmer, so nothing had to move when it was renamed.
+**Update:** `docker compose up -d --build`. The data lives in the `watchlist-data` volume (`watchlist.db` plus `posters/`).
 
-**Backup:** back up `flimmer.db` with `sqlite3 flimmer.db ".backup …"`, along with the `posters/` folder from the volume.
+**Backup:** back up `watchlist.db` with `sqlite3 watchlist.db ".backup …"`, along with the `posters/` folder from the volume.
 
 ## Configuration
 
@@ -70,9 +69,9 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 | `AUTH_PROXY_SECRET` | – | Log in through Authelia instead of Watchlist's own account (see [deploy/](../../deploy/README.md#one-login-for-all-apps)) |
 | `TMDB_TOKEN` or `TMDB_API_KEY` | – | TMDB's API Read Access Token, or the v3 API key (see above) |
 | `TMDB_LANGUAGE` | `de-DE` | Language of titles, genres and descriptions |
-| `WATCH_REGION` | `DE` | Country for "where to stream" |
+| `WATCH_REGION` | `DE` | Country for "where to stream" until one is picked in the settings |
 | `PORT` | 3071 | |
-| `DATA_DIR` | `/data` | Where `flimmer.db` and `posters/` live |
+| `DATA_DIR` | `/data` | Where `watchlist.db` and `posters/` live |
 | `TZ` | `Europe/Berlin` | Decides what "today" is for watch dates and air dates |
 
 ## Developing

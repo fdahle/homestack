@@ -5,12 +5,18 @@ import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import * as store from './db.js';
-import { fetchImage, movieDetails, tvDetails, watchProviders } from './tmdb.js';
+import { countries, fetchImage, movieDetails, tvDetails, watchProviders } from './tmdb.js';
 
 // --- posters ---
 
-export async function savePoster(prefix, buffer) {
-  const file = `${prefix}-${randomBytes(6).toString('hex')}.jpg`;
+// The file's ending decides the type /posters sends, so it follows the picture's real
+// type (as told by its bytes); only JPEG, PNG and WebP are ever stored.
+const EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+export async function savePoster(prefix, buffer, type = 'image/jpeg') {
+  const ext = EXTENSIONS[type];
+  if (!ext) throw new Error(`Not a poster type: ${type}`);
+  const file = `${prefix}-${randomBytes(6).toString('hex')}.${ext}`;
   await writeFile(join(store.POSTER_DIR, file), buffer);
   return file;
 }
@@ -30,8 +36,8 @@ export async function fetchTmdbPoster(mode, id) {
   const item = kind.get(id);
   if (!item?.tmdb_poster || item.poster_source === 'photo') return;
   try {
-    const { data } = await fetchImage(item.tmdb_poster, 'w500');
-    const file = await savePoster(`${kind.prefix}${id}`, data);
+    const { type, data } = await fetchImage(item.tmdb_poster, 'w500');
+    const file = await savePoster(`${kind.prefix}${id}`, data, type);
     kind.update(id, { poster_file: file, poster_source: 'tmdb' }, { touch: false });
     await removePoster(item.poster_file);
   } catch (err) {
@@ -79,6 +85,27 @@ export async function refreshSeries(s) {
 export async function refreshProviders(mode, item) {
   const providers = await watchProviders(mode, item.tmdb_id);
   KINDS[mode].update(item.id, { providers, providers_at: store.now() }, { touch: false });
+}
+
+// --- countries for titles added before Watchlist kept them (once, in the background) ---
+
+export async function fillMissingCountries() {
+  const due = store.titlesWithoutCountries();
+  let filled = 0;
+  for (const item of due) {
+    try {
+      KINDS[item.mode].update(item.id, { countries: await countries(item.mode, item.tmdb_id) }, { touch: false });
+      filled++;
+    } catch (err) {
+      // Gone from TMDB: no countries. Anything else (no network, wrong token): the next start tries again.
+      if (err.code === 'not_found') KINDS[item.mode].update(item.id, { countries: [] }, { touch: false });
+      else {
+        console.warn(`Countries of "${item.title}": ${err.message}`);
+        break;
+      }
+    }
+  }
+  if (filled) console.log(`Looked up the countries of ${filled} titles on TMDB`);
 }
 
 // --- the daily refresh of shows that may still get episodes ---

@@ -1,16 +1,14 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { errorText, formatNumber, lastMode, PATHS, serverSettings, showToast } from '../util.js';
+import { compareText, countryName, errorText, lastMode, PATHS, replaceServerSettings, serverSettings, showToast } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import AccountCards from '../kit/components/AccountCards.vue';
 
 const settings = ref(null);
-const job = ref(null);
-const sending = ref(false);
-const fileInput = ref(null);
+const regions = ref([]);
 
 onMounted(async () => {
   try {
@@ -18,50 +16,31 @@ onMounted(async () => {
   } catch {
     // shown as unknown
   }
+  if (!settings.value?.tmdb) return;
   try {
-    job.value = (await api('/import')).state;
-    if (job.value?.running) poll();
+    regions.value = (await api('/tmdb/regions')).regions;
   } catch {
-    // no import shown
+    // the menu then only has the current country
   }
 });
 
-// --- Watcharr import: the file goes up, the server works through it, the page asks how far it is ---
+// The countries TMDB has streaming offers for, by name; the current one is always there
+const regionChoices = computed(() => {
+  const current = settings.value?.region;
+  const codes = current && !regions.value.includes(current) ? [current, ...regions.value] : regions.value.length ? regions.value : [current].filter(Boolean);
+  return codes.map((code) => ({ code, name: countryName(code) })).sort((a, b) => compareText(a.name, b.name));
+});
 
-let timer = null;
-function poll() {
-  clearTimeout(timer);
-  timer = setTimeout(async () => {
-    try {
-      job.value = (await api('/import')).state;
-    } catch {
-      // try again
-    }
-    if (job.value?.running) poll();
-  }, 1500);
-}
-onBeforeUnmount(() => clearTimeout(timer));
-
-async function upload(event) {
-  const file = event.target.files?.[0];
-  event.target.value = '';
-  if (!file) return;
-  sending.value = true;
+async function setRegion(region) {
   try {
-    // As bytes, so the size limit for JSON requests doesn't apply
-    const raw = new Blob([file], { type: 'application/octet-stream' });
-    job.value = (await api('/import/watcharr', { method: 'POST', raw })).state;
-    poll();
+    const next = await api('/settings', { method: 'PATCH', body: { region } });
+    replaceServerSettings(next);
+    settings.value = next;
+    showToast(t('saved'));
   } catch (err) {
     showToast(errorText(err));
-  } finally {
-    sending.value = false;
   }
 }
-
-const percent = computed(() => (job.value?.total ? Math.round((job.value.done / job.value.total) * 100) : 0));
-const report = computed(() => job.value?.report);
-const counts = (c) => t('settings.importCounts', { added: formatNumber(c.added), updated: formatNumber(c.updated), unchanged: formatNumber(c.unchanged) });
 </script>
 
 <template>
@@ -70,45 +49,20 @@ const counts = (c) => t('settings.importCounts', { added: formatNumber(c.added),
     <AccountCards>
       <section class="card form">
         <h2>{{ t('settings.tmdb') }}</h2>
-        <p v-if="settings?.tmdb" class="ok"><Icon name="check" />{{ t('settings.tmdbOn', { language: settings.language, region: settings.region }) }}</p>
+        <p v-if="settings?.tmdb" class="ok"><Icon name="check" />{{ t('settings.tmdbOn', { language: settings.language }) }}</p>
         <p v-else-if="settings && !settings.tmdb" class="info warn-box">{{ t('settings.tmdbOff') }}</p>
+        <label v-if="settings?.tmdb">
+          <span>{{ t('settings.region') }}</span>
+          <select :value="settings.region" @change="setRegion($event.target.value)">
+            <option v-for="r in regionChoices" :key="r.code" :value="r.code">{{ r.name }}</option>
+          </select>
+        </label>
+        <p v-if="settings?.tmdb" class="muted small">{{ t('settings.regionHint') }}</p>
         <p class="muted small">
           {{ t('settings.tmdbCredit') }}
           <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">themoviedb.org</a>
         </p>
         <p class="muted small">{{ t('settings.justwatchCredit') }}</p>
-      </section>
-
-      <section class="card form">
-        <h2>{{ t('settings.import') }}</h2>
-        <p class="muted small">{{ t('settings.importHint') }}</p>
-        <template v-if="job">
-          <div v-if="job.running" class="import-progress">
-            <div class="progress"><span :style="{ '--p': percent }"></span></div>
-            <small class="muted">{{ t('settings.importRunning', { done: job.done, total: job.total }) }}<template v-if="job.current"> · {{ job.current }}</template></small>
-          </div>
-          <p v-else-if="job.error" class="error">{{ errorText({ code: job.error }) }}</p>
-          <div v-else-if="report" class="import-report">
-            <p class="ok"><Icon name="check" />{{ t('settings.importDone') }}</p>
-            <dl class="facts">
-              <dt>{{ t('mode.films') }}</dt><dd>{{ counts(report.films) }}</dd>
-              <dt>{{ t('mode.series') }}</dt><dd>{{ counts(report.series) }}</dd>
-              <template v-if="report.games"><dt>{{ t('settings.games') }}</dt><dd>{{ t('settings.gamesSkipped', { n: report.games }) }}</dd></template>
-            </dl>
-            <details v-if="report.skipped.length || report.failed.length">
-              <summary>{{ t('settings.importProblems', { n: report.skipped.length + report.failed.length }) }}</summary>
-              <ul class="small">
-                <li v-for="(f, i) in report.failed" :key="`f${i}`">{{ f.title }}: <span class="error">{{ errorText({ code: f.error }) }}</span></li>
-                <li v-for="(s, i) in report.skipped" :key="`s${i}`">{{ s.title || '?' }}: <span class="muted">{{ t(`settings.skip.${s.reason}`) }}</span></li>
-              </ul>
-            </details>
-          </div>
-        </template>
-        <div class="row-buttons">
-          <button class="btn" :disabled="sending || job?.running || settings?.tmdb === false" @click="fileInput.click()"><Icon name="upload" />{{ t('settings.importButton') }}</button>
-        </div>
-        <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="upload" />
-        <p class="muted small">{{ t('settings.importCli') }} <code>npm run import:watcharr -- watcharr.db</code></p>
       </section>
 
       <section class="card form">

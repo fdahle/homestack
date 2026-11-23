@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { countBy, yearRows, errorText, formatHours, formatNumber, PATHS, SEEN, SERIES_STATUSES, starValue } from '../util.js';
+import { countBy, countryName, yearRows, errorText, formatHours, formatNumber, PATHS, SEEN, SERIES_STATUSES, starValue } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import BarList from '../kit/components/BarList.vue';
@@ -49,6 +49,9 @@ const withoutDate = computed(() => all.value.reduce((n, s) => n + s.watched - Ob
 const statusRows = computed(() => SERIES_STATUSES.map((s) => [t(`status.${s}`), count(s), s]).filter(([, n]) => n));
 const statusLink = (label) => `${PATHS.series.library}?status=${statusRows.value.find(([l]) => l === label)?.[2]}`;
 const genreRows = computed(() => countBy(started.value, (s) => s.genres).slice(0, 10));
+// Countries by name, each linking to the library filtered by its code
+const countryRows = computed(() => countBy(started.value, (x) => x.countries).slice(0, 10).map(([code, n]) => [countryName(code), n, code]));
+const countryLink = (name) => `${PATHS.series.library}?country=${countryRows.value.find(([l]) => l === name)?.[2]}`;
 const networkRows = computed(() => countBy(started.value, (s) => s.networks).slice(0, 8));
 // Where the hours went: the shows you spent the most time with
 const timeRows = computed(() => [...all.value].filter((s) => s.minutes).sort((a, b) => b.minutes - a.minutes).slice(0, 8)
@@ -100,6 +103,11 @@ const favourites = computed(() => [...rated.value].sort((a, b) => b.rating - a.r
         <section v-if="genreRows.length" class="card">
           <h2 class="card-title">{{ t('stats.genres') }}</h2>
           <BarList :rows="genreRows" :to="(g) => `${PATHS.series.library}?genre=${encodeURIComponent(g)}`" />
+        </section>
+
+        <section v-if="countryRows.length" class="card">
+          <h2 class="card-title">{{ t('stats.countries') }}</h2>
+          <BarList :rows="countryRows.map(([l, n]) => [l, n])" :to="countryLink" />
         </section>
 
         <section v-if="networkRows.length" class="card">

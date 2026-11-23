@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BadRequest, cleanFilmInput, cleanSeriesInput, episodesFromSeason, fromTmdbMovie, fromTmdbTv, isPartialDate, overviewOf, providersFor, searchHit,
+  BadRequest, cleanFilmInput, cleanSeriesInput, countriesOf, episodesFromSeason, fromTmdbMovie, fromTmdbTv, imageType, isPartialDate, overviewOf, providersFor, searchHit, tmdbLink,
 } from './titles.js';
 
 test('partial dates', () => {
@@ -58,6 +58,29 @@ test('streaming offers for one country', () => {
   assert.deepEqual(p.free, []);
   assert.equal(providersFor(PROVIDERS, 'AT'), null);
   assert.equal(providersFor({ results: { DE: { link: 'x' } } }, 'DE'), null);
+  assert.equal(p.link, 'https://www.themoviedb.org/movie/603-the-matrix/watch?locale=DE');
+  const odd = providersFor({ results: { DE: { ...PROVIDERS.results.DE, link: 'javascript:alert(1)' } } }, 'DE');
+  assert.equal(odd.link, null);
+  assert.equal(odd.flatrate.length, 2);
+});
+
+test('only https links to TMDB are kept', () => {
+  assert.equal(tmdbLink('https://www.themoviedb.org/tv/1/watch'), 'https://www.themoviedb.org/tv/1/watch');
+  assert.equal(tmdbLink('https://themoviedb.org/x'), 'https://themoviedb.org/x');
+  for (const bad of ['javascript:alert(1)', 'http://www.themoviedb.org/x', 'https://evil.example/x', 'https://themoviedb.org.evil.example/', 'data:text/html,hi', '', null, undefined]) {
+    assert.equal(tmdbLink(bad), null, String(bad));
+  }
+});
+
+test('pictures are told by their bytes', () => {
+  const pad = (head) => Buffer.concat([Buffer.from(head), Buffer.alloc(20)]);
+  assert.equal(imageType(pad([0xff, 0xd8, 0xff, 0xe0])), 'image/jpeg');
+  assert.equal(imageType(pad([0x89, 0x50, 0x4e, 0x47])), 'image/png');
+  assert.equal(imageType(Buffer.concat([Buffer.from('RIFF\0\0\0\0WEBP'), Buffer.alloc(8)])), 'image/webp');
+  assert.equal(imageType(pad(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>'))), null);
+  assert.equal(imageType(pad(Buffer.from('GIF89a'))), null);
+  assert.equal(imageType(Buffer.from([0xff, 0xd8])), null);
+  assert.equal(imageType('not a buffer'), null);
 });
 
 test('TMDB film → database fields', () => {
@@ -87,6 +110,22 @@ test('TMDB film → database fields', () => {
   assert.deepEqual(film.cast_names, ['Keanu Reeves', 'Laurence Fishburne', 'Carrie-Anne Moss']);
   assert.equal(film.tmdb_poster, '/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg');
   assert.equal(film.providers.flatrate.length, 2);
+});
+
+test('countries a title comes from', () => {
+  assert.deepEqual(countriesOf({ origin_country: ['us', 'GB', 'US'] }), ['US', 'GB']);
+  // no origin_country (older answers): the production countries
+  assert.deepEqual(countriesOf({ production_countries: [{ iso_3166_1: 'DE', name: 'Germany' }, { iso_3166_1: 'FR' }] }), ['DE', 'FR']);
+  assert.deepEqual(countriesOf({ origin_country: [], production_countries: [{ iso_3166_1: 'JP' }] }), ['JP']);
+  assert.deepEqual(countriesOf({}), []);
+  assert.deepEqual(fromTmdbTv({ id: 1, name: 'Dark', origin_country: ['DE'] }).countries, ['DE']);
+});
+
+test('countries of a title entered by hand', () => {
+  assert.deepEqual(cleanFilmInput({ countries: ['de', 'FR', 'DE'] }, { manual: true }).countries, ['DE', 'FR']);
+  assert.equal(cleanFilmInput({ countries: ['DE'] }).countries, undefined);
+  assert.throws(() => cleanSeriesInput({ countries: ['Germany'] }, { manual: true }), /bad_countries/);
+  assert.throws(() => cleanSeriesInput({ countries: 'DE' }, { manual: true }), /bad_countries/);
 });
 
 test('TMDB film with almost nothing', () => {

@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import {
-  errorText, FILM_STATUSES, formatPartial, formatRuntime, itemChange, PATHS, providersStale, serverSettings, showToast, STATUS_ICONS, yearOf,
+  countriesText, errorText, FILM_STATUSES, formatPartial, formatRuntime, itemChange, PATHS, providersStale, serverSettings, showToast, STATUS_ICONS, yearOf,
 } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
@@ -12,6 +12,7 @@ import StarRating from '../kit/components/StarRating.vue';
 import PartialDate from '../kit/components/PartialDate.vue';
 import HeroPoster from '../components/HeroPoster.vue';
 import Providers from '../components/Providers.vue';
+import CountryPicker from '../components/CountryPicker.vue';
 
 const props = defineProps({ id: String });
 const router = useRouter();
@@ -108,6 +109,7 @@ const facts = computed(() => {
     f.release_date && [t('film.released'), formatPartial(f.release_date)],
     f.runtime && [t('film.runtime'), formatRuntime(f.runtime)],
     f.director && [t('film.director'), f.director],
+    f.countries.length && [t('title.countries'), countriesText(f)],
     f.cast_names.length && [t('title.cast'), f.cast_names.join(', ')],
     f.genres.length && [t('title.genres'), f.genres.join(', ')],
   ].filter(Boolean);
@@ -130,12 +132,12 @@ async function refresh() {
 const editing = ref(null);
 function startEdit() {
   const f = film.value;
-  editing.value = { title: f.title, releaseDate: f.release_date || '', runtime: f.runtime || '', director: f.director || '', genres: f.genres.join(', ') };
+  editing.value = { title: f.title, releaseDate: f.release_date || '', runtime: f.runtime || '', director: f.director || '', genres: f.genres.join(', '), countries: [...f.countries] };
 }
 const list = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 async function saveEdit() {
   const e = editing.value;
-  const ok = await save({ title: e.title, releaseDate: e.releaseDate || null, runtime: e.runtime || null, director: e.director, genres: list(e.genres) });
+  const ok = await save({ title: e.title, releaseDate: e.releaseDate || null, runtime: e.runtime || null, director: e.director, genres: list(e.genres), countries: e.countries });
   if (ok) editing.value = null;
 }
 
@@ -173,6 +175,7 @@ async function remove() {
           <p class="meta">
             <span v-if="film.release_date">{{ yearOf(film.release_date) }}</span>
             <span v-if="film.runtime">{{ formatRuntime(film.runtime) }}</span>
+            <span v-if="film.countries.length">{{ countriesText(film) }}</span>
           </p>
           <p v-if="film.director" class="byline">{{ t('film.by', { name: film.director }) }}</p>
           <div v-if="film.genres.length" class="tags"><span v-for="g in film.genres" :key="g" class="tag">{{ g }}</span></div>
@@ -189,6 +192,7 @@ async function remove() {
           <label><span>{{ t('film.director') }}</span><input v-model="editing.director" maxlength="200" /></label>
         </div>
         <label><span>{{ t('title.genres') }}</span><input v-model="editing.genres" :placeholder="t('title.commaHint')" /></label>
+        <div><span class="field-label">{{ t('title.countries') }}</span><CountryPicker v-model="editing.countries" /></div>
         <div class="row-buttons">
           <button class="btn primary">{{ t('save') }}</button>
           <button type="button" class="btn subtle" @click="editing = null">{{ t('cancel') }}</button>

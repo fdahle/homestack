@@ -3,7 +3,7 @@
 // (TMDB_API_KEY, sent as ?api_key=). TMDB allows about 40 requests a second; Watchlist
 // stays far below that, one request at a time, at least 150 ms apart.
 
-import { episodesFromSeason, fromTmdbMovie, fromTmdbTv, providersFor, searchHit } from './titles.js';
+import { countriesOf, episodesFromSeason, fromTmdbMovie, fromTmdbTv, imageType, providersFor, searchHit } from './titles.js';
 
 const TOKEN = process.env.TMDB_TOKEN || '';
 const API_KEY = process.env.TMDB_API_KEY || '';
@@ -13,7 +13,11 @@ const SPACING_MS = 150;
 
 export const TMDB_ENABLED = Boolean(TOKEN || API_KEY);
 export const LANGUAGE = process.env.TMDB_LANGUAGE || 'de-DE';
-export const REGION = (process.env.WATCH_REGION || 'DE').toUpperCase();
+// The country whose streaming offers are fetched: chosen in the settings, WATCH_REGION until then
+export const DEFAULT_REGION = (process.env.WATCH_REGION || 'DE').toUpperCase();
+let region = DEFAULT_REGION;
+export const getRegion = () => region;
+export const setRegion = (code) => (region = code);
 
 export class TmdbError extends Error {
   constructor(code, message = code) {
@@ -70,7 +74,7 @@ export async function search(mode, q) {
 // Everything Watchlist keeps about a film, ready for the database
 export async function movieDetails(id) {
   const d = await get(`/movie/${tmdbId(id)}`, { append_to_response: 'credits,translations,watch/providers' });
-  return fromTmdbMovie(d, REGION);
+  return fromTmdbMovie(d, region);
 }
 
 // A series and all its episodes. Seasons come appended to the show (up to 20 per
@@ -78,7 +82,7 @@ export async function movieDetails(id) {
 export async function tvDetails(id) {
   const n = tmdbId(id);
   const d = await get(`/tv/${n}`, { append_to_response: 'credits,translations,watch/providers' });
-  const series = fromTmdbTv(d, REGION);
+  const series = fromTmdbTv(d, region);
   const numbers = series.seasons.map((s) => s.number);
   const episodes = [];
   for (let i = 0; i < numbers.length; i += 20) {
@@ -89,15 +93,34 @@ export async function tvDetails(id) {
   return { series, episodes };
 }
 
+// Just where a title comes from (for titles added before Watchlist kept that)
+export async function countries(mode, id) {
+  return countriesOf(await get(`/${mode === 'series' ? 'tv' : 'movie'}/${tmdbId(id)}`));
+}
+
 // Just the streaming offers (they change more often than the rest)
 export async function watchProviders(mode, id) {
   const data = await get(`/${mode === 'series' ? 'tv' : 'movie'}/${tmdbId(id)}/watch/providers`);
-  return providersFor(data, REGION);
+  return providersFor(data, region);
+}
+
+// The countries TMDB has streaming offers for (codes), asked for once
+let regionsRequest = null;
+export function watchRegions() {
+  regionsRequest ??= get('/watch/providers/regions')
+    .then((data) => [...new Set((data.results || []).map((r) => String(r.iso_3166_1 || '').toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)))])
+    .catch((err) => {
+      regionsRequest = null;
+      throw err;
+    });
+  return regionsRequest;
 }
 
 // Pictures are public on TMDB's image server. Sizes used here: w92 (search, logos), w185, w500 (posters).
 export const IMAGE_SIZES = ['w45', 'w92', 'w154', 'w185', 'w342', 'w500'];
-const IMAGE_PATH = /^\/[A-Za-z0-9_-]{1,80}\.(jpg|png|svg)$/;
+// No .svg: served from Watchlist's own address, an SVG could run script there.
+// (The streaming logos Watchlist shows are .jpg/.png.)
+const IMAGE_PATH = /^\/[A-Za-z0-9_-]{1,80}\.(jpg|png)$/;
 export const isImagePath = (path) => IMAGE_PATH.test(String(path || ''));
 
 export async function fetchImage(path, size = 'w500') {
@@ -107,5 +130,9 @@ export async function fetchImage(path, size = 'w500') {
     await res.body?.cancel();
     throw new TmdbError(res.status === 404 ? 'not_found' : 'tmdb_failed', `TMDB image answered ${res.status}`);
   }
-  return { type: res.headers.get('content-type') || 'image/jpeg', data: Buffer.from(await res.arrayBuffer()) };
+  // The type comes from the bytes, never from the image server's header
+  const data = Buffer.from(await res.arrayBuffer());
+  const type = imageType(data);
+  if (!type) throw new TmdbError('tmdb_failed', 'TMDB image is not a JPEG, PNG or WebP');
+  return { type, data };
 }

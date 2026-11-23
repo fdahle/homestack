@@ -5,22 +5,42 @@ import { createAuth } from './kit/auth.js';
 import { createApp, errorHandler, mountAccount, route, serveFrontend, servePrivateFiles, toId as id } from './kit/http.js';
 import { BadRequest, cleanFilmInput, cleanSeriesInput, FILM_STATUSES, partialDate, SERIES_STATUSES } from './titles.js';
 import { autoStatus, isAired, upNext } from './progress.js';
-import { fetchImage, IMAGE_SIZES, isImagePath, LANGUAGE, REGION, search, TMDB_ENABLED, TmdbError } from './tmdb.js';
-import { addFilm, addSeries, fetchTmdbPoster, refreshFilm, refreshProviders, refreshRunningSeries, refreshSeries, removePoster, savePoster } from './catalog.js';
-import { importState, startImport } from './importer.js';
+import { fetchImage, getRegion, IMAGE_SIZES, isImagePath, LANGUAGE, search, setRegion, TMDB_ENABLED, TmdbError, watchRegions } from './tmdb.js';
+import { addFilm, addSeries, fetchTmdbPoster, fillMissingCountries, refreshFilm, refreshProviders, refreshRunningSeries, refreshSeries, removePoster, savePoster } from './catalog.js';
 
 const PORT = Number(process.env.PORT || 3071);
 const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 
 const app = createApp();
-const auth = createAuth({ users: store.users, cookie: 'flimmer_session' });
+const auth = createAuth({ users: store.users, cookie: 'watchlist_session' });
 
 // Login, logout, /api/me; everything under /api and /posters after this needs a login
 mountAccount(app, { auth, users: store.users, protect: ['/api', '/posters'] });
 
-app.get('/api/settings', (req, res) => res.json({
-  tmdb: TMDB_ENABLED, language: LANGUAGE, region: REGION, filmStatuses: FILM_STATUSES, seriesStatuses: SERIES_STATUSES,
-}));
+// The streaming country chosen in the settings (one for the whole app, like the library)
+const savedRegion = store.users.getSetting('watch_region');
+if (savedRegion) setRegion(savedRegion);
+
+const settings = () => ({
+  tmdb: TMDB_ENABLED, language: LANGUAGE, region: getRegion(), filmStatuses: FILM_STATUSES, seriesStatuses: SERIES_STATUSES,
+});
+app.get('/api/settings', (req, res) => res.json(settings()));
+
+app.patch('/api/settings', (req, res) => {
+  if (req.body?.region !== undefined) {
+    const region = String(req.body.region).toUpperCase();
+    if (!/^[A-Z]{2}$/.test(region)) throw new BadRequest('bad_region');
+    if (region !== getRegion()) {
+      store.users.setSetting('watch_region', region);
+      setRegion(region);
+      store.forgetProviders();
+    }
+  }
+  res.json(settings());
+});
+
+// The countries to choose from for "where to stream it"
+app.get('/api/tmdb/regions', route(async (req, res) => res.json({ regions: await watchRegions() })));
 
 const today = () => store.localDate();
 const notFound = (res) => res.status(404).json({ error: 'not_found' });
@@ -42,7 +62,13 @@ app.get('/api/tmdb/image/:size/:file', route(async (req, res) => {
   if (!IMAGE_SIZES.includes(req.params.size) || !isImagePath(path)) return res.status(404).end();
   try {
     const image = await fetchImage(path, req.params.size);
-    res.type(image.type).set('Cache-Control', 'private, max-age=604800').send(image.data);
+    // image.type is JPEG, PNG or WebP as told by the bytes. nosniff and the sandbox keep
+    // the browser from treating the picture as anything else, even if opened on its own.
+    res.type(image.type).set({
+      'Cache-Control': 'private, max-age=604800',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': 'sandbox',
+    }).send(image.data);
   } catch {
     res.status(404).end();
   }
@@ -262,23 +288,7 @@ app.delete('/api/series/:id/seasons/last', (req, res) => {
   res.json({ series: store.getSeries(series.id, today()) });
 });
 
-// --- import and export ---
-
-// Watcharr's JSON export, sent as a file. The import runs on; GET /api/import tells how far it is.
-app.post('/api/import/watcharr', express.raw({ type: 'application/octet-stream', limit: '50mb' }), (req, res) => {
-  if (!TMDB_ENABLED) throw new BadRequest('tmdb_not_configured');
-  let entries;
-  try {
-    entries = JSON.parse(Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '');
-  } catch {
-    throw new BadRequest('not_watcharr');
-  }
-  if (!Array.isArray(entries) || entries.some((e) => !e || typeof e !== 'object')) throw new BadRequest('not_watcharr');
-  if (!startImport(entries)) return res.status(409).json({ error: 'import_running' });
-  res.status(202).json({ state: importState() });
-});
-
-app.get('/api/import', (req, res) => res.json({ state: importState() }));
+// --- export ---
 
 app.get('/api/export.json', (req, res) => {
   res.attachment(`watchlist-${today()}.json`)
@@ -313,6 +323,7 @@ if (TMDB_ENABLED) {
   // Shows that are still running get TMDB's data once a day, so new episodes show up
   const refresh = () => refreshRunningSeries().catch((err) => console.warn(`Daily refresh: ${err.message}`));
   setTimeout(refresh, 60_000);
+  setTimeout(() => fillMissingCountries().catch((err) => console.warn(`Countries: ${err.message}`)), 10_000);
   setInterval(refresh, 3_600_000);
 } else {
   console.warn('TMDB_TOKEN/TMDB_API_KEY not set: no search, only titles entered by hand.');

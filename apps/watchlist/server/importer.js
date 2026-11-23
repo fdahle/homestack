@@ -88,20 +88,3 @@ export async function importWatcharr(entries, { onProgress = () => {} } = {}) {
   return report;
 }
 
-// --- one import at a time from the settings page, followed by polling ---
-
-let job = null; // { running, done, total, current, report, error, startedAt }
-
-export const importState = () => job;
-
-export function startImport(entries) {
-  if (job?.running) return false;
-  job = { running: true, done: 0, total: entries.length, current: null, report: null, error: null, startedAt: store.now() };
-  importWatcharr(entries, { onProgress: (p) => Object.assign(job, p) })
-    .then((report) => Object.assign(job, { running: false, report }))
-    .catch((err) => {
-      console.warn(`Watcharr import: ${err.message}`);
-      Object.assign(job, { running: false, error: err.code || 'import_failed' });
-    });
-  return true;
-}

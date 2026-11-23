@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { countBy, yearRows, errorText, FILM_STATUSES, formatHours, formatNumber, PATHS, starValue, yearOf } from '../util.js';
+import { countBy, countryName, yearRows, errorText, FILM_STATUSES, formatHours, formatNumber, PATHS, starValue, yearOf } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import BarList from '../kit/components/BarList.vue';
@@ -54,6 +54,9 @@ const withoutDate = computed(() => all.value.reduce((n, f) => n + Math.max(0, ti
 const statusRows = computed(() => FILM_STATUSES.map((s) => [t(`status.${s}`), count(s), s]).filter(([, n]) => n));
 const statusLink = (label) => `${PATHS.films.library}?status=${statusRows.value.find(([l]) => l === label)?.[2]}`;
 const genreRows = computed(() => countBy(watched.value, (f) => f.genres).slice(0, 10));
+// Countries by name, each linking to the library filtered by its code
+const countryRows = computed(() => countBy(watched.value, (x) => x.countries).slice(0, 10).map(([code, n]) => [countryName(code), n, code]));
+const countryLink = (name) => `${PATHS.films.library}?country=${countryRows.value.find(([l]) => l === name)?.[2]}`;
 const directorRows = computed(() => countBy(watched.value, (f) => (f.director ? f.director.split(', ') : [])).filter(([, n]) => n > 1).slice(0, 8));
 const decadeRows = computed(() => countBy(watched.value, (f) => (f.release_date ? t('stats.decade', { d: Math.floor(yearOf(f.release_date) / 10) * 10 }) : null))
   .sort((a, b) => b[0].localeCompare(a[0])));
@@ -99,6 +102,11 @@ const favourites = computed(() => [...rated.value].sort((a, b) => b.rating - a.r
         <section v-if="genreRows.length" class="card">
           <h2 class="card-title">{{ t('stats.genres') }}</h2>
           <BarList :rows="genreRows" :to="(g) => `${PATHS.films.library}?genre=${encodeURIComponent(g)}`" />
+        </section>
+
+        <section v-if="countryRows.length" class="card">
+          <h2 class="card-title">{{ t('stats.countries') }}</h2>
+          <BarList :rows="countryRows.map(([l, n]) => [l, n])" :to="countryLink" />
         </section>
 
         <section v-if="decadeRows.length > 1" class="card">

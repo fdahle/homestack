@@ -8,16 +8,17 @@ export const DATA_DIR = process.env.DATA_DIR || './data';
 export const POSTER_DIR = join(DATA_DIR, 'posters');
 mkdirSync(POSTER_DIR, { recursive: true });
 
-export const db = new DatabaseSync(join(DATA_DIR, 'flimmer.db'));
+export const db = new DatabaseSync(join(DATA_DIR, 'watchlist.db'));
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 
   -- Films and series are kept apart on purpose: two tables, two libraries.
   -- tmdb_id NULL = entered by hand. genres, cast_names, networks: JSON arrays of names.
+  -- countries: where it comes from, JSON array of ISO codes ('US', 'DE'); NULL = not looked up yet.
   -- tmdb_poster: TMDB's poster path; poster_file: the copy in posters/;
   -- poster_source: 'tmdb' (downloaded) or 'photo' (your own, never replaced).
-  -- providers: where to stream it in WATCH_REGION (JSON, from TMDB/JustWatch), as of providers_at.
+  -- providers: where to stream it in the chosen country (JSON, from TMDB/JustWatch), as of providers_at.
   -- rating: 1–10, shown as half stars.
 
   -- status: watchlist, watched, dropped. runtime in minutes.
@@ -33,6 +34,7 @@ db.exec(`
     genres TEXT NOT NULL DEFAULT '[]',
     director TEXT,
     cast_names TEXT NOT NULL DEFAULT '[]',
+    countries TEXT,
     tmdb_poster TEXT,
     poster_file TEXT,
     poster_source TEXT,
@@ -74,6 +76,7 @@ db.exec(`
     creators TEXT,
     networks TEXT NOT NULL DEFAULT '[]',
     cast_names TEXT NOT NULL DEFAULT '[]',
+    countries TEXT,
     episode_runtime INTEGER,
     seasons TEXT NOT NULL DEFAULT '[]',
     next_air_date TEXT,
@@ -106,6 +109,12 @@ db.exec(`
     UNIQUE (series_id, season, number)
   );
 `);
+
+// Columns added after the first version
+for (const name of ['films', 'series']) {
+  const columns = db.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name);
+  if (!columns.includes('countries')) db.exec(`ALTER TABLE ${name} ADD COLUMN countries TEXT`);
+}
 
 export const now = () => new Date().toISOString();
 
@@ -172,8 +181,8 @@ function table(name, columns, jsonColumns) {
 
 const films = table('films', [
   'tmdb_id', 'title', 'original_title', 'tagline', 'overview', 'release_date', 'runtime', 'genres', 'director', 'cast_names',
-  'tmdb_poster', 'poster_file', 'poster_source', 'providers', 'providers_at', 'status', 'rating', 'notes',
-], ['genres', 'cast_names', 'providers']);
+  'countries', 'tmdb_poster', 'poster_file', 'poster_source', 'providers', 'providers_at', 'status', 'rating', 'notes',
+], ['genres', 'cast_names', 'countries', 'providers']);
 
 export const insertFilm = films.insert;
 export const updateFilm = films.update;
@@ -184,7 +193,7 @@ export const filmIdsByTmdbId = films.idsByTmdbId;
 // The list leaves out the long texts; watch_dates are for the stats
 export const listFilms = () => db.prepare(`
   SELECT f.id, f.tmdb_id, f.title, f.original_title, f.release_date, f.runtime, f.genres, f.director, f.cast_names,
-    f.poster_file, f.status, f.rating, f.created_at, f.updated_at,
+    f.countries, f.poster_file, f.status, f.rating, f.created_at, f.updated_at,
     (SELECT COUNT(*) FROM film_watches w WHERE w.film_id = f.id) AS watch_count,
     (SELECT MAX(watched_on) FROM film_watches w WHERE w.film_id = f.id) AS last_watched,
     (SELECT json_group_array(watched_on) FROM film_watches w WHERE w.film_id = f.id AND watched_on IS NOT NULL) AS watch_dates
@@ -215,9 +224,9 @@ export const touchFilm = (id) => db.prepare('UPDATE films SET updated_at = ? WHE
 
 const seriesTable = table('series', [
   'tmdb_id', 'title', 'original_title', 'tagline', 'overview', 'first_air_date', 'last_air_date', 'tmdb_status', 'genres', 'creators',
-  'networks', 'cast_names', 'episode_runtime', 'seasons', 'next_air_date', 'tmdb_poster', 'poster_file', 'poster_source',
+  'networks', 'cast_names', 'countries', 'episode_runtime', 'seasons', 'next_air_date', 'tmdb_poster', 'poster_file', 'poster_source',
   'providers', 'providers_at', 'status', 'rating', 'notes', 'refreshed_at',
-], ['genres', 'networks', 'cast_names', 'seasons', 'providers']);
+], ['genres', 'networks', 'cast_names', 'countries', 'seasons', 'providers']);
 
 export const insertSeries = seriesTable.insert;
 export const updateSeries = seriesTable.update;
@@ -240,7 +249,7 @@ function allEpisodesBySeries() {
 }
 
 const LIST_SERIES = `SELECT id, tmdb_id, title, original_title, first_air_date, last_air_date, tmdb_status, genres, creators, networks,
-  cast_names, episode_runtime, next_air_date, poster_file, status, rating, created_at, updated_at FROM series ORDER BY title COLLATE NOCASE`;
+  cast_names, countries, episode_runtime, next_air_date, poster_file, status, rating, created_at, updated_at FROM series ORDER BY title COLLATE NOCASE`;
 
 const withSummary = (s, episodes, today) => ({ ...s, ...summary(episodes, today, { manual: !s.tmdb_id, runtime: s.episode_runtime }) });
 
@@ -327,6 +336,19 @@ export function removeLastSeason(seriesId) {
 export const seriesToRefresh = (before) => db.prepare(`SELECT id, tmdb_id, title FROM series
   WHERE tmdb_id IS NOT NULL AND (tmdb_status IS NULL OR tmdb_status NOT IN ('Ended', 'Canceled'))
   AND (refreshed_at IS NULL OR refreshed_at < ?) ORDER BY refreshed_at`).all(before);
+
+// Titles from TMDB whose countries haven't been looked up yet (added before Watchlist kept them)
+export const titlesWithoutCountries = () => [
+  ...db.prepare('SELECT id, tmdb_id, title FROM films WHERE tmdb_id IS NOT NULL AND countries IS NULL').all().map((r) => ({ ...r, mode: 'films' })),
+  ...db.prepare('SELECT id, tmdb_id, title FROM series WHERE tmdb_id IS NOT NULL AND countries IS NULL').all().map((r) => ({ ...r, mode: 'series' })),
+];
+
+// The streaming country changed: every title's offers are for the old one. Without a date
+// they count as stale, so a title's page fetches new ones when it's opened.
+export function forgetProviders() {
+  db.exec('UPDATE films SET providers = NULL, providers_at = NULL');
+  db.exec('UPDATE series SET providers = NULL, providers_at = NULL');
+}
 
 // --- export ---
 

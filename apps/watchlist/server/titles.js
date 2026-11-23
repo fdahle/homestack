@@ -35,6 +35,15 @@ function nameList(v, code) {
   return [...new Set(v.map((s) => String(s ?? '').trim().slice(0, 80)).filter(Boolean))].slice(0, 30);
 }
 
+// Country codes ('US', 'DE') as sent for a title entered by hand
+function countryList(v) {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) throw new BadRequest('bad_countries');
+  const codes = v.map((s) => String(s ?? '').trim().toUpperCase());
+  if (codes.some((c) => !/^[A-Z]{2}$/.test(c))) throw new BadRequest('bad_countries');
+  return [...new Set(codes)].slice(0, 10);
+}
+
 function minutes(v) {
   if (v === undefined) return undefined;
   if (v === null || v === '') return null;
@@ -80,6 +89,7 @@ export function cleanFilmInput(body, { manual = false } = {}) {
     out.director = text(body.director, 200);
     out.overview = text(body.overview, 5000);
     out.genres = nameList(body.genres, 'bad_genres');
+    out.countries = countryList(body.countries);
   }
   return dropUndefined(out);
 }
@@ -93,6 +103,7 @@ export function cleanSeriesInput(body, { manual = false } = {}) {
     out.creators = text(body.creators, 200);
     out.overview = text(body.overview, 5000);
     out.genres = nameList(body.genres, 'bad_genres');
+    out.countries = countryList(body.countries);
   }
   return dropUndefined(out);
 }
@@ -113,11 +124,41 @@ export function overviewOf(d) {
   return String(en?.data?.overview || '').trim() || null;
 }
 
+// Where a title comes from: TMDB's origin_country (codes), else the production countries
+export function countriesOf(d) {
+  const origin = Array.isArray(d.origin_country) ? d.origin_country : [];
+  const codes = origin.length ? origin : (d.production_countries || []).map((c) => c?.iso_3166_1);
+  return [...new Set(codes.map((c) => String(c || '').toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)))].slice(0, 10);
+}
+
 const topCast = (credits, n = 6) => [...(credits?.cast || [])]
   .sort((a, b) => (a.order ?? 99) - (b.order ?? 99))
   .slice(0, n)
   .map((c) => String(c.name || '').trim())
   .filter(Boolean);
+
+// TMDB's "all offers" page. It ends up as a link in the browser, so it is kept only
+// when it goes to themoviedb.org over https (never javascript: or some other site).
+export function tmdbLink(v) {
+  try {
+    const url = new URL(String(v || ''));
+    const tmdb = url.hostname === 'themoviedb.org' || url.hostname.endsWith('.themoviedb.org');
+    return url.protocol === 'https:' && tmdb ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+// What a picture from TMDB's image server really is, told by its first bytes rather than
+// by the server's header: only plain JPEG, PNG or WebP is ever sent from Watchlist's own
+// address (an SVG there could run script). null for anything else.
+export function imageType(b) {
+  if (!Buffer.isBuffer(b) || b.length < 12) return null;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.subarray(0, 4).toString('hex') === '89504e47') return 'image/png';
+  if (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
 
 // One country's streaming offers from TMDB's watch/providers (data by JustWatch):
 // { link, flatrate: [{ id, name, logo }], free, rent, buy } or null when there are none
@@ -131,7 +172,7 @@ export function providersFor(watchProviders, region) {
       .filter((p) => p?.provider_id && !seen.has(p.provider_id) && seen.add(p.provider_id))
       .map((p) => ({ id: p.provider_id, name: String(p.provider_name || '').trim(), logo: p.logo_path || null }));
   };
-  const out = { link: r.link || null, flatrate: list(r.flatrate), free: list([...(r.free || []), ...(r.ads || [])]), rent: list(r.rent), buy: list(r.buy) };
+  const out = { link: tmdbLink(r.link), flatrate: list(r.flatrate), free: list([...(r.free || []), ...(r.ads || [])]), rent: list(r.rent), buy: list(r.buy) };
   return out.flatrate.length || out.free.length || out.rent.length || out.buy.length ? out : null;
 }
 
@@ -166,6 +207,7 @@ export function fromTmdbMovie(d, region = 'DE') {
     genres: names(d.genres),
     director: directors.slice(0, 2).join(', ') || null,
     cast_names: topCast(d.credits),
+    countries: countriesOf(d),
     tmdb_poster: d.poster_path || null,
     providers: providersFor(d['watch/providers'], region),
   };
@@ -196,6 +238,7 @@ export function fromTmdbTv(d, region = 'DE') {
     creators: names(d.created_by).slice(0, 3).join(', ') || null,
     networks: names(d.networks).slice(0, 3),
     cast_names: topCast(d.credits),
+    countries: countriesOf(d),
     episode_runtime: typicalRuntime(d) || null,
     seasons: (d.seasons || [])
       .filter((s) => s.season_number > 0)

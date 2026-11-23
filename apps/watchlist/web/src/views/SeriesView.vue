@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { hasText, t } from '../i18n.js';
 import {
+  countriesText,
   airYears, episodeCode, episodeName, errorText, formatDay, formatPartial, formatRuntime, isoDate, itemChange, PATHS, providersStale,
   relativeDay, SERIES_STATUSES, serverSettings, showToast, STATUS_ICONS,
 } from '../util.js';
@@ -13,6 +14,7 @@ import StarRating from '../kit/components/StarRating.vue';
 import PartialDate from '../kit/components/PartialDate.vue';
 import HeroPoster from '../components/HeroPoster.vue';
 import Providers from '../components/Providers.vue';
+import CountryPicker from '../components/CountryPicker.vue';
 
 const props = defineProps({ id: String });
 const router = useRouter();
@@ -212,6 +214,7 @@ const facts = computed(() => {
     s.first_air_date && [t('series.firstAired'), formatPartial(s.first_air_date)],
     s.tmdb_status && [t('series.state'), stateLabel.value],
     s.next_air_date && [t('series.nextAir'), formatPartial(s.next_air_date)],
+    s.countries.length && [t('title.countries'), countriesText(s)],
     s.networks.length && [t('series.networks'), s.networks.join(', ')],
     s.creators && [t('series.creators'), s.creators],
     s.cast_names.length && [t('title.cast'), s.cast_names.join(', ')],
@@ -243,12 +246,12 @@ async function refresh() {
 const editing = ref(null);
 function startEdit() {
   const s = series.value;
-  editing.value = { title: s.title, firstAirDate: s.first_air_date || '', episodeRuntime: s.episode_runtime || '', creators: s.creators || '', genres: s.genres.join(', ') };
+  editing.value = { title: s.title, firstAirDate: s.first_air_date || '', episodeRuntime: s.episode_runtime || '', creators: s.creators || '', genres: s.genres.join(', '), countries: [...s.countries] };
 }
 const list = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 async function saveEdit() {
   const e = editing.value;
-  const ok = await save({ title: e.title, firstAirDate: e.firstAirDate || null, episodeRuntime: e.episodeRuntime || null, creators: e.creators, genres: list(e.genres) });
+  const ok = await save({ title: e.title, firstAirDate: e.firstAirDate || null, episodeRuntime: e.episodeRuntime || null, creators: e.creators, genres: list(e.genres), countries: e.countries });
   if (ok) editing.value = null;
 }
 
@@ -285,6 +288,7 @@ async function remove() {
           <p v-if="series.original_title" class="muted original">{{ series.original_title }}</p>
           <p class="meta">
             <span v-if="airYears(series)">{{ airYears(series) }}</span>
+            <span v-if="series.countries.length">{{ countriesText(series) }}</span>
             <span v-if="series.networks.length">{{ series.networks[0] }}</span>
             <span v-if="stateLabel">{{ stateLabel }}</span>
           </p>
@@ -306,6 +310,7 @@ async function remove() {
           <label><span>{{ t('series.creators') }}</span><input v-model="editing.creators" maxlength="200" /></label>
         </div>
         <label><span>{{ t('title.genres') }}</span><input v-model="editing.genres" :placeholder="t('title.commaHint')" /></label>
+        <div><span class="field-label">{{ t('title.countries') }}</span><CountryPicker v-model="editing.countries" /></div>
         <div class="row-buttons">
           <button class="btn primary">{{ t('save') }}</button>
           <button type="button" class="btn subtle" @click="editing = null">{{ t('cancel') }}</button>

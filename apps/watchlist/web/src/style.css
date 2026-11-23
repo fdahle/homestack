@@ -164,10 +164,6 @@
 
 /* --- settings --- */
 
-.import-progress { display: flex; flex-direction: column; gap: 4px; }
-.import-report details { font-size: 0.9rem; }
-.import-report summary { cursor: pointer; color: var(--muted); }
-.import-report ul { margin: 6px 0 0; padding-left: 18px; }
 code { font: 0.82rem ui-monospace, monospace; padding: 1px 5px; border-radius: 5px; background: var(--line); overflow-wrap: anywhere; }
 
 @media (max-width: 560px) {

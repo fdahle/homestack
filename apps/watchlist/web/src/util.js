@@ -1,6 +1,6 @@
 import { ref } from 'vue';
 import { compareText, formatNumber, toDate } from './kit/util.js';
-import { lang, t } from './i18n.js';
+import { hasText, lang, t } from './i18n.js';
 import { api } from './api.js';
 
 export * from './kit/util.js';
@@ -15,7 +15,7 @@ export const PATHS = {
   series: { library: '/serien', add: '/serien/neu', stats: '/serien/statistik', upnext: '/serien/weiter' },
 };
 
-const MODE_KEY = 'flimmer.mode';
+const MODE_KEY = 'watchlist.mode';
 function storedMode() {
   try {
     return localStorage.getItem(MODE_KEY) === 'series' ? 'series' : 'films';
@@ -105,7 +105,7 @@ export function yearRows(counts) {
 
 export const byTitle = (a, b) => compareText(a.title, b.title);
 
-// --- the server's settings (TMDB on or off, streaming region), asked for once ---
+// --- the server's settings (TMDB on or off, streaming country), asked for once ---
 
 let settingsRequest = null;
 export function serverSettings() {
@@ -115,6 +115,8 @@ export function serverSettings() {
   });
   return settingsRequest;
 }
+// After changing them on the settings page
+export const replaceServerSettings = (settings) => (settingsRequest = Promise.resolve(settings));
 
 // Streaming offers change; the page asks for new ones when they are older than this
 export const providersStale = (item) => item?.tmdb_id && (!item.providers_at || Date.now() - Date.parse(item.providers_at) > 3 * 86_400_000);
@@ -122,3 +124,36 @@ export const providersStale = (item) => item?.tmdb_id && (!item.providers_at || 
 // The last change made on a film's or series' page: { mode, id, item } or { mode, id, deleted: true }.
 // The library beside it watches this instead of loading everything again.
 export const itemChange = ref(null);
+
+// --- countries a title comes from (ISO codes from TMDB: 'US', 'DE', …) ---
+
+// Every country there is, for picking one for a title entered by hand
+export const COUNTRY_CODES = (
+  'AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI '
+  + 'CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP '
+  + 'GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK '
+  + 'LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA '
+  + 'PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF '
+  + 'TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW'
+).split(' ');
+
+let regionNames = null;
+// 'DE' → "Deutschland" in the interface language. Countries that no longer exist (TMDB still
+// uses SU, YU, …) and a few long official names come from i18n.js.
+export function countryName(code) {
+  if (hasText(`countries.${code}`)) return t(`countries.${code}`);
+  if (regionNames?.lang !== lang.value) {
+    try {
+      regionNames = { lang: lang.value, names: new Intl.DisplayNames([lang.value], { type: 'region' }) };
+    } catch {
+      return code;
+    }
+  }
+  try {
+    return regionNames.names.of(code) || code;
+  } catch {
+    return code;
+  }
+}
+
+export const countriesText = (item) => (item?.countries || []).map(countryName).join(', ');

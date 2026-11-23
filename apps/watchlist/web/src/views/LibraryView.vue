@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { byTitle, countBy, errorText, itemChange, PATHS, STATUS_ICONS, STATUSES, useShortcut } from '../util.js';
+import { byDailyRandom, byTitle, compareText, countBy, countryName, errorText, itemChange, PATHS, rememberedRef, STATUS_ICONS, STATUSES, useShortcut } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import SplitView from '../kit/components/SplitView.vue';
@@ -18,17 +18,21 @@ const items = ref(null);
 const error = ref('');
 const isSeries = computed(() => props.mode === 'series');
 
-// Filters live in the address, so "back" from a title returns to the same view
+// Filters live in the address, so "back" from a title returns to the same view.
+// The sort order is also remembered on this device, per mode.
+const SORT_KEYS = ['recent', 'title', 'rating', 'watched', 'released', 'added', 'random', ...(isSeries.value ? ['left'] : [])];
 const status = ref(String(route.query.status || 'all'));
 const genre = ref(String(route.query.genre || ''));
-const sort = ref(String(route.query.sort || 'recent'));
+const country = ref(String(route.query.country || ''));
+const sort = rememberedRef(`watchlist.sort.${props.mode}`, 'recent', { allowed: SORT_KEYS, initial: route.query.sort && String(route.query.sort) });
 const q = ref(String(route.query.q || ''));
 
-watch([status, genre, sort, q], () => {
+watch([status, genre, country, sort, q], () => {
   if (route.matched.length > 1) return;
   const query = {};
   if (status.value !== 'all') query.status = status.value;
   if (genre.value) query.genre = genre.value;
+  if (country.value) query.country = country.value;
   if (sort.value !== 'recent') query.sort = sort.value;
   if (q.value.trim()) query.q = q.value.trim();
   router.replace({ query });
@@ -63,6 +67,9 @@ const watching = computed(() => (isSeries.value ? (items.value || []).filter((s)
 const counts = computed(() => Object.fromEntries(countBy(items.value || [], (x) => x.status)));
 const statusChips = computed(() => ['all', ...statuses.value.filter((s) => counts.value[s])]);
 const genres = computed(() => countBy(items.value || [], (x) => x.genres).map(([g]) => g).sort());
+const countries = computed(() => countBy(items.value || [], (x) => x.countries)
+  .map(([code]) => ({ code, name: countryName(code) }))
+  .sort((a, b) => compareText(a.name, b.name)));
 
 const released = (x) => x.release_date || x.first_air_date || '';
 const SORTS = computed(() => ({
@@ -73,6 +80,8 @@ const SORTS = computed(() => ({
   released: (a, b) => released(b).localeCompare(released(a)) || byTitle(a, b),
   added: (a, b) => b.created_at.localeCompare(a.created_at),
   ...(isSeries.value ? { left: (a, b) => (a.left || 1e9) - (b.left || 1e9) || byTitle(a, b) } : {}),
+  // Shuffled once a day, at 04:00
+  random: byDailyRandom((x) => x.id),
 }));
 
 const shown = computed(() => {
@@ -80,16 +89,19 @@ const shown = computed(() => {
   return (items.value || [])
     .filter((x) => status.value === 'all' || x.status === status.value)
     .filter((x) => !genre.value || x.genres.includes(genre.value))
-    .filter((x) => !needle || [x.title, x.original_title, x.director, x.creators, ...(x.cast_names || [])].some((s) => s?.toLowerCase().includes(needle)))
+    .filter((x) => !country.value || x.countries.includes(country.value))
+    .filter((x) => !needle || [x.title, x.original_title, x.director, x.creators, ...(x.cast_names || []), ...x.countries.map(countryName)]
+      .some((s) => s?.toLowerCase().includes(needle)))
     .sort(SORTS.value[sort.value] || SORTS.value.recent);
 });
 
-const filtered = computed(() => status.value !== 'all' || genre.value || q.value.trim());
+const filtered = computed(() => status.value !== 'all' || genre.value || country.value || q.value.trim());
 const selected = (x) => String(x.id) === route.params.id;
 
 function resetFilters() {
   status.value = 'all';
   genre.value = '';
+  country.value = '';
   q.value = '';
 }
 </script>
@@ -127,6 +139,10 @@ function resetFilters() {
           <select v-if="genres.length > 1" v-model="genre" :aria-label="t('library.genre')">
             <option value="">{{ t('library.allGenres') }}</option>
             <option v-for="g in genres" :key="g" :value="g">{{ g }}</option>
+          </select>
+          <select v-if="countries.length > 1" v-model="country" :aria-label="t('library.country')">
+            <option value="">{{ t('library.allCountries') }}</option>
+            <option v-for="c in countries" :key="c.code" :value="c.code">{{ c.name }}</option>
           </select>
         </div>
         <div class="chips" role="group" :aria-label="t('library.status')">
