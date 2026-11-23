@@ -31,17 +31,6 @@
 .st-read { --st: var(--s-read); --st-soft: var(--s-read-soft); }
 .st-dropped { --st: var(--s-dropped); --st-soft: var(--s-dropped-soft); }
 
-/* --- library: the filters behind the filter button --- */
-
-.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: center; gap: 8px; margin-bottom: 10px; }
-.filters .link-btn { justify-self: start; display: inline-flex; align-items: center; gap: 4px; }
-.filters .link-btn .icon { width: 16px; height: 16px; }
-.filter-btn { position: relative; }
-.filter-btn.active, .filter-toggle.active { color: var(--accent); }
-.filter-toggle { flex: none; }
-.filter-toggle.active { border-color: var(--accent); background: var(--accent-soft); }
-.filter-dot { position: absolute; top: 9px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
-
 /* --- tiles --- */
 
 .tile-author { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -2px; }

@@ -9,7 +9,7 @@ A self-hosted notebook for your friends: who they are, what you did together, wh
 - **WhatsApp**: copy or share messages into Stammtisch and get a pre-filled event. Date, time and people are guessed ("Samstag 19 Uhr", "morgen", "am 24.11.", "tomorrow at 7pm").
 - **Reminders** as push notifications: birthdays a week before (with your gift ideas) and on the day, plans the day before, and friends you haven't been in touch with for longer than you set.
 - **Calendar feed**: a secret ICS address with plans, the last two years and birthdays for your phone's calendar.
-- **On a computer** the tabs become a sidebar, the home page puts plans, birthdays and friends to get in touch with side by side, and a friend or an event opens beside the list (friends, timeline, home) so you keep your place. `/` jumps to the search, `Esc` closes what's open beside it. Copied WhatsApp messages can be pasted anywhere with Ctrl+V.
+- **On a computer** the tabs move into a bar across the top, the home page puts plans, birthdays and friends to get in touch with side by side, and a friend or an event opens beside the list (friends, timeline, home) so you keep your place. `/` jumps to the search, `Esc` closes what's open beside it. Copied WhatsApp messages can be pasted anywhere with Ctrl+V.
 - **Fernweh**: with [Fernweh](../fernweh/) set up, your friends appear on its map, and a friend's page links to them there (see below).
 - German and English interface, JSON export.
 

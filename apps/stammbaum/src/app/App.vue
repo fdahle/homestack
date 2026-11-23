@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The frame, as in the other homestack apps: tabs at the bottom on a phone, a sidebar on a
-// computer, the bar with search above the page. The pages themselves (the trees, a person,
+// The frame, as in the other homestack apps: tabs at the bottom on a phone, a bar across the
+// top on a computer, the bar with search above the page. The pages themselves (the trees, a person,
 // birthdays, …) are still drawn by views/*.ts into <main>, whenever the address or the family
 // changes; only the settings page is Vue's.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';

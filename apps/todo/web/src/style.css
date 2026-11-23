@@ -48,14 +48,12 @@
 
 .icon-btn.on { color: var(--accent); background: var(--accent-soft); }
 
-/* --- the sidebar: lists under the pages, above settings --- */
+/* --- all lists as chips at the top of a list (on a computer) --- */
 
-.list-nav { display: flex; flex-direction: column; gap: 1px; max-height: 55vh; overflow-y: auto; scrollbar-width: thin; margin: 12px 0 4px; padding-top: 10px; border-top: 1px solid var(--line); }
-.app-nav .list-nav a { padding: 7px 12px; font-size: 0.92rem; font-weight: 500; }
-.app-nav .list-nav a .icon { width: 18px; height: 18px; }
-.app-nav .list-nav .dot { margin: 0 4px; }
-.list-nav small { color: var(--muted); font-variant-numeric: tabular-nums; }
-.list-nav .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-nav { margin-bottom: 14px; }
+.list-nav .chip { color: var(--text); }
+.list-nav .chip.active { color: var(--bg); }
+.list-nav .chip .dot { margin-right: 2px; }
 
 @media (min-width: 1024px) {
   .app-nav .nav-slot { order: 1; padding: 0; }

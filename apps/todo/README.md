@@ -15,7 +15,7 @@ Self-hosted tasks that are as quick to write down as a note, and work offline. O
 - **Today** (overdue on top, with one tap to move them all to today), **Upcoming** day by day or as a month, **Lists** with colours and the inbox, a search across everything. Ticking off and deleting can be undone.
 - **Reminders** as push notifications at a task's time, and a morning overview of the day (or not, in the settings).
 - **Calendar feed**: a secret address your phone's calendar subscribes to, so open tasks with a date show up next to Stammtisch's plans.
-- **Offline first**, like Notizbuch: all tasks are on the device, changes wait and sync when it's online. On a computer a task opens beside the list, and your lists sit in the sidebar. German and English.
+- **Offline first**, like Notizbuch: all tasks are on the device, changes wait and sync when it's online. On a computer a task opens beside the list, and a list's page has all your lists as chips at the top, one click apart. German and English.
 
 ## How the sync works
 

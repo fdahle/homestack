@@ -11,6 +11,7 @@ import SplitView from '../kit/components/SplitView.vue';
 import QuickAdd from '../components/QuickAdd.vue';
 import TaskRow from '../components/TaskRow.vue';
 import SyncState from '../components/SyncState.vue';
+import ListNav from '../components/ListNav.vue';
 
 // One list (or the inbox): its open tasks, most important first, and the done ones folded away
 const route = useRoute();
@@ -50,6 +51,7 @@ function remove() {
       <button v-if="list" class="icon-btn" :class="{ on: editing }" :aria-label="t('lists.edit')" :title="t('lists.edit')" :aria-pressed="editing" @click="editing = !editing"><Icon name="edit" /></button>
     </TopBar>
     <main>
+      <ListNav class="desktop-only" />
       <div v-if="missing" class="empty">
         <p>{{ t('errors.not_found') }}</p>
         <RouterLink to="/lists" class="btn">{{ t('back') }}</RouterLink>

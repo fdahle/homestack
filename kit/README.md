@@ -19,12 +19,14 @@ Apps using it: Backlog, Checkpoint, Watchlist, Regal, Stammtisch, Stapel, Notizb
 
 Phone first. From **1024px** wide:
 
-- the bottom tabs become a **sidebar** (app icon and name at the top, settings at the bottom, room for a switch like Watchlist's films/series under the name), or with `<AppShell nav="top">` a **bar across the top** (name, tabs, settings on the right) for apps with only a few pages (Regal);
+- the bottom tabs become a **bar across the top** (app icon and name, room for a switch like Watchlist's films/series next to it, the tabs, settings at the right end). `<AppShell nav="side">` would make it a sidebar instead; no app uses that any more. A page whose top bar would only repeat the app's name (Regal's and Watchlist's libraries) shows it on the phone only (`class="phone-only"` on its `TopBar`);
 - `<main class="wide">` uses up to 1180px (lists, grids, stats); plain `<main>` stays a 760px column (forms, settings);
 - cover grids get bigger tiles, stat cards sit side by side (`.stat-cards`);
 - a list with its entries as child routes (**SplitView**) shows the open entry **beside** the list. On the phone the entry replaces the list. `Esc` closes it, `/` focuses the search where a page sets that up (`useShortcut`).
 
 `.phone-only` and `.desktop-only` hide things on the other one.
+
+A list's less used filters (Regal's author, series and e-book, Watchlist's genre and country) sit **behind a filter button**: an icon button in the top bar on the phone (`.filter-btn`, with a `.filter-dot` while one is set), a `.btn.filter-toggle` beside the sort on a computer, and the selects in `.filters` under the toolbar. The panel opens by itself when a link sets one of them.
 
 A search field (`type="search"`) that has the focus when the app goes to the background loses it, so the phone's keyboard doesn't pop up the next time the app is opened (`AppShell`).
 

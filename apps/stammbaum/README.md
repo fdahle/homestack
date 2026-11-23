@@ -391,7 +391,7 @@ reflows correctly from a 390 px phone up. The few shared pieces (buttons, badges
 the person view keep their own component classes in app.css.
 
 The frame is Vue, like the other homestack apps: tabs at the bottom on a phone (Baum,
-Geburtstage, Zahlen) and a sidebar on a computer, the bar with search and who is looking
+Geburtstage, Zahlen) and a bar across the top on a computer, the bar with search and who is looking
 above the page, and a settings page (`src/app/`). The addresses stay hash routes (`#/p/klaus`),
 so links, QR codes and the offline file keep working without a server. The pages themselves
 (the trees, a person, birthdays, numbers) are still drawn by `src/views/*.ts`, into `<main>`,
@@ -429,7 +429,7 @@ src/views/stats.ts      the numbers as tiles
 src/views/missing.ts    the checklist for whoever keeps the file
 src/styles/base.css     the kit palette under daisyUI's old names, buttons, badges, dialogs
 src/styles/app.css      every component rule
-src/styles/shell.css    the tabs and the sidebar, as in the kit
+src/styles/shell.css    the tabs and the bar at the top, as in the kit
 src/kit/                the homestack design kit (a copy; kit/sync.mjs)
 tests/                  parser, writer, server, family, kinship, age, calendar, stats, gaps, QR and layout (vitest)
 ```

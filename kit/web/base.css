@@ -284,6 +284,18 @@ main > h2.section:first-child, main > section:first-child > h2.section:first-chi
 .toolbar select { flex: 1; width: auto; min-width: 0; }
 .toolbar input + select { flex: none; max-width: 45%; }
 
+/* The less used filters of a list, behind a button: on the phone an icon button in the top bar
+   (.filter-btn, with a .filter-dot while one is set), on a computer a button beside the sort
+   (.btn.filter-toggle); the selects themselves in .filters, under the toolbar */
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: center; gap: 8px; margin-bottom: 10px; }
+.filters .link-btn { justify-self: start; display: inline-flex; align-items: center; gap: 4px; }
+.filters .link-btn .icon { width: 16px; height: 16px; }
+.filter-btn { position: relative; }
+.filter-btn.active, .filter-toggle.active { color: var(--accent); }
+.filter-toggle { flex: none; }
+.filter-toggle.active { border-color: var(--accent); background: var(--accent-soft); }
+.filter-dot { position: absolute; top: 9px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+
 .search-box { position: relative; margin: 4px 0 12px; }
 .search-box > .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); }
 .search-box input { padding-left: 44px; min-height: 48px; font-size: 1.05rem; border-radius: 999px; }

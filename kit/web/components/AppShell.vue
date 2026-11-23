@@ -8,16 +8,16 @@ import '../theme.js'; // light, dark or auto, and the status bar's colour
 import Icon from './Icon.vue';
 
 // The frame of every app: the pages, the navigation (tabs at the bottom on the phone,
-// a sidebar on a computer) and the toast.
+// a bar across the top on a computer) and the toast.
 // tabs: [{ to, name, icon, label, also: [other route names that light this tab up] }]
-// extras: like tabs, only in the sidebar (on the phone they live in a page's top bar).
-// Slot "sidebar": shown under the app's name in the sidebar (a mode switch, for example).
-// nav: 'side' (a sidebar on a computer) or 'top' (a bar across the top, for apps with few pages).
+// extras: like tabs, only on a computer, at the right end of the bar (on the phone they live in a page's top bar).
+// Slot "sidebar": shown next to the app's name on a computer (a mode switch, for example).
+// nav: 'top' (a bar across the top on a computer) or 'side' (a sidebar instead).
 const props = defineProps({
   name: { type: String, required: true },
   tabs: { type: Array, required: true },
   extras: { type: Array, default: () => [] },
-  nav: { type: String, default: 'side' },
+  nav: { type: String, default: 'top' },
 });
 
 const route = useRoute();

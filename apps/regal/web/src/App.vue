@@ -12,5 +12,5 @@ const extras = computed(() => [{ to: '/settings', name: 'settings', icon: 'gear'
 </script>
 
 <template>
-  <AppShell name="Regal" :tabs="tabs" :extras="extras" nav="top" />
+  <AppShell name="Regal" :tabs="tabs" :extras="extras" />
 </template>

@@ -32,7 +32,7 @@ watch([q, label], () => {
   if (label.value) query.label = label.value;
   router.replace({ query });
 });
-// A label picked in the sidebar while the list is open
+// A label link (on a note, say) while the list is open
 watch(() => route.query.label, (value) => {
   if (route.name === mode) label.value = String(value || '');
 });
@@ -145,15 +145,11 @@ function emptyTrash() {
             <span class="grow">{{ t('notes.write') }}</span><kbd>N</kbd><Icon name="edit" />
           </button>
 
-          <div v-if="labels.length" class="chips" :class="{ 'phone-only': mode === 'notes' }" role="group" :aria-label="t('notes.labels')">
+          <div v-if="labels.length" class="chips" role="group" :aria-label="t('notes.labels')">
             <button class="chip" :class="{ active: !label }" @click="label = ''">{{ t('notes.allLabels') }}</button>
             <button v-for="[l, n] in labels" :key="l" class="chip" :class="{ active: label === l }" @click="label = label === l ? '' : l">
               {{ l }}<span class="chip-count">{{ n }}</span>
             </button>
-          </div>
-          <div v-if="mode === 'notes' && label" class="filter-line desktop-only">
-            <span class="chip active"><Icon name="tag" />{{ label }}</span>
-            <button class="link-btn small" @click="label = ''"><Icon name="close" />{{ t('notes.reset') }}</button>
           </div>
 
           <div v-if="mode === 'trash' && all.length" class="info trash-info">

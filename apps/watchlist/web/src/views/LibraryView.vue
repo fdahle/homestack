@@ -27,6 +27,10 @@ const country = ref(String(route.query.country || ''));
 const sort = rememberedRef(`watchlist.sort.${props.mode}`, 'recent', { allowed: SORT_KEYS, initial: route.query.sort && String(route.query.sort) });
 const q = ref(String(route.query.q || ''));
 
+// Genre and country sit behind the filter button; open when one of them is set
+const filterCount = computed(() => [genre.value, country.value].filter(Boolean).length);
+const showFilters = ref(filterCount.value > 0);
+
 watch([status, genre, country, sort, q], () => {
   if (route.matched.length > 1) return;
   const query = {};
@@ -36,6 +40,15 @@ watch([status, genre, country, sort, q], () => {
   if (sort.value !== 'recent') query.sort = sort.value;
   if (q.value.trim()) query.q = q.value.trim();
   router.replace({ query });
+});
+
+// Links like ?genre=… from the stats, while the list is already open
+watch(() => route.query, (query) => {
+  if (route.matched.length > 1) return;
+  if (query.genre !== undefined) genre.value = String(query.genre);
+  if (query.country !== undefined) country.value = String(query.country);
+  if (query.status !== undefined) status.value = String(query.status);
+  if (query.genre || query.country) showFilters.value = true;
 });
 
 onMounted(async () => {
@@ -57,7 +70,7 @@ watch(itemChange, (change) => {
   else items.value.push(change.item);
 });
 
-// "/" jumps to the search
+// "/" jumps to the search; Enter puts the phone's keyboard away
 const searchInput = ref(null);
 useShortcut('/', () => searchInput.value?.focus());
 
@@ -70,6 +83,7 @@ const genres = computed(() => countBy(items.value || [], (x) => x.genres).map(([
 const countries = computed(() => countBy(items.value || [], (x) => x.countries)
   .map(([code]) => ({ code, name: countryName(code) }))
   .sort((a, b) => compareText(a.name, b.name)));
+const canFilter = computed(() => genres.value.length > 1 || countries.value.length > 1);
 
 const released = (x) => x.release_date || x.first_air_date || '';
 const SORTS = computed(() => ({
@@ -95,21 +109,32 @@ const shown = computed(() => {
     .sort(SORTS.value[sort.value] || SORTS.value.recent);
 });
 
-const filtered = computed(() => status.value !== 'all' || genre.value || country.value || q.value.trim());
+const filtered = computed(() => status.value !== 'all' || filterCount.value > 0 || q.value.trim());
 const selected = (x) => String(x.id) === route.params.id;
+
+function clearFilters() {
+  genre.value = '';
+  country.value = '';
+}
 
 function resetFilters() {
   status.value = 'all';
-  genre.value = '';
-  country.value = '';
   q.value = '';
+  clearFilters();
 }
 </script>
 
 <template>
   <SplitView>
-    <TopBar :title="t(`library.title.${mode}`)">
-      <RouterLink to="/einstellungen" class="icon-btn phone-only" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
+    <!-- On a computer the bar across the top has the name and the films/series switch -->
+    <TopBar :title="t(`library.title.${mode}`)" class="phone-only">
+      <button
+        v-if="canFilter" class="icon-btn filter-btn" :class="{ active: showFilters }" :aria-label="t('library.filters')"
+        :aria-expanded="showFilters" @click="showFilters = !showFilters"
+      >
+        <Icon name="filter" /><span v-if="filterCount" class="filter-dot"></span>
+      </button>
+      <RouterLink to="/einstellungen" class="icon-btn" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
     </TopBar>
     <main class="wide">
       <ModeSwitch class="phone-only page-mode" />
@@ -131,11 +156,22 @@ function resetFilters() {
           <h2 class="section">{{ t(`library.all.${mode}`) }}</h2>
         </section>
 
-        <div class="library-toolbar">
-          <input ref="searchInput" v-model="q" type="search" :placeholder="t(`library.search.${mode}`)" :aria-label="t(`library.search.${mode}`)" />
+        <div class="toolbar">
+          <input
+            ref="searchInput" v-model="q" type="search" enterkeyhint="search" :placeholder="t(`library.search.${mode}`)" :aria-label="t(`library.search.${mode}`)"
+            @keydown.enter="$event.target.blur()"
+          />
           <select v-model="sort" :aria-label="t('library.sort')">
             <option v-for="(fn, key) in SORTS" :key="key" :value="key">{{ t(`library.sorts.${key}`) }}</option>
           </select>
+          <button
+            v-if="canFilter" class="btn filter-toggle desktop-only" :class="{ active: showFilters }"
+            :aria-expanded="showFilters" @click="showFilters = !showFilters"
+          >
+            <Icon name="filter" />{{ t('library.filters') }}<span v-if="filterCount" class="chip-count">{{ filterCount }}</span>
+          </button>
+        </div>
+        <div v-if="showFilters && canFilter" class="filters">
           <select v-if="genres.length > 1" v-model="genre" :aria-label="t('library.genre')">
             <option value="">{{ t('library.allGenres') }}</option>
             <option v-for="g in genres" :key="g" :value="g">{{ g }}</option>
@@ -144,6 +180,7 @@ function resetFilters() {
             <option value="">{{ t('library.allCountries') }}</option>
             <option v-for="c in countries" :key="c.code" :value="c.code">{{ c.name }}</option>
           </select>
+          <button v-if="filterCount" class="link-btn small" @click="clearFilters"><Icon name="close" />{{ t('library.reset') }}</button>
         </div>
         <div class="chips" role="group" :aria-label="t('library.status')">
           <button v-for="s in statusChips" :key="s" class="chip" :class="{ active: status === s }" @click="status = s">

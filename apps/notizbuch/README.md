@@ -10,7 +10,7 @@ Self-hosted notes that work offline. Write on the phone in the train, on the lap
 - **Offline first.** The app itself and all notes are on the device. Changes made offline wait and are sent when the device is back online; the cloud in the top bar shows how many are waiting.
 - **Share into Notizbuch** from other apps on the phone (once it's installed to the home screen), and **export** everything as Markdown files in a ZIP.
 - **Import from Google Keep:** pick the ZIP from Google Takeout in the settings. Text, checklists, labels, colours, pinned, archive and pictures come along (Keep's trash doesn't). It runs on the device, offline too; each Keep note always gets the same id, so importing again only adds what's new.
-- On a computer a note opens beside the list, with your labels in the sidebar. German and English interface.
+- On a computer a note opens beside the list, and your labels sit above the notes as chips, as on the phone. German and English interface.
 
 ## How the sync works
 

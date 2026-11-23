@@ -1,9 +1,9 @@
 /*
  * The frame every homestack app has (kit/web/base.css, "navigation"): tabs at the bottom on
- * a phone, a sidebar from 1024px on. The kit's base.css itself isn't loaded: its .btn, .card,
+ * a phone, a bar across the top from 1024px on. The kit's base.css itself isn't loaded: its .btn, .card,
  * .hint and the like would change Stammbaum's own pages. Unlike in the other apps the frame
- * is one screen high, so the tree fills exactly what is left: the tabs take their place in
- * the column instead of lying over the page.
+ * is one screen high, so the tree fills exactly what is left: the tabs and the bar take their
+ * place in the column instead of lying over the page.
  */
 
 @layer components {
@@ -74,39 +74,30 @@
       display: none !important;
     }
 
-    .frame {
-      flex-direction: row;
-    }
-
-    .frame > .app-shell {
-      flex: 1;
-      min-width: 0;
-    }
-
-    /* The family's name is in the sidebar */
+    /* The family's name is in the bar at the top */
     .app-shell > .app-bar .brand {
       display: none;
     }
 
     .app-nav {
       order: 0;
-      flex-direction: column;
+      flex-direction: row;
       justify-content: flex-start;
-      gap: 2px;
-      width: var(--side-w);
-      height: auto;
-      padding: 14px 12px;
+      align-items: center;
+      gap: 4px;
+      height: 58px;
+      padding: 0 20px;
       border-top: 0;
-      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
     }
 
     .app-nav a {
       flex: none;
       flex-direction: row;
       justify-content: flex-start;
-      gap: 12px;
+      gap: 8px;
       max-width: none;
-      padding: 9px 12px;
+      padding: 7px 12px;
       border-radius: 10px;
       color: var(--text);
       font-size: 0.95rem;
@@ -134,11 +125,11 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 4px 12px 18px;
+      padding: 0 18px 0 4px;
       font-size: 1.15rem;
       font-weight: 700;
       color: var(--text);
-      overflow-wrap: anywhere;
+      white-space: nowrap;
     }
 
     .app-nav .brand:hover {
@@ -160,7 +151,7 @@
 
     .toast-note,
     .frame .warnings {
-      left: calc(var(--side-w) + 16px);
+      bottom: 20px;
     }
   }
 }

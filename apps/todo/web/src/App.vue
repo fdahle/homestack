@@ -2,7 +2,6 @@
 import { computed } from 'vue';
 import { t } from './i18n.js';
 import AppShell from './kit/components/AppShell.vue';
-import ListNav from './components/ListNav.vue';
 
 const tabs = computed(() => [
   { to: '/', name: 'today', icon: 'sun', label: t('nav.today') },
@@ -13,7 +12,5 @@ const extras = computed(() => [{ to: '/settings', name: 'settings', icon: 'gear'
 </script>
 
 <template>
-  <AppShell name="To-do" :tabs="tabs" :extras="extras">
-    <template #sidebar><ListNav /></template>
-  </AppShell>
+  <AppShell name="To-do" :tabs="tabs" :extras="extras" />
 </template>

@@ -41,8 +41,9 @@ const freshShown = (list) => (allFresh.value ? shown(list) : shown(list).slice(0
 </script>
 
 <template>
-  <TopBar :title="t('home.title')">
-    <RouterLink to="/settings" class="icon-btn phone-only" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
+  <!-- On a computer the bar across the top already says "Backlog" -->
+  <TopBar :title="t('home.title')" class="phone-only">
+    <RouterLink to="/settings" class="icon-btn" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
   </TopBar>
   <main class="wide">
     <p v-if="error" class="error">{{ error }}</p>
