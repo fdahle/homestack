@@ -26,6 +26,8 @@ services:
       STAMMBAUM_EDITORS: ${STAMMBAUM_EDITORS:-}
       # 1 (or true, yes, on) makes the family read-only for everyone.
       STAMMBAUM_READONLY: ${STAMMBAUM_READONLY:-}
+      # How much photos/ may hold, in MB; an upload past it is turned away.
+      STAMMBAUM_MAX_PHOTOS_MB: ${STAMMBAUM_MAX_PHOTOS_MB:-2048}
       # The proxy's X-Stammbaum-Proxy header has to carry this, or nothing is
       # answered — see deploy/. Required: without it the server does not start,
       # since whatever reaches the port could otherwise claim to be anyone.

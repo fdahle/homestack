@@ -334,6 +334,40 @@ describe('a family.md that cannot be read', () => {
   });
 });
 
+describe('the api behind the proxy', () => {
+  it('keeps the family and its photos from anyone not logged in', async () => {
+    const { server, base } = await serve({ dataDir: dir, loginRequired: true });
+    others.push(server);
+    for (const address of ['/api/family', '/photos/Anna.JPG', '/thumbs/anna-berg.jpg', '/api/whatever']) {
+      expect((await fetch(`${base}${address}`)).status).toBe(401);
+      expect((await fetch(`${base}${address}`, { headers: { 'Remote-User': ' ' } })).status).toBe(401);
+    }
+    expect((await upload(JPEG, 'image/jpeg', { 'Remote-User': '' }, base)).status).toBe(401);
+    // Someone logged in — not only editors — reads it as before.
+    expect((await fetch(`${base}/api/family`, { headers: { 'Remote-User': 'cousin' } })).status).toBe(200);
+    expect((await fetch(`${base}/photos/Anna.JPG`, { headers: { 'Remote-User': 'cousin' } })).status).toBe(200);
+    // The page and its icons are not the api's: they fall through to the server's own files.
+    expect((await fetch(`${base}/index.html`)).status).toBe(404);
+  });
+});
+
+describe('a photos folder that is full', () => {
+  it('turns an upload away with 413 before writing it', async () => {
+    const folder = await mkdtemp(path.join(tmpdir(), 'stammbaum-full-'));
+    folders.push(folder);
+    await writeFile(path.join(folder, 'family.md'), FILE);
+    await mkdir(path.join(folder, 'photos'));
+    await writeFile(path.join(folder, 'photos', 'big.jpg'), Buffer.alloc(90));
+    const { server, base } = await serve({ dataDir: folder, maxPhotoBytes: 100 });
+    others.push(server);
+    expect((await upload(JPEG, 'image/jpeg', {}, base)).status).toBe(200);
+    const full = await upload(JPEG, 'image/jpeg', {}, base);
+    expect(full.status).toBe(413);
+    expect(await full.json()).toEqual({ error: 'photos full' });
+    expect((await readdir(path.join(folder, 'photos'))).sort()).toEqual(['anna-berg.jpg', 'big.jpg']);
+  });
+});
+
 describe('the api for npm run dev', () => {
   /** A request with the Host header a browser would send for `host`. */
   const asked = (at: string, target: string, host: string) =>

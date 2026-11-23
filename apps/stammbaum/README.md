@@ -87,15 +87,19 @@ is logged in.
 | Setting | |
 | --- | --- |
 | `FAMILY_DIR=./sample` | Mount another folder than `./data` |
-| `STAMMBAUM_EDITORS=jonas,oma` | Only these logins may edit; everyone else reads. Empty: everyone who can log in |
+| `STAMMBAUM_EDITORS=jonas,oma` | Only these logins may edit; everyone else reads. Empty: **everyone who can log in may edit** — so set it |
 | `STAMMBAUM_READONLY=1` | Nobody may edit (`true`, `yes`, `on` say the same) |
+| `STAMMBAUM_MAX_PHOTOS_MB=2048` | How much `photos/` may hold; an upload past it is turned away with a message in the app |
 | `STAMMBAUM_PROXY_SECRET` | A long random value the proxy sends along as `X-Stammbaum-Proxy` (see [`deploy/`](deploy/)) — `openssl rand -hex 32`. The server answers nobody else, not even another program on the host. Required: the container does not start without it |
-
-Put them into `.env` next to `docker-compose.yml`. The server says at the
-start who may edit and whether it checks the proxy's secret
-(`docker compose logs`). Only `npm start` without `NODE_ENV=production` runs
-without the secret, trusting whatever reaches its port.
 | `STAMMBAUM_UID`, `STAMMBAUM_GID` | Whose files the server writes (1000:1000) — make them yours, so `data/` stays yours to edit and back up |
+
+Put them into `.env` next to `docker-compose.yml` ([`.env.example`](.env.example) has
+them all). The server says at the start who may edit and whether it checks the
+proxy's secret (`docker compose logs`). Only `npm start` without
+`NODE_ENV=production` runs without the secret, trusting whatever reaches its port.
+With the secret, the family, its photos and `api/` are only answered when the
+proxy names who logged in (`Remote-User`), so even a too-wide rule at the
+proxy does not open them; the page, its icons and `/healthz` work without.
 
 ## Editing in the app
 

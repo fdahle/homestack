@@ -41,7 +41,7 @@ const proxied = (address: string, init: RequestInit = {}) =>
 /** A request exactly as written, past what fetch would tidy up first. */
 const raw = (target: string) =>
   new Promise<number>((resolve, reject) => {
-    const sent = httpRequest({ hostname: '127.0.0.1', port: new URL(base).port, path: target, headers: { 'X-Stammbaum-Proxy': SECRET } }, (response) => {
+    const sent = httpRequest({ hostname: '127.0.0.1', port: new URL(base).port, path: target, headers: { 'X-Stammbaum-Proxy': SECRET, 'Remote-User': 'anna' } }, (response) => {
       response.resume();
       resolve(response.statusCode ?? 0);
     });
@@ -54,7 +54,16 @@ describe('the server behind the proxy', () => {
     expect((await fetch(`${base}/`)).status).toBe(403);
     expect((await fetch(`${base}/api/family`, { headers: { 'Remote-User': 'anna' } })).status).toBe(403);
     expect((await fetch(`${base}/api/family`, { headers: { 'X-Stammbaum-Proxy': 'guessed' } })).status).toBe(403);
-    expect((await proxied('/api/family')).status).toBe(200);
+    expect((await proxied('/api/family', { headers: { 'Remote-User': 'anna' } })).status).toBe(200);
+  });
+
+  it('keeps the family from a request without a login, but not the page', async () => {
+    // Only if a bypass rule at the proxy were too wide: the proxy itself always names the login.
+    expect((await proxied('/api/family')).status).toBe(401);
+    expect((await proxied('/photos/anna.jpg')).status).toBe(401);
+    expect((await proxied('/thumbs/anna.jpg')).status).toBe(401);
+    expect((await proxied('/')).status).toBe(200);
+    expect((await proxied('/assets/app.js')).status).toBe(200);
   });
 
   it('says it is up without the secret, and nothing more', async () => {
@@ -82,7 +91,7 @@ describe('the server behind the proxy', () => {
     expect((await proxied('/../secret')).status).toBe(404);
     expect((await proxied('/assets')).status).toBe(404);
     expect((await proxied('/%00')).status).toBe(404);
-    expect((await proxied('/thumbs/%00')).status).toBe(404);
+    expect((await proxied('/thumbs/%00', { headers: { 'Remote-User': 'anna' } })).status).toBe(404);
     expect((await proxied('/')).status).toBe(200);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { missingSecret, switchedOn } from '../server/settings';
+import { megabytes, missingSecret, switchedOn } from '../server/settings';
 
 describe('the settings the server reads', () => {
   it('takes yes however a .env file writes it', () => {
@@ -19,5 +19,13 @@ describe('the settings the server reads', () => {
     // `npm start` on a laptop, and the tests.
     expect(missingSecret({})).toBeUndefined();
     expect(missingSecret({ NODE_ENV: 'test' })).toBeUndefined();
+  });
+
+  it('reads the cap on photos/ in megabytes', () => {
+    expect(megabytes(undefined, 2048)).toBe(2048 * 1024 * 1024);
+    expect(megabytes(' ', 2048)).toBe(2048 * 1024 * 1024);
+    expect(megabytes('500', 2048)).toBe(500 * 1024 * 1024);
+    expect(megabytes('0.5', 2048)).toBe(512 * 1024);
+    for (const value of ['0', '-1', 'lots', 'Infinity']) expect(megabytes(value, 2048)).toBeUndefined();
   });
 });

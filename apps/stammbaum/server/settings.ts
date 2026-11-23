@@ -30,8 +30,19 @@ export function missingSecret(env: NodeJS.ProcessEnv): string | undefined {
     'STAMMBAUM_PROXY_SECRET is not set (or still the stand-in from deploy/), and without it anything that reaches the port could claim to be anyone.',
     'Make one with `openssl rand -hex 32`, put it into .env next to docker-compose.yml as',
     '  STAMMBAUM_PROXY_SECRET=<the value>',
-    'and into the nginx site as',
+    'and into the file the nginx site includes, /etc/nginx/homestack-secrets/stammbaum.conf, as',
     '  proxy_set_header X-Stammbaum-Proxy "<the value>";',
     '(see deploy/nginx-stammbaum.conf), then `docker compose up -d` and `systemctl reload nginx`.',
   ].join('\n');
+}
+
+/**
+ * A size in megabytes, as bytes: `2048` → 2 GB. Unset or empty is `fallback`;
+ * anything that is no positive number is `undefined`, and the server says so.
+ */
+export function megabytes(value: string | undefined, fallback: number): number | undefined {
+  const text = (value ?? '').trim();
+  if (text === '') return fallback * 1024 * 1024;
+  const number = Number(text);
+  return Number.isFinite(number) && number > 0 ? Math.round(number * 1024 * 1024) : undefined;
 }

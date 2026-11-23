@@ -17,7 +17,7 @@ import { relation } from '../kinship';
 import { duplicates, gaps } from '../missing';
 import type { Person } from '../parser/types';
 import type { Edit } from '../parser/write';
-import { SaveConflict, UnsupportedImage, type FamilySource } from '../source/types';
+import { PhotosFull, SaveConflict, UnsupportedImage, type FamilySource } from '../source/types';
 import { familyStats } from '../stats';
 import { navigate } from '../ui/back';
 import { displayName, nameStandIns, shortName, today } from '../ui/format';
@@ -562,8 +562,9 @@ async function upload(image: Blob, name: string): Promise<string | undefined> {
     return saved;
   } catch (error) {
     console.error(error);
-    // A kind of picture the server does not take says so; anything else is a failed upload.
-    toast(error instanceof UnsupportedImage ? t().unreadable(image instanceof File ? image.name : '') : t().uploadError);
+    // A kind of picture the server does not take, or no room left, says so; anything else is a failed upload.
+    if (error instanceof PhotosFull) toast(t().photosFull);
+    else toast(error instanceof UnsupportedImage ? t().unreadable(image instanceof File ? image.name : '') : t().uploadError);
     return undefined;
   }
 }

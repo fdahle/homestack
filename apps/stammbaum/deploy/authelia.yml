@@ -1,12 +1,21 @@
-# The parts of Authelia's configuration.yml this site needs — merge them into the
-# existing file rather than replacing it. The domain has to sit under one of the
-# session cookie domains, or the login does not stick.
+# The parts of Authelia's configuration.yml Stammbaum (family.fdahle.de) needs — merge them
+# into the homestack one (deploy/authelia.yml at the top of the repository) rather than
+# replacing it. family.fdahle.de sits under the session cookie domain fdahle.de set there,
+# so one login covers it with the other apps.
 
 access_control:
   default_policy: deny
   rules:
+    # Phones fetch the icons and manifest when you add the app to the home screen,
+    # sometimes without cookies. Nothing private in them. Only these exact files: the
+    # family (api/), photos/ and thumbs/ never get a bypass. Before the rule below.
+    - domain: family.fdahle.de
+      resources:
+        - '^/(manifest\.webmanifest|icon[^/]*\.(png|svg)|favicon\.ico)$'
+      policy: bypass
+
     # Only the family, and nobody else with an account on the server.
-    - domain: stammbaum.example.com
+    - domain: family.fdahle.de
       policy: two_factor # one_factor is kinder to relatives at a party
       subject: 'group:family'
 
@@ -19,3 +28,6 @@ access_control:
 #     password: "$argon2id$..."
 #     email: oma@example.com
 #     groups: [family]
+#
+# Everyone in the group can read the family. Who may also edit is STAMMBAUM_EDITORS in
+# the app's .env (their logins, comma-separated) — left empty, everyone in the group can.

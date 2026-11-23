@@ -34,6 +34,14 @@ export class UnsupportedImage extends Error {
   }
 }
 
+/** photos/ holds as much as the server allows (STAMMBAUM_MAX_PHOTOS_MB); nothing more fits. */
+export class PhotosFull extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PhotosFull';
+  }
+}
+
 /** Someone else changed the same thing first; `source` is the family as it is now. */
 export class SaveConflict extends Error {
   constructor(

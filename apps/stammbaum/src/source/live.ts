@@ -1,6 +1,6 @@
 import type { Edit } from '../parser/write';
 import type { FamilyPayload } from '../../server/api';
-import { SaveConflict, UnsupportedImage, type FamilySource, type Saved } from './types';
+import { PhotosFull, SaveConflict, UnsupportedImage, type FamilySource, type Saved } from './types';
 
 /** Relative to the page, so the app also works below a sub-path. */
 const url = (path: string) => new URL(path, document.baseURI).toString();
@@ -100,6 +100,8 @@ export async function uploadPhoto(image: Blob, name: string): Promise<string> {
   });
   const body = (await response.json().catch(() => ({}))) as { name?: string; error?: string };
   if (response.status === 415) throw new UnsupportedImage(body.error ?? 'api/photos: 415');
+  // 413 is also a single picture over 15 MB ('too large'); this one is the folder.
+  if (response.status === 413 && body.error === 'photos full') throw new PhotosFull(body.error);
   if (!response.ok || !body.name) throw new Error(body.error ?? `api/photos: ${response.status}`);
   return body.name;
 }

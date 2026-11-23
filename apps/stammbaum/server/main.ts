@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decode, familyApi, parseAddress, sendFile } from './api';
-import { missingSecret, switchedOn } from './settings';
+import { megabytes, missingSecret, switchedOn } from './settings';
 
 /**
  * The app and its family, behind the reverse proxy: the built page from
@@ -16,10 +16,14 @@ import { missingSecret, switchedOn } from './settings';
  *   STAMMBAUM_USER_HEADER   the header naming the login            (Remote-User)
  *   STAMMBAUM_EDITORS       logins that may edit, comma-separated  (everyone)
  *   STAMMBAUM_READONLY=1    nobody may edit (also true, yes, on)
+ *   STAMMBAUM_MAX_PHOTOS_MB how much photos/ may hold, in MB      (2048)
  *   STAMMBAUM_PROXY_SECRET  if set, only requests whose X-Stammbaum-Proxy
  *                           header carries it are answered        (unset)
  *                           — and with NODE_ENV=production, as in the
- *                           docker image, the server will not start without it
+ *                           docker image, the server will not start without it.
+ *                           Behind the proxy the family, its photos and api/
+ *                           are only for someone logged in (a 401 otherwise);
+ *                           the page, its icons and /healthz are for anyone.
  */
 const refusal = missingSecret(process.env);
 if (refusal) {
@@ -41,6 +45,12 @@ const proxySecret = process.env.STAMMBAUM_PROXY_SECRET ? digest(process.env.STAM
 const readonly = switchedOn(process.env.STAMMBAUM_READONLY);
 if (readonly === undefined) console.warn(`STAMMBAUM_READONLY="${process.env.STAMMBAUM_READONLY}" is neither yes nor no — read-only, to be safe`);
 const writable = readonly === false;
+const DEFAULT_PHOTOS_MB = 2048;
+let maxPhotoBytes = megabytes(process.env.STAMMBAUM_MAX_PHOTOS_MB, DEFAULT_PHOTOS_MB);
+if (maxPhotoBytes === undefined) {
+  console.warn(`STAMMBAUM_MAX_PHOTOS_MB="${process.env.STAMMBAUM_MAX_PHOTOS_MB}" is no number of megabytes — ${DEFAULT_PHOTOS_MB} it is`);
+  maxPhotoBytes = DEFAULT_PHOTOS_MB * 1024 * 1024;
+}
 
 const api = familyApi({
   dataDir,
@@ -51,6 +61,11 @@ const api = familyApi({
   },
   editors,
   writable,
+  // With the secret it stands behind the proxy, which always names who logged in: a request
+  // without a name got past the login by mistake (a bypass rule too wide), so no family for it.
+  // `npm start` on a laptop has no proxy and no names, and stays open.
+  loginRequired: proxySecret !== undefined,
+  maxPhotoBytes,
 });
 
 /**

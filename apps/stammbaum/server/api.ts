@@ -31,6 +31,15 @@ export interface ApiOptions {
    * the family through the browser of whoever runs the dev server.
    */
   localOnly?: boolean;
+  /**
+   * Answer the family, its photos and the rest of api/ only to someone logged
+   * in — for the server behind the proxy. The proxy should never let anyone
+   * through without a login, but if one of its rules is ever too wide, the
+   * family still stays shut. The page itself and its icons do not need this.
+   */
+  loginRequired?: boolean;
+  /** How many bytes photos/ may hold; an upload that would go past it is turned away. (2 GB) */
+  maxPhotoBytes?: number;
 }
 
 /** What the app gets: the file, and what goes with it. */
@@ -79,6 +88,7 @@ const PHOTO_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
 
 const MAX_BODY = 256 * 1024;
 const MAX_PHOTO = 15 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 2048 * 1024 * 1024;
 const THUMB_SIZE = 512 * 1024;
 const MAX_EDITS = 50;
 /** How long the rest of a body that is too large is waited out before the connection closes. */
@@ -232,6 +242,11 @@ export function familyApi(options: ApiOptions): FamilyApi {
     await queued(async () => {
       const folder = path.join(options.dataDir, 'photos');
       await mkdir(folder, { recursive: true });
+      // A cap on the folder, so no editor — or a stolen login — can fill the disk 15 MB at a time.
+      // Checked in the queue, so two uploads at once cannot both slip under it.
+      if ((await folderSize(folder)) + image.length > (options.maxPhotoBytes ?? MAX_PHOTO_BYTES)) {
+        return json(response, 413, { error: 'photos full' });
+      }
       const taken = new Set((await readdir(folder)).map((name) => name.toLowerCase()));
       const stem = slug(query.get('name') ?? '') || 'photo';
       let name = `${stem}.${kind.extension}`;
@@ -253,8 +268,12 @@ export function familyApi(options: ApiOptions): FamilyApi {
     if (!address) return json(response, 400, { error: 'bad address' });
     const { pathname, searchParams } = address;
     const reading = request.method === 'GET' || request.method === 'HEAD';
-    if (options.localOnly && !localHost(request.headers.host) && /^\/(api|photos|thumbs)\//.test(pathname)) {
+    const data = /^\/(api|photos|thumbs)\//.test(pathname);
+    if (options.localOnly && !localHost(request.headers.host) && data) {
       return json(response, 403, { error: 'not from this machine' });
+    }
+    if (options.loginRequired && data && !options.user(request)) {
+      return json(response, 401, { error: 'not logged in' });
     }
 
     if (pathname === '/api/family' && request.method === 'GET') {
@@ -384,6 +403,16 @@ async function photo(dataDir: string, name: string | undefined, request: Incomin
     'Cache-Control': 'private, max-age=3600',
     'Content-Security-Policy': PHOTO_POLICY,
   });
+}
+
+/** The bytes in the files of a folder, not its subfolders: the small versions have a cap of their own. */
+async function folderSize(folder: string): Promise<number> {
+  let total = 0;
+  for (const entry of await readdir(folder, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    total += await stat(path.join(folder, entry.name)).then((s) => s.size, () => 0);
+  }
+  return total;
 }
 
 /** Small versions live next to the photos, hidden: photos/.thumbs/heinrich.jpg.jpg */
