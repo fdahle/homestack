@@ -7,6 +7,10 @@ const SESSION_SECRET = process.env.SESSION_SECRET
 if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
   throw new Error('SESSION_SECRET must be set and at least 32 characters long')
 }
+// The example value from .env.example is long enough but public: anyone could sign cookies with it.
+if (/^(replace|change)/i.test(SESSION_SECRET)) {
+  throw new Error('SESSION_SECRET is still the example value from .env.example. Set a random one: openssl rand -base64 32')
+}
 
 import express from 'express'
 import helmet from 'helmet'
@@ -30,9 +34,10 @@ import shareLinksRoutes from './routes/shareLinks.js'
 import publicShareRoutes from './routes/publicShare.js'
 import backupRoutes from './routes/backup.js'
 import linkRoutes from './routes/links.js'
-import leuteRoutes from './routes/leute.js'
-import { scheduleLeuteSync } from './utils/leute.js'
+import stammtischRoutes from './routes/stammtisch.js'
+import { scheduleStammtischSync } from './utils/stammtisch.js'
 import { proxySecret } from './middleware/auth.js'
+import { announceSetupCode } from './utils/setupCode.js'
 
 const app = express()
 const PORT = process.env.PORT || 3063
@@ -57,6 +62,23 @@ app.use(helmet({
   // OSM tile and Nominatim usage policies require a referrer; helmet's default sends none.
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }))
+
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+// SameSite=Strict still sends the cookie from sibling subdomains (all of *.fdahle.de is one
+// "site"), so writes from another origin are refused here. Browsers say where a request comes from
+// in Sec-Fetch-Site (older ones only in Origin); requests with neither header (curl, scripts,
+// server to server) come with no browser cookie and pass. Public share links take POSTs (the
+// link's password) from anyone, so they stay open.
+function crossOrigin(req) {
+  const site = req.get('sec-fetch-site')
+  if (site) return site !== 'same-origin' && site !== 'none'
+  const origin = req.get('origin')
+  if (!origin) return false
+  try { return new URL(origin).host !== req.get('host') } catch { return true } // "null" and other junk
+}
+app.use('/api', (req, res, next) => WRITE_METHODS.has(req.method) && !req.path.startsWith('/public/share/') && crossOrigin(req)
+  ? res.status(403).json({ error: 'Requests from other sites are not allowed.' })
+  : next())
 // The restore route parses its large body itself, after authentication; everything else gets a small limit.
 const smallJson = express.json({ limit: '2mb' })
 app.use((req, res, next) => req.path === '/api/backup/restore' ? next() : smallJson(req, res, next))
@@ -75,7 +97,6 @@ app.use('/api/auth', (req, res, next) => req.method === 'POST' && req.path !== '
 // Generous for the single owner: a 1000-row import, the background country lookup (~1 write/s)
 // and long trip-editing sessions must fit, while a runaway client is still stopped.
 const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 3000, standardHeaders: true, handler: (_req, res) => res.status(429).json({ error: 'Write limit reached. Please wait before retrying.' }) })
-const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const applyWriteLimiter = (req, res, next) =>
   WRITE_METHODS.has(req.method) ? writeLimiter(req, res, next) : next()
 
@@ -88,7 +109,7 @@ app.use('/api/share-links', applyWriteLimiter, shareLinksRoutes)
 app.use('/api/public/share', publicShareRoutes)
 app.use('/api/backup', applyWriteLimiter, backupRoutes)
 app.use('/api/links', linkRoutes)
-app.use('/api/leute', applyWriteLimiter, leuteRoutes)
+app.use('/api/stammtisch', applyWriteLimiter, stammtischRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 // The same as every homestack app has, for Docker's health check
@@ -114,5 +135,6 @@ process.on('unhandledRejection', (reason) => {
 
 export const server = app.listen(PORT, () => {
   console.log(`Fernweh API running on http://localhost:${server.address().port}${proxySecret() ? ' (sign-in through the server’s login)' : ''}`)
+  announceSetupCode()
 })
-scheduleLeuteSync()
+scheduleStammtischSync()

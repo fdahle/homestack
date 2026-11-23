@@ -1,31 +1,31 @@
-// The import of friends from Leute, against a fake Leute server and a fake geocoder.
+// The import of friends from Stammtisch, against a fake Stammtisch server and a fake geocoder.
 import test, { before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 
 process.env.MAPPER_DB_PATH = ':memory:'
-process.env.SESSION_SECRET = 'leute-test-secret-'.repeat(3)
+process.env.SESSION_SECRET = 'stammtisch-test-secret-'.repeat(3)
 const { default: db } = await import('../db.js')
-const { runLeuteSync, createGeocoder, leuteConfig, leuteStatus, placeText } = await import('../utils/leute.js')
+const { runStammtischSync, createGeocoder, stammtischConfig, stammtischStatus, placeText } = await import('../utils/stammtisch.js')
 const { saveMarker } = await import('../utils/markers.js')
 
-// --- a fake Leute ---
+// --- a fake Stammtisch ---
 const TOKEN = 'link-token-for-tests'
 let people = []
-let leuteHasToken = true
-const leute = createServer((req, res) => {
+let stammtischHasToken = true
+const stammtisch = createServer((req, res) => {
   const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)) }
   if (req.url !== '/api/link/people') return send(404, { error: 'not_found' })
-  if (!leuteHasToken) return send(404, { error: 'not_found' })
+  if (!stammtischHasToken) return send(404, { error: 'not_found' })
   if (req.headers.authorization !== `Bearer ${TOKEN}`) return send(401, { error: 'unauthorized' })
   send(200, { people })
 })
 let config
 before(async () => {
-  await new Promise((resolve) => leute.listen(0, '127.0.0.1', resolve))
-  config = leuteConfig({ LEUTE_URL: `http://127.0.0.1:${leute.address().port}/`, LEUTE_LINK_TOKEN: TOKEN, LEUTE_PUBLIC_URL: 'https://friends.example/' })
+  await new Promise((resolve) => stammtisch.listen(0, '127.0.0.1', resolve))
+  config = stammtischConfig({ STAMMTISCH_URL: `http://127.0.0.1:${stammtisch.address().port}/`, STAMMTISCH_LINK_TOKEN: TOKEN, STAMMTISCH_PUBLIC_URL: 'https://friends.example/' })
 })
-after(async () => { leute.closeAllConnections(); await new Promise((resolve) => leute.close(resolve)); db.close() })
+after(async () => { stammtisch.closeAllConnections(); await new Promise((resolve) => stammtisch.close(resolve)); db.close() })
 
 // --- a fake geocoder: known places, a log of what was asked ---
 const PLACES = {
@@ -41,19 +41,19 @@ async function geocode(text) {
   if (geocoderDown) throw new Error('timeout')
   return PLACES[text] ?? null
 }
-const sync = (extra = {}) => runLeuteSync({ config, geocode, ...extra })
+const sync = (extra = {}) => runStammtischSync({ config, geocode, ...extra })
 
 const friend = (id, name, fields = {}) => ({ id, name, nickname: null, city: null, address: null, archived: false, updated_at: '2026-11-01T10:00:00Z', ...fields })
-const person = (friendId) => db.prepare('SELECT * FROM persons WHERE leute_friend_id=?').get(friendId)
+const person = (friendId) => db.prepare('SELECT * FROM persons WHERE stammtisch_friend_id=?').get(friendId)
 const markerOf = (p) => db.prepare('SELECT * FROM markers WHERE id=?').get(p.address_marker_id)
 const collectionsOf = (markerId) => db.prepare('SELECT c.* FROM collections c JOIN marker_collections mc ON mc.collection_id=c.id WHERE mc.marker_id=?').all(markerId)
 
 beforeEach(() => {
-  db.exec('DELETE FROM trip_waypoints; DELETE FROM markers; DELETE FROM persons; DELETE FROM collections; DELETE FROM app_settings; DELETE FROM leute_ignored; DELETE FROM geocode_cache')
+  db.exec('DELETE FROM trip_waypoints; DELETE FROM markers; DELETE FROM persons; DELETE FROM collections; DELETE FROM app_settings; DELETE FROM stammtisch_ignored; DELETE FROM geocode_cache')
   people = []
   asked = []
   geocoderDown = false
-  leuteHasToken = true
+  stammtischHasToken = true
 })
 
 test('the address text combines address and city, or falls back to the city', () => {
@@ -80,7 +80,7 @@ test('friends with an address are added with a pin in "Freunde"; others are left
   assert.equal(anna.first_name, 'Anna')
   assert.equal(anna.last_name, 'Schmidt')
   const pin = markerOf(anna)
-  assert.deepEqual([pin.lat, pin.lng, pin.address, pin.country, pin.label, pin.source], [52.52, 13.40, 'Hauptstraße 1, Berlin', 'Germany', 'Anna Schmidt', 'leute'])
+  assert.deepEqual([pin.lat, pin.lng, pin.address, pin.country, pin.label, pin.source], [52.52, 13.40, 'Hauptstraße 1, Berlin', 'Germany', 'Anna Schmidt', 'stammtisch'])
   assert.deepEqual(collectionsOf(pin.id).map((c) => c.name), ['Freunde'])
   assert.ok(db.prepare('SELECT 1 FROM marker_persons WHERE marker_id=? AND person_id=?').get(pin.id, anna.id))
   assert.equal(markerOf(person(2)).address, 'Hamburg')
@@ -93,7 +93,7 @@ test('friends with an address are added with a pin in "Freunde"; others are left
   assert.deepEqual([again.added, again.moved, again.unchanged], [[], [], 2])
   assert.deepEqual(asked, [])
   assert.equal(db.prepare('SELECT count(*) AS n FROM markers').get().n, 2)
-  assert.equal(leuteStatus(config).last.unchanged, 2)
+  assert.equal(stammtischStatus(config).last.unchanged, 2)
 })
 
 test('an unlinked person with the same name is linked instead of duplicated, and keeps their pin', async () => {
@@ -108,7 +108,7 @@ test('an unlinked person with the same name is linked instead of duplicated, and
   assert.equal(db.prepare('SELECT count(*) AS n FROM persons').get().n, 2)
   const linked = person(1)
   assert.equal(linked.id, Number(anna))
-  assert.equal(linked.name, 'Anna Schmidt') // the name follows Leute
+  assert.equal(linked.name, 'Anna Schmidt') // the name follows Stammtisch
   assert.equal(linked.address_marker_id, own.id)
   assert.equal(markerOf(linked).lat, 52.5) // the own pin stays
   // Ben had no pin: he gets one
@@ -121,7 +121,7 @@ test('a changed address moves the pin; an unchanged one keeps a pin moved by han
   await sync()
   const pinId = person(1).address_marker_id
 
-  // Moved by hand, and edited: Leute's unchanged address leaves all of it alone
+  // Moved by hand, and edited: Stammtisch's unchanged address leaves all of it alone
   saveMarker({ lat: 52.6, lng: 13.5, label: 'Anna (Hinterhaus)', description: 'Klingel 3' }, pinId)
   asked = []
   let report = await sync()
@@ -130,7 +130,7 @@ test('a changed address moves the pin; an unchanged one keeps a pin moved by han
   let pin = markerOf(person(1))
   assert.deepEqual([pin.lat, pin.lng, pin.label, pin.description], [52.6, 13.5, 'Anna (Hinterhaus)', 'Klingel 3'])
 
-  // Anna moves in Leute: the same pin moves, the user's label and notes stay
+  // Anna moves in Stammtisch: the same pin moves, the user's label and notes stay
   people = [friend(1, 'Anna Schmidt', { address: 'Seestraße 9', city: 'Berlin' })]
   report = await sync()
   assert.deepEqual(report.moved, ['Anna Schmidt'])
@@ -150,25 +150,25 @@ test('a pin shared with another person is not moved; the friend gets a new one',
   assert.equal(db.prepare('SELECT lat FROM markers WHERE id=?').get(shared).lat, 52.52)
 })
 
-test('friends gone from Leute or archived stay, marked as no longer linked, and come back', async () => {
+test('friends gone from Stammtisch or archived stay, marked as no longer linked, and come back', async () => {
   people = [friend(1, 'Anna Schmidt', { address: 'Hauptstraße 1', city: 'Berlin' }), friend(2, 'Ben', { city: 'Hamburg' })]
   await sync()
   people = [friend(2, 'Ben', { city: 'Hamburg', archived: true })]
   const report = await sync()
   assert.deepEqual(report.gone.sort(), ['Anna Schmidt', 'Ben'])
   for (const id of [1, 2]) {
-    assert.equal(person(id).leute_gone, 1)
+    assert.equal(person(id).stammtisch_gone, 1)
     assert.ok(markerOf(person(id)), 'the pin stays')
   }
   // Said once, not on every sync
   assert.deepEqual((await sync()).gone, [])
-  // Unarchived in Leute: linked again
+  // Unarchived in Stammtisch: linked again
   people = [friend(2, 'Ben', { city: 'Hamburg' })]
   assert.deepEqual((await sync()).linked, ['Ben'])
-  assert.equal(person(2).leute_gone, 0)
+  assert.equal(person(2).stammtisch_gone, 0)
 })
 
-test('names follow Leute', async () => {
+test('names follow Stammtisch', async () => {
   people = [friend(1, 'Anna Schmidt', { city: 'Hamburg' })]
   await sync()
   people = [friend(1, 'Anna Müller', { city: 'Hamburg' })]
@@ -186,7 +186,7 @@ test('an address that is not found leaves the person without a pin and is report
   // Still reported on the next sync
   report = await sync()
   assert.deepEqual(report.not_found, [{ name: 'Anna Schmidt', address: 'Nirgendwo 7' }])
-  // Fixed in Leute: placed
+  // Fixed in Stammtisch: placed
   people = [friend(1, 'Anna Schmidt', { address: 'Rue de Rivoli 5', city: 'Paris' })]
   report = await sync()
   assert.deepEqual(report.not_found, [])
@@ -211,7 +211,7 @@ test('a renamed "Freunde" collection keeps being used; a deleted person is not i
   people = [friend(1, 'Anna Schmidt', { address: 'Hauptstraße 1', city: 'Berlin' })]
   await sync()
   const collection = collectionsOf(person(1).address_marker_id)[0]
-  db.prepare("UPDATE collections SET name='Leute' WHERE id=?").run(collection.id)
+  db.prepare("UPDATE collections SET name='Stammtisch' WHERE id=?").run(collection.id)
   people.push(friend(2, 'Ben', { city: 'Hamburg' }))
   await sync()
   assert.deepEqual(collectionsOf(person(2).address_marker_id).map((c) => c.id), [collection.id])
@@ -240,24 +240,24 @@ test('a renamed "Freunde" collection keeps being used; a deleted person is not i
   assert.equal(person(2), undefined)
 })
 
-test('Leute refusing the token or having none is reported, and nothing changes', async () => {
-  db.prepare("INSERT INTO persons (name, first_name, leute_friend_id) VALUES ('Anna', 'Anna', 1)").run()
+test('Stammtisch refusing the token or having none is reported, and nothing changes', async () => {
+  db.prepare("INSERT INTO persons (name, first_name, stammtisch_friend_id) VALUES ('Anna', 'Anna', 1)").run()
   let report = await sync({ config: { ...config, token: 'wrong' } })
   assert.match(report.errors[0], /rejected the link token/)
-  assert.equal(person(1).leute_gone, 0)
-  leuteHasToken = false
+  assert.equal(person(1).stammtisch_gone, 0)
+  stammtischHasToken = false
   report = await sync()
   assert.match(report.errors[0], /no link token/)
   report = await sync({ config: { ...config, url: 'http://127.0.0.1:1' } })
   assert.match(report.errors[0], /can’t be reached/)
 })
 
-test('without LEUTE_URL and token the import is off', () => {
-  assert.equal(leuteConfig({}).enabled, false)
-  assert.equal(leuteConfig({ LEUTE_URL: 'http://leute:3000' }).enabled, false)
-  assert.deepEqual(leuteStatus(leuteConfig({})), { enabled: false })
-  assert.equal(leuteConfig({ LEUTE_URL: 'http://leute:3000', LEUTE_LINK_TOKEN: 'x' }).hours, 6)
-  assert.equal(leuteConfig({ LEUTE_URL: 'http://leute:3000', LEUTE_LINK_TOKEN: 'x', LEUTE_SYNC_HOURS: '12' }).hours, 12)
+test('without STAMMTISCH_URL and token the import is off', () => {
+  assert.equal(stammtischConfig({}).enabled, false)
+  assert.equal(stammtischConfig({ STAMMTISCH_URL: 'http://stammtisch:3000' }).enabled, false)
+  assert.deepEqual(stammtischStatus(stammtischConfig({})), { enabled: false })
+  assert.equal(stammtischConfig({ STAMMTISCH_URL: 'http://stammtisch:3000', STAMMTISCH_LINK_TOKEN: 'x' }).hours, 6)
+  assert.equal(stammtischConfig({ STAMMTISCH_URL: 'http://stammtisch:3000', STAMMTISCH_LINK_TOKEN: 'x', STAMMTISCH_SYNC_HOURS: '12' }).hours, 12)
 })
 
 test('the Nominatim geocoder sends a User-Agent, waits between requests and caches by query', async () => {

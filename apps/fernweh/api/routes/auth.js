@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto'
 import db from '../db.js'
 import { requireAuth, ownLoginOnly, proxySecret } from '../middleware/auth.js'
 import { setAuthCookie, clearAuthCookie } from '../utils/session.js'
+import { checkSetupCode, forgetSetupCode } from '../utils/setupCode.js'
 
 const router = Router()
 
@@ -19,7 +20,9 @@ router.post('/setup', ownLoginOnly, async (req, res, next) => {
     const existing = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get()
     if (existing) return res.status(409).json({ error: 'Already set up' })
 
-    const { password } = req.body
+    const { password, setupCode } = req.body
+    // Attempts count against the sign-in rate limit (api/index.js), like wrong passwords.
+    if (!checkSetupCode(setupCode)) return res.status(403).json({ error: 'Wrong set-up code. The server prints it to its log on start.' })
     if (typeof password !== 'string' || password.length < 12 || Buffer.byteLength(password) > 72) {
       return res.status(400).json({ error: 'Password must be at least 12 characters and at most 72 bytes' })
     }
@@ -28,6 +31,7 @@ router.post('/setup', ownLoginOnly, async (req, res, next) => {
     const version = randomBytes(32).toString('hex')
     const result = db.prepare('INSERT INTO users (password_hash, session_version) SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)').run(hash, version)
     if (!result.changes) return res.status(409).json({ error: 'Already set up' })
+    forgetSetupCode()
     setAuthCookie(res, { sub: result.lastInsertRowid, version })
     res.json({ ok: true })
   } catch (err) { next(err) }

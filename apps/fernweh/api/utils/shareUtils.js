@@ -16,12 +16,19 @@ export function parseShareFilter(json) {
   } catch { return null }
 }
 
+// A person's home (their address marker, e.g. from the Stammtisch import) carries a friend's full
+// name and address. "All markers", a category or a collection such as "Freunde" leave it out; it is
+// shared only when the link selects that person (not possible with "All markers"), or names the
+// marker itself. The parameter is the selected persons.
+const PRIVATE_ADDRESS = `m.id IN (SELECT address_marker_id FROM persons WHERE address_marker_id IS NOT NULL)
+  AND m.id NOT IN (SELECT address_marker_id FROM persons WHERE address_marker_id IS NOT NULL AND id IN (SELECT value FROM json_each(?)))`
+
 export function resolveMarkerIds(filter) {
-  if (filter.all) return db.prepare('SELECT id FROM markers').all().map(r => r.id)
+  if (filter.all) return db.prepare(`SELECT m.id FROM markers m WHERE NOT (${PRIVATE_ADDRESS})`).all('[]').map(r => r.id)
   const ids = key => JSON.stringify(Array.isArray(filter[key]) ? filter[key].filter(Number.isInteger) : [])
   const linked = (junction, fk) => `EXISTS (SELECT 1 FROM ${junction} j WHERE j.marker_id = m.id AND j.${fk} IN (SELECT value FROM json_each(?)))`
-  return db.prepare(`SELECT m.id FROM markers m WHERE ${linked('marker_categories', 'category_id')} OR ${linked('marker_collections', 'collection_id')} OR ${linked('marker_persons', 'person_id')} OR m.id IN (SELECT value FROM json_each(?))`)
-    .all(ids('categories'), ids('collections'), ids('persons'), ids('markers')).map(r => r.id)
+  return db.prepare(`SELECT m.id FROM markers m WHERE ((${linked('marker_categories', 'category_id')} OR ${linked('marker_collections', 'collection_id')} OR ${linked('marker_persons', 'person_id')}) AND NOT (${PRIVATE_ADDRESS})) OR m.id IN (SELECT value FROM json_each(?))`)
+    .all(ids('categories'), ids('collections'), ids('persons'), ids('persons'), ids('markers')).map(r => r.id)
 }
 
 // A link reveals only the groups its filter selects, so private names and descriptions of other

@@ -123,8 +123,8 @@
               class="open-maps-link"
             >Open in Maps <AppIcon name="externalLink" /></a>
           </div>
-          <div v-for="b in leuteLinks" :key="b.url" class="meta-row">
-            <a :href="b.url" target="_blank" rel="noopener" class="open-maps-link">{{ leuteLinks.length > 1 ? `${b.name} in Leute` : 'Open in Leute' }} <AppIcon name="externalLink" /></a>
+          <div v-for="b in stammtischLinks" :key="b.url" class="meta-row">
+            <a :href="b.url" target="_blank" rel="noopener" class="open-maps-link">{{ stammtischLinks.length > 1 ? `${b.name} in Stammtisch` : 'Open in Stammtisch' }} <AppIcon name="externalLink" /></a>
           </div>
         </div>
 
@@ -381,7 +381,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
-import { leuteFriendUrl } from '../composables/useLeute.js'
+import { stammtischFriendUrl } from '../composables/useStammtisch.js'
 import { copyText } from '../utils/clipboard.js'
 import { useCategoriesStore } from '../stores/categories.js'
 import { useCollectionsStore } from '../stores/collections.js'
@@ -469,10 +469,10 @@ const selectedCollections = computed(() =>
 const recent = recentPicks()
 const collectionChoices = computed(() => recentFirst(collectionsStore.items, recent.collection_ids))
 const categoryChoices = computed(() => recentFirst(categoriesStore.items, recent.category_ids))
-// The marker is the address of friends from Leute: links to them there
-const leuteLinks = computed(() => props.marker?.id == null ? [] : personsStore.items
+// The marker is the address of friends from Stammtisch: links to them there
+const stammtischLinks = computed(() => props.marker?.id == null ? [] : personsStore.items
   .filter((p) => p.address_marker_id === props.marker.id)
-  .map((p) => ({ name: p.name, url: leuteFriendUrl(p) }))
+  .map((p) => ({ name: p.name, url: stammtischFriendUrl(p) }))
   .filter((b) => b.url))
 const personChoices = computed(() => recentFirst(personsStore.items, recent.person_ids))
 

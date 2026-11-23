@@ -241,7 +241,7 @@ test('public share recovers from network errors and reloads when token changes',
   await new Promise(resolve => setTimeout(resolve, 5))
   assert.equal(state.state, 'error')
   assert.equal(state.loading, false)
-  globalThis.fetch = async () => response({ requiresPassword: true, meta: { name: 'Protected' } }, 401)
+  globalThis.fetch = async () => response({ requiresPassword: true, meta: { token: 'first' } }, 401)
   await state.requestShare()
   assert.equal(state.state, 'password')
   state.passwordInput = 'test-password'

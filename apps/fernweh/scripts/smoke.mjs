@@ -6,6 +6,7 @@ process.env.RESET_PASSWORD = ''
 process.env.PORT = '0'
 process.env.NODE_ENV = 'production'
 const { server } = await import('../api/index.js')
+const { announceSetupCode } = await import('../api/utils/setupCode.js')
 if (!server.listening) await new Promise(resolve => server.once('listening', resolve))
 const base = `http://localhost:${server.address().port}`
 try {
@@ -31,8 +32,12 @@ try {
   assert.equal((await fetch(base + '/api/health')).status, 200)
   assert.equal((await fetch(base + '/api/unknown')).status, 404)
   assert.equal((await fetch(base + '/api/markers')).status, 401)
-  assert.equal((await fetch(base + '/api/leute')).status, 401)
-  const setup = await fetch(base + '/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'smoke-test-password' }) })
+  assert.equal((await fetch(base + '/api/stammtisch')).status, 401)
+  const setupBody = { password: 'smoke-test-password' }
+  assert.equal((await fetch(base + '/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(setupBody) })).status, 403)
+  // The code the server printed on start
+  setupBody.setupCode = announceSetupCode()
+  const setup = await fetch(base + '/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(setupBody) })
   assert.equal(setup.status, 200)
   assert.match(setup.headers.get('set-cookie'), /; Secure/)
   const cookie = setup.headers.get('set-cookie').split(';')[0]

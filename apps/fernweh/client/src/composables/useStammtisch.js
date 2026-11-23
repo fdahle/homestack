@@ -1,5 +1,5 @@
-// The import of friends from Leute (api/utils/leute.js). Off and invisible unless the server
-// has LEUTE_URL and LEUTE_LINK_TOKEN; the status is loaded once and shared.
+// The import of friends from Stammtisch (api/utils/stammtisch.js). Off and invisible unless the server
+// has STAMMTISCH_URL and STAMMTISCH_LINK_TOKEN; the status is loaded once and shared.
 import { computed, ref } from 'vue'
 import { apiJson } from '../api.js'
 import { useMarkersStore } from '../stores/markers.js'
@@ -12,23 +12,23 @@ const syncError = ref('')
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-export async function loadLeuteStatus() {
+export async function loadStammtischStatus() {
   try {
-    status.value = await apiJson('/api/leute')
+    status.value = await apiJson('/api/stammtisch')
   } catch {
     status.value ??= { enabled: false }
   }
   return status.value
 }
 
-// Link to the friend's page in Leute, or null (not linked, gone from Leute, or no LEUTE_PUBLIC_URL)
-export function leuteFriendUrl(person) {
+// Link to the friend's page in Stammtisch, or null (not linked, gone from Stammtisch, or no STAMMTISCH_PUBLIC_URL)
+export function stammtischFriendUrl(person) {
   const base = status.value?.enabled && status.value.publicUrl
-  if (!base || person?.leute_friend_id == null || person.leute_gone) return null
-  return `${base}/friend/${encodeURIComponent(person.leute_friend_id)}`
+  if (!base || person?.stammtisch_friend_id == null || person.stammtisch_gone) return null
+  return `${base}/friend/${encodeURIComponent(person.stammtisch_friend_id)}`
 }
 
-export function useLeute() {
+export function useStammtisch() {
   const enabled = computed(() => Boolean(status.value?.enabled))
   const last = computed(() => status.value?.last ?? null)
 
@@ -39,10 +39,10 @@ export function useLeute() {
     syncing.value = true
     syncError.value = ''
     try {
-      status.value = await apiJson('/api/leute/sync', { method: 'POST' })
+      status.value = await apiJson('/api/stammtisch/sync', { method: 'POST' })
       while (status.value?.running) {
         await wait(1500)
-        status.value = await apiJson('/api/leute')
+        status.value = await apiJson('/api/stammtisch')
       }
       await Promise.all([usePersonsStore().fetch(), useMarkersStore().fetch(), useCollectionsStore().fetch()])
     } catch (err) {
@@ -52,5 +52,5 @@ export function useLeute() {
     }
   }
 
-  return { status, enabled, last, syncing, syncError, syncNow, load: loadLeuteStatus }
+  return { status, enabled, last, syncing, syncError, syncNow, load: loadStammtischStatus }
 }

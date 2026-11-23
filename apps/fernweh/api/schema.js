@@ -15,14 +15,15 @@ const MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS trip_waypoints_from ON trip_waypoints (from_marker_id);
     CREATE INDEX IF NOT EXISTS trip_waypoints_to ON trip_waypoints (to_marker_id);
     CREATE INDEX IF NOT EXISTS persons_address_marker ON persons (address_marker_id);`) },
-  { version: 6, up: leuteLink },
+  { version: 6, up: friendsLink },
+  { version: 7, up: renameToStammtisch },
 ]
 
-// Friends imported from Leute (api/utils/leute.js): the friend a person comes from, the address
-// text the last sync placed (only a changed text moves the pin again), whether that address was
-// found, and whether the friend is still in Leute. Plus small server-side settings and the cache
-// of geocoded addresses.
-function leuteLink(db) {
+// Friends imported from Stammtisch (api/utils/stammtisch.js): the friend a person comes from, the
+// address text the last sync placed (only a changed text moves the pin again), whether that address
+// was found, and whether the friend is still in Stammtisch. Plus small server-side settings and the
+// cache of geocoded addresses. Stammtisch was called Leute then; version 7 renames what this made.
+function friendsLink(db) {
   db.exec(`
     ALTER TABLE persons ADD COLUMN leute_friend_id INTEGER;
     ALTER TABLE persons ADD COLUMN leute_address TEXT;
@@ -32,6 +33,21 @@ function leuteLink(db) {
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE IF NOT EXISTS geocode_cache (query TEXT PRIMARY KEY, lat REAL, lng REAL, address TEXT, country TEXT, fetched_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS leute_ignored (friend_id INTEGER PRIMARY KEY);`)
+}
+
+// Leute → Stammtisch: the columns, table, index and settings of version 6, and the source of the
+// address pins the sync made.
+function renameToStammtisch(db) {
+  db.exec(`
+    DROP INDEX IF EXISTS persons_leute_friend;
+    ALTER TABLE persons RENAME COLUMN leute_friend_id TO stammtisch_friend_id;
+    ALTER TABLE persons RENAME COLUMN leute_address TO stammtisch_address;
+    ALTER TABLE persons RENAME COLUMN leute_address_found TO stammtisch_address_found;
+    ALTER TABLE persons RENAME COLUMN leute_gone TO stammtisch_gone;
+    CREATE UNIQUE INDEX IF NOT EXISTS persons_stammtisch_friend ON persons (stammtisch_friend_id);
+    ALTER TABLE leute_ignored RENAME TO stammtisch_ignored;
+    UPDATE app_settings SET key = 'stammtisch' || substr(key, 6) WHERE key IN ('leute_last_sync', 'leute_collection_id');
+    UPDATE markers SET source = 'stammtisch' WHERE source = 'leute';`)
 }
 
 export function initializeDatabase(db) {

@@ -14,11 +14,13 @@ services:
       - TRUST_PROXY=${TRUST_PROXY:-1}
       # Set to sign in through the homestack login (Authelia) instead of Fernweh's password (README.md)
       - AUTH_PROXY_SECRET=${AUTH_PROXY_SECRET:-}
-      # Friends and their addresses from Leute; off while LEUTE_URL or LEUTE_LINK_TOKEN is empty (README.md)
-      - LEUTE_URL=${LEUTE_URL:-}
-      - LEUTE_LINK_TOKEN=${LEUTE_LINK_TOKEN:-}
-      - LEUTE_PUBLIC_URL=${LEUTE_PUBLIC_URL:-}
-      - LEUTE_SYNC_HOURS=${LEUTE_SYNC_HOURS:-6}
+      # Only these homestack logins (comma-separated) may use it; empty: whoever Authelia lets through
+      - AUTH_PROXY_USERS=${AUTH_PROXY_USERS:-}
+      # Friends and their addresses from Stammtisch; off while STAMMTISCH_URL or STAMMTISCH_LINK_TOKEN is empty (README.md)
+      - STAMMTISCH_URL=${STAMMTISCH_URL:-}
+      - STAMMTISCH_LINK_TOKEN=${STAMMTISCH_LINK_TOKEN:-}
+      - STAMMTISCH_PUBLIC_URL=${STAMMTISCH_PUBLIC_URL:-}
+      - STAMMTISCH_SYNC_HOURS=${STAMMTISCH_SYNC_HOURS:-6}
       - TZ=${TZ:-Europe/Berlin}
     init: true
     restart: unless-stopped

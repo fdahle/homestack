@@ -206,34 +206,34 @@
         <!-- ── Data ── -->
         <template v-if="tab === 'data'">
 
-          <!-- Friends from Leute (only when the server has the link set up) -->
-          <div v-if="leute.enabled.value" class="data-group leute-group">
-            <div class="group-label">Friends from Leute</div>
+          <!-- Friends from Stammtisch (only when the server has the link set up) -->
+          <div v-if="stammtisch.enabled.value" class="data-group stammtisch-group">
+            <div class="group-label">Friends from Stammtisch</div>
             <p class="hint">
-              Friends with an address in Leute become persons here, their address a pin in the collection “Freunde”.
-              Runs every {{ leute.status.value.every_hours }} hours. A pin you move stays put until the address changes in Leute; nothing is deleted here when a friend leaves Leute.
+              Friends with an address in Stammtisch become persons here, their address a pin in the collection “Freunde”.
+              Runs every {{ stammtisch.status.value.every_hours }} hours. A pin you move stays put until the address changes in Stammtisch; nothing is deleted here when a friend leaves Stammtisch.
             </p>
-            <div class="leute-row">
-              <button type="button" class="btn-secondary" :disabled="leute.syncing.value" @click="leute.syncNow()">
-                {{ leute.syncing.value ? 'Syncing…' : 'Sync now' }}
+            <div class="stammtisch-row">
+              <button type="button" class="btn-secondary" :disabled="stammtisch.syncing.value" @click="stammtisch.syncNow()">
+                {{ stammtisch.syncing.value ? 'Syncing…' : 'Sync now' }}
               </button>
-              <span v-if="leuteLast" class="leute-when">Last sync {{ leuteWhen }}</span>
-              <span v-else-if="!leute.syncing.value" class="leute-when">Not synced yet</span>
+              <span v-if="stammtischLast" class="stammtisch-when">Last sync {{ stammtischWhen }}</span>
+              <span v-else-if="!stammtisch.syncing.value" class="stammtisch-when">Not synced yet</span>
             </div>
-            <p v-if="leute.syncError.value" class="msg error">{{ leute.syncError.value }}</p>
-            <template v-if="leuteLast">
-              <ul class="leute-counts">
-                <li v-for="c in leuteCounts" :key="c.label" :class="{ zero: !c.n }"><strong>{{ c.n }}</strong> {{ c.label }}</li>
+            <p v-if="stammtisch.syncError.value" class="msg error">{{ stammtisch.syncError.value }}</p>
+            <template v-if="stammtischLast">
+              <ul class="stammtisch-counts">
+                <li v-for="c in stammtischCounts" :key="c.label" :class="{ zero: !c.n }"><strong>{{ c.n }}</strong> {{ c.label }}</li>
               </ul>
-              <p v-if="leuteLast.gone.length" class="msg warn">
-                No longer in Leute (kept here, no longer linked): {{ leuteLast.gone.join(', ') }}
+              <p v-if="stammtischLast.gone.length" class="msg warn">
+                No longer in Stammtisch (kept here, no longer linked): {{ stammtischLast.gone.join(', ') }}
               </p>
-              <div v-if="leuteLast.not_found.length" class="msg warn">
+              <div v-if="stammtischLast.not_found.length" class="msg warn">
                 Addresses not found, so no pin:
-                <ul><li v-for="f in leuteLast.not_found" :key="f.name">{{ f.name }} — {{ f.address }}</li></ul>
+                <ul><li v-for="f in stammtischLast.not_found" :key="f.name">{{ f.name }} — {{ f.address }}</li></ul>
               </div>
-              <div v-if="leuteLast.errors.length" class="msg error">
-                <ul><li v-for="(e, i) in leuteLast.errors" :key="i">{{ e }}</li></ul>
+              <div v-if="stammtischLast.errors.length" class="msg error">
+                <ul><li v-for="(e, i) in stammtischLast.errors" :key="i">{{ e }}</li></ul>
               </div>
             </template>
           </div>
@@ -368,7 +368,7 @@ import { usePersonsStore } from '../stores/persons.js'
 import { useImportExport } from '../composables/useImportExport.js'
 import { useStyleStore } from '../stores/style.js'
 import { useDialog } from '../composables/useDialog.js'
-import { useLeute } from '../composables/useLeute.js'
+import { useStammtisch } from '../composables/useStammtisch.js'
 
 const TILE_OPTIONS = Object.entries(TILES).map(([key, tile]) => ({ key, ...tile }))
 
@@ -409,7 +409,7 @@ const gpsLoading = ref(false)
 const gpsError   = ref('')
 
 onMounted(() => {
-  leute.load()
+  stammtisch.load()
   try {
     const s = loadSettings()
     form.value              = { lat: s.lat ?? 20, lng: s.lng ?? 0, zoom: s.zoom ?? 2 }
@@ -470,15 +470,15 @@ function setTheme(key) {
   try { const s = loadSettings(); s.theme = key; saveSettings(s) } catch {}
 }
 
-// ── Leute ─────────────────────────────────────────────────
-const leute = useLeute()
-const leuteLast = computed(() => leute.last.value)
-const leuteWhen = computed(() => {
-  const at = leuteLast.value?.finished_at
+// ── Stammtisch ─────────────────────────────────────────────────
+const stammtisch = useStammtisch()
+const stammtischLast = computed(() => stammtisch.last.value)
+const stammtischWhen = computed(() => {
+  const at = stammtischLast.value?.finished_at
   return at ? new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''
 })
-const leuteCounts = computed(() => {
-  const l = leuteLast.value
+const stammtischCounts = computed(() => {
+  const l = stammtischLast.value
   if (!l) return []
   return [
     { n: l.added.length, label: 'added' },
@@ -925,13 +925,13 @@ h2 { font-size: 16px; font-weight: 700; }
 }
 .data-group:last-child { margin-bottom: 0; }
 
-.leute-group { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
-.leute-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.leute-when { font-size: 12px; color: var(--text-2); }
-.leute-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; margin: 12px 0 0; font-size: 12.5px; color: var(--text); }
-.leute-counts li.zero { color: var(--text-2); }
-.leute-group .msg { margin: 10px 0 0; }
-.leute-group .msg ul { margin: 4px 0 0 18px; }
+.stammtisch-group { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.stammtisch-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.stammtisch-when { font-size: 12px; color: var(--text-2); }
+.stammtisch-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; margin: 12px 0 0; font-size: 12.5px; color: var(--text); }
+.stammtisch-counts li.zero { color: var(--text-2); }
+.stammtisch-group .msg { margin: 10px 0 0; }
+.stammtisch-group .msg ul { margin: 4px 0 0 18px; }
 
 .hint {
   font-size: 12px;

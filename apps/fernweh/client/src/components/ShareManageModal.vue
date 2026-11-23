@@ -55,7 +55,7 @@
           </div>
 
           <div class="field" role="group" aria-labelledby="share-what-label">
-            <label id="share-what-label">What to share</label><p class="hint-text">Matching markers are shared with their descriptions and images. Viewers only see the categories, collections and persons selected here ("All markers" shows categories and collections, but no persons). Ratings, favorites and planned dates are never shared.</p>
+            <label id="share-what-label">What to share</label><p class="hint-text">Matching markers are shared with their descriptions and images. Viewers only see the categories, collections and persons selected here ("All markers" shows categories and collections, but no persons). A person's home address is only shared when that person is selected. Ratings, favorites and planned dates are never shared.</p>
             <label class="checkbox-label bold-label">
               <input type="checkbox" v-model="form.filter.all" />
               All markers

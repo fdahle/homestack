@@ -48,11 +48,13 @@ export const useAuthStore = defineStore('auth', {
       await this.checkSession()
     },
 
-    async setup(password) {
+    // setupCode: printed to the server's log on start, so only someone with access to the server
+    // can choose the first password.
+    async setup(password, setupCode) {
       const res = await apiFetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, setupCode }),
       })
       if (!res.ok) {
         const data = await res.json()

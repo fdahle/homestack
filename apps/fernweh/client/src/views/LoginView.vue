@@ -5,6 +5,18 @@
       <h1>Fernweh</h1>
 
       <form @submit.prevent="submit">
+        <div v-if="authStore.setupRequired" class="field">
+          <label for="setup-code">Set-up code</label>
+          <input
+            id="setup-code"
+            v-model="setupCode"
+            placeholder="From the server log"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            required
+          />
+        </div>
         <div class="field">
           <label>{{ authStore.setupRequired ? 'Create Password' : 'Password' }}</label>
           <div class="input-wrap">
@@ -39,7 +51,8 @@
       </form>
 
       <p v-if="authStore.setupRequired" class="hint">
-        First time setup — set a password to protect your map.
+        First time setup — set a password to protect your map. The set-up code is in the server’s log
+        (<code>docker compose logs app</code>); a new one comes with every restart.
       </p>
     </div>
   </div>
@@ -58,6 +71,7 @@ const route = useRoute()
 const redirect = typeof route.query.redirect === 'string' && /^\/(?!\/)/.test(route.query.redirect) ? route.query.redirect : '/'
 
 const password = ref('')
+const setupCode = ref('')
 const showPassword = ref(false)
 const error = ref(null)
 const loading = ref(true)
@@ -89,7 +103,7 @@ async function submit() {
   loading.value = true
   try {
     if (authStore.setupRequired) {
-      await authStore.setup(password.value)
+      await authStore.setup(password.value, setupCode.value)
     } else {
       await authStore.login(password.value)
     }
@@ -160,6 +174,11 @@ h1 {
 
 .input-wrap {
   position: relative;
+}
+
+.field > input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .input-wrap input {

@@ -43,13 +43,12 @@ async function shareData(req, res, next) {
       return res.status(410).json({ error: 'This share link has expired' })
     }
 
-    const meta = { name: link.name, token: link.token }
-
     if (link.password_hash) {
       // POST bodies carry any Unicode password; the header is kept for already-open older pages.
       const provided = req.method === 'POST' ? req.body?.password : req.headers['x-share-password']
       if (typeof provided !== 'string' || !provided) {
-        return res.status(401).json({ requiresPassword: true, meta })
+        // Not even the link's name before the password: the page shows a general title instead.
+        return res.status(401).json({ requiresPassword: true, meta: { token: link.token } })
       }
       const client = clientKey(req.ip)
       const locked = lockedOut(link.token, client)
@@ -70,7 +69,7 @@ async function shareData(req, res, next) {
 
     const filter = parseShareFilter(link.filter_json)
     if (!filter) return res.status(500).json({ error: 'Internal server error' })
-    res.json({ meta, ...buildSharePayload(filter) })
+    res.json({ meta: { name: link.name, token: link.token }, ...buildSharePayload(filter) })
   } catch (err) {
     next(err)
   }

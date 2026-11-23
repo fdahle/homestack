@@ -9,6 +9,7 @@ import { initializeDatabase } from '../schema.js'
 process.env.MAPPER_DB_PATH = ':memory:'
 process.env.SESSION_SECRET = 'regression-test-secret-'.repeat(3)
 const { default: db } = await import('../db.js')
+const { announceSetupCode } = await import('../utils/setupCode.js')
 const app = express()
 // Lets tests act as different clients through X-Forwarded-For; without the header req.ip is the socket.
 app.set('trust proxy', 1)
@@ -108,12 +109,17 @@ test('trip updates validate the final positions and save modes atomically', asyn
   assert.equal((await request('markers')).data.find(m => m.id === a.id).collections[0].position, 1)
   assert.equal((await request(`collections/${trip.id}/route`, 'PUT', { positions, segments: [segment] })).status, 200)
   assert.equal((await request(`collections/${trip.id}/segments`)).data[0].mode, 'bike')
+  // Only the legs: the stop numbers stay as they are
+  assert.equal((await request(`collections/${trip.id}/route`, 'PUT', { segments: [{ ...segment, mode: 'walk' }] })).status, 200)
+  assert.equal((await request(`collections/${trip.id}/segments`)).data[0].mode, 'walk')
+  assert.equal((await request('markers')).data.find(m => m.id === a.id).collections[0].position, 2)
 })
 
 test('setup is single-user under concurrency and old sessions fail after password change/reset', async () => {
   db.exec('DELETE FROM users')
   const password = 'review-password-alpha'
-  const results = await Promise.all([request('auth/setup', 'POST', { password }, ''), request('auth/setup', 'POST', { password }, '')])
+  const setupCode = announceSetupCode()
+  const results = await Promise.all([request('auth/setup', 'POST', { password, setupCode }, ''), request('auth/setup', 'POST', { password, setupCode }, '')])
   assert.deepEqual(results.map(r => r.status).sort(), [200, 409])
   assert.equal(db.prepare('SELECT count(*) AS n FROM users').get().n, 1)
   const old = results.find(r => r.status === 200).cookie
@@ -123,8 +129,22 @@ test('setup is single-user under concurrency and old sessions fail after passwor
   assert.equal((await request('markers', 'GET', undefined, changed.cookie)).status, 200)
   db.exec('DELETE FROM users')
   assert.equal((await request('markers', 'GET', undefined, changed.cookie)).status, 401)
-  await request('auth/setup', 'POST', { password }, '')
+  assert.equal((await request('auth/setup', 'POST', { password, setupCode: announceSetupCode() }, '')).status, 200)
   assert.equal((await request('markers', 'GET', undefined, changed.cookie)).status, 401)
+})
+
+test('the first password needs the set-up code from the server log, once', async () => {
+  db.exec('DELETE FROM users')
+  const password = 'review-password-alpha'
+  assert.equal((await request('auth/setup', 'POST', { password }, '')).status, 403)
+  assert.equal((await request('auth/setup', 'POST', { password, setupCode: 'WRONGCODE2' }, '')).status, 403)
+  const setupCode = announceSetupCode()
+  assert.match(setupCode, /^[A-HJ-NP-Z2-9]{10}$/)
+  assert.equal(announceSetupCode(), setupCode, 'the same code until it is used')
+  assert.equal((await request('auth/setup', 'POST', { password, setupCode: setupCode.toLowerCase() }, '')).status, 200)
+  assert.equal(announceSetupCode(), null, 'no code once a password is set')
+  db.exec('DELETE FROM users')
+  assert.equal((await request('auth/setup', 'POST', { password, setupCode }, '')).status, 403, 'a used code is gone')
 })
 
 test('batch imports report valid and invalid rows and enforce a bound', async () => {
@@ -145,6 +165,34 @@ test('public shares expose a fixed projection without private person address ref
   assert.equal(data.persons[0].first_name, 'Review')
   assert.equal(Object.hasOwn(data.persons[0], 'address_marker_id'), false)
   assert.equal(Object.hasOwn(data.markers[0].persons[0], 'address_marker_id'), false)
+})
+
+test('friends’ home addresses stay out of shares unless the link selects that person', async () => {
+  const friends = (await request('collections', 'POST', { name: 'Freunde' })).data
+  const home = (await request('markers', 'POST', { ...marker, label: 'Anna Schmidt', address: 'Hauptstr. 1', collection_ids: [friends.id] })).data
+  await request('markers', 'POST', { ...marker, label: 'Cafe', collection_ids: [friends.id] })
+  const anna = (await request('persons', 'POST', { first_name: 'Anna', last_name: 'Schmidt', address_marker_id: home.id })).data
+  const other = (await request('persons', 'POST', { first_name: 'Ben' })).data
+  await request('markers/' + home.id, 'PATCH', { person_ids: [anna.id] })
+  const load = async filter => (await request(`public/share/${(await request('share-links', 'POST', { filter })).data.token}/data`, 'GET', undefined, '')).data
+  for (const filter of [{ all: true }, { all: true, persons: [anna.id] }, { collections: [friends.id] }, { collections: [friends.id], persons: [other.id] }]) {
+    const data = await load(filter)
+    assert.deepEqual(data.markers.map(m => m.label), ['Cafe'], JSON.stringify(filter))
+    assert.doesNotMatch(JSON.stringify(data), /Anna|Hauptstr/)
+  }
+  assert.deepEqual((await load({ collections: [friends.id], persons: [anna.id] })).markers.map(m => m.label).sort(), ['Anna Schmidt', 'Cafe'])
+  assert.deepEqual((await load({ markers: [home.id] })).markers.map(m => m.label), ['Anna Schmidt'])
+  assert.equal((await request('share-links')).data.find(l => l.filter.all).markerCount, 1)
+})
+
+test('a password-protected share shows nothing, not even its name, before the password', async () => {
+  const saved = (await request('markers', 'POST', marker)).data
+  const share = (await request('share-links', 'POST', { name: 'Secret trip', filter: { markers: [saved.id] }, password: 'correct horse' })).data
+  const locked = await request(`public/share/${share.token}/data`, 'GET', undefined, '')
+  assert.equal(locked.status, 401)
+  assert.equal(locked.data.requiresPassword, true)
+  assert.doesNotMatch(JSON.stringify(locked.data), /Secret trip/)
+  assert.equal((await request(`public/share/${share.token}/data`, 'POST', { password: 'correct horse' }, '')).data.meta.name, 'Secret trip')
 })
 
 test('legacy trip migrations are transactional, preserve links and only run once', () => {
