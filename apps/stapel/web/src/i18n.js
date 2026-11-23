@@ -78,6 +78,7 @@ const de = {
     sortName: 'Name',
     sortRecent: 'Zuletzt hinzugefügt',
     sortProgress: 'Vollständigkeit',
+    sortRandom: 'Zufällig',
     filter: { all: 'Alle', incomplete: 'Lückenhaft', complete: 'Komplett', unread: 'Ungelesenes' },
     ownedOf: '{owned} von {total}',
     readCount: '{n} gelesen',
@@ -261,7 +262,8 @@ const de = {
     image_required: 'Kein Bild erhalten.',
     too_large: 'Das ist zu groß.',
     too_many_attempts: 'Zu viele Anmeldeversuche. Bitte in 15 Minuten nochmal.',
-    used_by_others: 'Andere haben hier schon etwas markiert. Löschen kann das nur ein Admin.',
+    used_by_others: 'Andere haben hier schon etwas markiert. Löschen oder ersetzen kann das nur ein Admin.',
+    too_many_issues: 'Eine Serie kann höchstens 5000 Hefte haben.',
   },
 };
 
@@ -339,6 +341,7 @@ const en = {
     sortName: 'Name',
     sortRecent: 'Recently added',
     sortProgress: 'Completeness',
+    sortRandom: 'Random',
     filter: { all: 'All', incomplete: 'Has gaps', complete: 'Complete', unread: 'Unread' },
     ownedOf: '{owned} of {total}',
     readCount: '{n} read',
@@ -522,7 +525,8 @@ const en = {
     image_required: 'No image received.',
     too_large: 'That is too large.',
     too_many_attempts: 'Too many login attempts. Please try again in 15 minutes.',
-    used_by_others: 'Others have marked something here. Only an admin can delete it.',
+    used_by_others: 'Others have marked something here. Only an admin can delete or replace it.',
+    too_many_issues: 'A series can have at most 5000 issues.',
   },
 };
 

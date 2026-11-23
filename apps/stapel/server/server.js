@@ -24,10 +24,10 @@ const LANGS = ['de', 'en'];
 
 mountAccount(app, { auth, users: store.users, protect: ['/api', '/covers'], me: (user) => ({ is_admin: store.isAdmin(user.id) }) });
 
-// The first account is the admin (also the first one Authelia brings, behind a login proxy).
+// The first account is the admin (also the first one Authelia brings, behind a login proxy);
+// db.js decides that when accounts are made and at startup, not here per request.
 // req.user.is_admin: admins may also delete what others have marked.
 app.use('/api', (req, res, next) => {
-  if (!store.hasAdmin()) store.setAdmin(req.user.id);
   req.user.is_admin = store.isAdmin(req.user.id);
   next();
 });
@@ -125,6 +125,9 @@ app.post('/api/series', (req, res) => {
   res.json({ id: seriesId });
 });
 
+// The most issues a series can get by adding them by hand (also the most per request)
+const MAX_ISSUES_PER_SERIES = 5000;
+
 // "1-5, 7, 9a" → ['1','2','3','4','5','7','9a'] (at most 5000)
 function expandNumbers(text) {
   const out = [];
@@ -132,8 +135,8 @@ function expandNumbers(text) {
     const range = /^(\d+)-(\d+)$/.exec(part);
     if (range) {
       const [a, b] = [Number(range[1]), Number(range[2])].sort((x, y) => x - y);
-      for (let n = a; n <= b && out.length < 5000; n++) out.push(String(n));
-    } else if (out.length < 5000) out.push(part);
+      for (let n = a; n <= b && out.length < MAX_ISSUES_PER_SERIES; n++) out.push(String(n));
+    } else if (out.length < MAX_ISSUES_PER_SERIES) out.push(part);
   }
   return out;
 }
@@ -171,6 +174,10 @@ app.post('/api/series/:id/comicvine', route(async (req, res) => {
   if (!series) return;
   const volumeId = req.body.volumeId == null ? null : id(req.body.volumeId);
   if (Number.isNaN(volumeId)) return res.status(400).json({ error: 'bad_request' });
+  // Relinking throws away the series' Comic Vine covers for everyone, so once a link has
+  // been decided and others use the series, only an admin may change it (like deleting)
+  const decided = series.cv_volume_id || series.cv_state === 'none';
+  if (decided && !req.user.is_admin && store.seriesUsedByOthers(series.id, req.user.id)) return res.status(403).json({ error: 'used_by_others' });
   await linkVolume(series.id, volumeId ? await getVolume(volumeId) : null);
   res.json(seriesCvStatus(series.id));
 }));
@@ -217,6 +224,8 @@ app.post('/api/series/:id/issues', (req, res) => {
   if (!series) return;
   const numbers = expandNumbers(String(req.body.numbers || ''));
   if (!numbers.length) return res.status(400).json({ error: 'numbers_required' });
+  // The catalogue is shared, so a series can't be made to grow without end
+  if (store.countIssuesOfSeries(series.id) + numbers.length > MAX_ISSUES_PER_SERIES) return res.status(400).json({ error: 'too_many_issues' });
   const title = numbers.length === 1 ? String(req.body.title || '').trim() : '';
   const ids = store.addCustomIssues(series.id, numbers.map((number) => ({ number, title, variant: String(req.body.variant || '').trim() })));
   res.json({ ids });
@@ -296,11 +305,15 @@ app.post('/api/issues/:id/refresh', route(async (req, res) => {
   res.json(store.getIssueForUser(issue.id, req.user.id));
 }));
 
-app.put('/api/issues/:id/cover', express.raw({ type: 'image/*', limit: '15mb' }), route(async (req, res) => {
+// A photo as the cover. The browser makes it small first (900 px high, JPEG), so 5 MB is
+// plenty; catalog.js checks the bytes really are a picture. Replacing a cover on an issue
+// others have marked is, like deleting, for an admin only.
+app.put('/api/issues/:id/cover', express.raw({ type: 'image/*', limit: '5mb' }), route(async (req, res) => {
   const issue = issueOr404(req, res);
   if (!issue) return;
   if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'image_required' });
-  await saveCoverUpload(issue.id, req.body, req.get('content-type') || '');
+  if (issue.cover_file && !req.user.is_admin && store.issueUsedByOthers(issue.id, req.user.id)) return res.status(403).json({ error: 'used_by_others' });
+  await saveCoverUpload(issue.id, req.body);
   res.json(store.getIssueForUser(issue.id, req.user.id));
 }));
 
@@ -448,6 +461,7 @@ app.use(errorHandler((err, req, res) => {
 }));
 
 await auth.ensureAdmin();
+store.ensureAdminAccount();
 app.listen(PORT, () => {
   console.log(`Stapel listening on :${PORT}`);
   startWorker();

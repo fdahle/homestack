@@ -1,31 +1,17 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { languageTag, yearRange } from '../util.js';
+import { byDailyRandom, languageTag, rememberedRef, yearRange } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import CoverImage from '../components/CoverImage.vue';
 
 const series = ref(null);
 const query = ref('');
-const readPref = (key, fallback) => {
-  try {
-    return localStorage.getItem(key) || fallback;
-  } catch {
-    return fallback;
-  }
-};
-const filter = ref(readPref('stapel.collection.filter', 'all'));
-const sort = ref(readPref('stapel.collection.sort', 'name'));
-watch([filter, sort], () => {
-  try {
-    localStorage.setItem('stapel.collection.filter', filter.value);
-    localStorage.setItem('stapel.collection.sort', sort.value);
-  } catch {
-    // only a convenience
-  }
-});
+// The filter and the sort order are remembered on this device
+const filter = rememberedRef('stapel.collection.filter', 'all', { allowed: ['all', 'incomplete', 'complete', 'unread'] });
+const sort = rememberedRef('stapel.collection.sort', 'name', { allowed: ['name', 'recent', 'progress', 'random'] });
 
 onMounted(async () => {
   series.value = await api('/collection');
@@ -39,6 +25,8 @@ const shown = computed(() => {
   if (filter.value === 'unread') list = list.filter((s) => s.unread_owned > 0);
   if (sort.value === 'recent') list = [...list].sort((a, b) => b.added_at.localeCompare(a.added_at));
   if (sort.value === 'progress') list = [...list].sort((a, b) => b.owned / (b.total || 1) - a.owned / (a.total || 1));
+  // Shuffled once a day, at 04:00
+  if (sort.value === 'random') list = [...list].sort(byDailyRandom((s) => s.id));
   return list;
 });
 
@@ -61,6 +49,7 @@ const pct = (part, total) => (total ? Math.round((part / total) * 100) : 0);
           <option value="name">{{ t('collection.sortName') }}</option>
           <option value="recent">{{ t('collection.sortRecent') }}</option>
           <option value="progress">{{ t('collection.sortProgress') }}</option>
+          <option value="random">{{ t('collection.sortRandom') }}</option>
         </select>
       </div>
       <div class="chips">

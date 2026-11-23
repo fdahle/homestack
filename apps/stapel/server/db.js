@@ -147,7 +147,7 @@ export function transaction(fn) {
 // Accounts, login sessions and small settings are the design kit's (kit/users.js, the same
 // tables as before). Stapel adds is_admin: an admin can add people, who share the catalog
 // but keep their own marks.
-export const users = createUserStore(db);
+const kitUsers = createUserStore(db);
 
 const USER_COLUMNS = 'id, username, display_name, lang, is_admin, created_at';
 
@@ -155,6 +155,35 @@ export const listUsers = () => db.prepare(`SELECT ${USER_COLUMNS} FROM users ORD
 export const isAdmin = (id) => Boolean(db.prepare('SELECT is_admin FROM users WHERE id = ?').get(id)?.is_admin);
 export const setAdmin = (id) => db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(id);
 export const hasAdmin = () => Boolean(db.prepare('SELECT 1 FROM users WHERE is_admin = 1').get());
+
+const ADMIN_USER = String(process.env.ADMIN_USER || '').trim().toLowerCase();
+
+// Who is admin is decided when an account is made, never by whoever happens to send a
+// request first: while there is no admin, the very first account becomes it (the one from
+// ADMIN_USER/ADMIN_PASSWORD, or the first login through Authelia), or the account named
+// ADMIN_USER. The kit's login creates accounts through this store, so both ways pass here.
+// (node:sqlite is synchronous, so nothing can slip in between counting and inserting.)
+export const users = {
+  ...kitUsers,
+  createUser(fields) {
+    const first = kitUsers.countUsers() === 0;
+    const id = kitUsers.createUser(fields);
+    if (!hasAdmin() && (first || String(fields.username).toLowerCase() === ADMIN_USER)) setAdmin(id);
+    return id;
+  },
+};
+
+// At startup, for a database that has accounts but no admin (from before Stapel kept one):
+// the account named ADMIN_USER if there is one, otherwise the oldest account.
+export function ensureAdminAccount() {
+  if (hasAdmin()) return;
+  const named = ADMIN_USER ? kitUsers.getUserByName(ADMIN_USER) : null;
+  const oldest = db.prepare('SELECT id, username FROM users ORDER BY id LIMIT 1').get();
+  const admin = named || oldest;
+  if (!admin) return;
+  setAdmin(admin.id);
+  console.log(`Made "${admin.username}" the admin.`);
+}
 
 export function createUser({ username, displayName, passwordHash, lang = 'de', isAdmin: admin = false }) {
   const id = users.createUser({ username, displayName: displayName || username, passwordHash, lang });
@@ -209,6 +238,8 @@ export function updateSeriesInfo(id, { name, publisher_name, year_began, languag
 }
 
 export const deleteSeries = (id) => db.prepare('DELETE FROM series WHERE id = ?').run(id);
+
+export const countIssuesOfSeries = (id) => db.prepare('SELECT COUNT(*) AS n FROM issues WHERE series_id = ?').get(id).n;
 
 export const coverFilesOfSeries = (id) =>
   db.prepare('SELECT cover_file FROM issues WHERE series_id = ? AND cover_file IS NOT NULL').all(id).map((r) => r.cover_file);

@@ -4,6 +4,7 @@
 import { unlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import * as store from './db.js';
+import { BadRequest } from './kit/errors.js';
 import { BACKGROUND_PER_HOUR, BACKGROUND_SPACING_MS, DAY_MS, gcdGet, GcdBusyError, GcdNotFoundError, idFromUrl, nextBackgroundAt, usage } from './gcd.js';
 import { parseCode } from './isbn.js';
 
@@ -237,7 +238,11 @@ export async function downloadCover(issueId, url, source = 'library') {
   return storeCover(issueId, buffer, type, source);
 }
 
-export async function saveCoverUpload(issueId, buffer, type) {
+// An uploaded photo. Its type is told by its bytes, like a downloaded cover's, and never
+// taken from the request's Content-Type: anything but JPEG, PNG, WebP or GIF is refused.
+export async function saveCoverUpload(issueId, buffer) {
+  const type = imageType(buffer);
+  if (!type) throw new BadRequest('bad_image');
   const file = await storeCover(issueId, buffer, type, 'photo');
   store.markUserFields(issueId, ['cover']);
   return file;
