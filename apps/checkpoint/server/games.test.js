@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BadRequest, cleanGameInput, datesForStatusChange, datesInOrder, fromIgdb, isPartialDate, searchHit } from './games.js';
+import { BadRequest, cleanGameInput, datesForStatusChange, datesInOrder, fromIgdb, igdbLink, isPartialDate, searchHit } from './games.js';
 
 test('partial dates', () => {
   for (const ok of ['2020', '2020-02', '2020-02-29', '1985-12-31']) assert.ok(isPartialDate(ok), ok);
@@ -69,6 +69,15 @@ test('IGDB game → database fields', () => {
   assert.equal(game.hours_main, 51.5);
   assert.equal(game.hours_complete, 172.5);
   assert.equal(game.igdb_cover_id, 'co1wyy');
+  assert.equal(game.igdb_url, 'https://www.igdb.com/games/the-witcher-3-wild-hunt');
+});
+
+test('only https links to IGDB are kept', () => {
+  assert.equal(fromIgdb({ id: 1, name: 'X', url: 'javascript:alert(1)' }).igdb_url, null);
+  assert.equal(igdbLink('https://igdb.com/games/x'), 'https://igdb.com/games/x');
+  for (const bad of ['http://www.igdb.com/games/x', 'https://evil.example/', 'https://igdb.com.evil.example/', 'data:text/html,hi', '', null]) {
+    assert.equal(igdbLink(bad), null, String(bad));
+  }
 });
 
 test('IGDB game with almost nothing', () => {

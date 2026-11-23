@@ -77,6 +77,8 @@ function saveNotes() {
 }
 onBeforeUnmount(saveNotes);
 
+// The server keeps only https links to IGDB; games stored before it did are checked here too
+const igdbUrl = computed(() => (/^https:\/\/([a-z0-9-]+\.)*igdb\.com\//i.test(game.value?.igdb_url || '') ? game.value.igdb_url : null));
 const platformChoices = computed(() => [...new Set([...(game.value?.platforms || []), ...usedPlatforms.value])]);
 const showStarted = computed(() => PLAYED.includes(form.value.status) || form.value.startedOn);
 const showFinished = computed(() => ['finished', 'completed', 'dropped'].includes(form.value.status) || form.value.finishedOn);
@@ -263,8 +265,8 @@ async function remove() {
           <p class="summary" :class="{ clamped: !showSummary }">{{ game.summary }}</p>
           <button v-if="game.summary.length > 260" class="link-btn small" @click="showSummary = !showSummary">{{ showSummary ? t('game.less') : t('game.more') }}</button>
         </template>
-        <p v-if="game.igdb_url" class="source">
-          <a :href="game.igdb_url" target="_blank" rel="noopener noreferrer"><Icon name="external" />{{ t('game.onIgdb') }}</a>
+        <p v-if="igdbUrl" class="source">
+          <a :href="igdbUrl" target="_blank" rel="noopener noreferrer"><Icon name="external" />{{ t('game.onIgdb') }}</a>
         </p>
       </section>
     </template>

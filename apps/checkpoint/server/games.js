@@ -89,6 +89,18 @@ export function datesForStatusChange(game, newStatus, today) {
 
 // --- IGDB ---
 
+// IGDB's page for a game. It ends up as a link in the browser, so it is kept only when it
+// goes to igdb.com over https (never javascript: or some other site).
+export function igdbLink(v) {
+  try {
+    const url = new URL(String(v || ''));
+    const igdb = url.hostname === 'igdb.com' || url.hostname.endsWith('.igdb.com');
+    return url.protocol === 'https:' && igdb ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 const isoDay = (unixSeconds) => (Number.isFinite(unixSeconds) ? new Date(unixSeconds * 1000).toISOString().slice(0, 10) : null);
 // Short platform names: "PS5", "Switch", "PC" rather than "PlayStation 5", "PC (Microsoft Windows)"
 export const platformName = (p) => (p?.abbreviation || p?.name || '').trim();
@@ -115,7 +127,7 @@ export function fromIgdb(g, timeToBeat = null) {
     igdb_id: g.id,
     name: String(g.name || '').trim() || `IGDB ${g.id}`,
     slug: g.slug || null,
-    igdb_url: g.url || null,
+    igdb_url: igdbLink(g.url),
     summary: g.summary || null,
     release_date: isoDay(g.first_release_date),
     platforms: names(g.platforms, platformName),
