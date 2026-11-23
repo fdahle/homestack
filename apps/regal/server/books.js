@@ -121,17 +121,24 @@ export function normLanguage(code) {
   return LANGUAGES[c] || (/^[a-z]{2}$/.test(c) ? c : /^[a-z]{3}$/.test(c) ? c : null);
 }
 
-// Calibre's comments and Google's descriptions are HTML; Regal shows plain text with paragraphs
+// Far more than any blurb; it runs on every Calibre comment at each sync
+const MAX_HTML = 200_000;
+
+// A numeric entity's character, or the entity as written when it names no character
+const codePoint = (m, n) => (n <= 0x10ffff ? String.fromCodePoint(n) : m);
+
+// Calibre's comments and Google's descriptions are HTML; Regal shows plain text with paragraphs.
+// A tag never spans a '<' ([^<>], not [^>]): with [^>] a text full of '<' takes quadratic time.
 export function htmlToText(html) {
   if (!html) return null;
-  const s = String(html)
+  const s = String(html).slice(0, MAX_HTML)
     .replace(/<\s*br\s*\/?>/gi, '\n')
     .replace(/<\/\s*(p|div|li|h[1-6]|blockquote)\s*>/gi, '\n\n')
-    .replace(/<li[^>]*>/gi, '• ')
-    .replace(/<[^>]+>/g, '')
+    .replace(/<li\b[^<>]*>/gi, '• ')
+    .replace(/<[^<>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (m, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (m, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&#(\d{1,7});/g, (m, n) => codePoint(m, Number(n)))
+    .replace(/&#x([0-9a-f]{1,6});/gi, (m, n) => codePoint(m, parseInt(n, 16)))
     .replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
     .replace(/[ \t]+/g, ' ')
@@ -148,7 +155,8 @@ const yearIn = (s) => {
 
 // 'Harry Potter #1', 'Discworld -- 3', 'Die Tribute von Panem ; 2', 'The Expanse, book 4' → { series, index }
 export function parseSeries(line) {
-  const s = String(line || '').trim();
+  // Capped: the patterns below backtrack a lot on long lines, and no series name is this long
+  const s = String(line || '').slice(0, 300).trim();
   if (!s) return { series: null, index: null };
   // A trailing note in brackets says nothing about the series: 'Harry Potter (Deutsch)'
   const clean = (name) => name.trim().replace(/[,;:(]+$/, '').replace(/\s*\([^)]*\)$/, '').trim() || name.trim();

@@ -24,11 +24,11 @@ test('reads a Calibre library from a copy of metadata.db', async (t) => {
   });
   makeCalibreLibrary(lib, [
     {
-      title: 'Die Farben der Magie', authors: ['Terry Pratchett'], series: 'Scheibenwelt', seriesIndex: 1, pubdate: '1991-12-31 23:00:00+00:00',
+      id: 1, title: 'Die Farben der Magie', authors: ['Terry Pratchett'], series: 'Scheibenwelt', seriesIndex: 1, pubdate: '1991-12-31 23:00:00+00:00',
       isbn: '3-442-41541-1', google: 'abcDEF123', comments: '<p>Rincewind &amp; Zweiblum.</p>', publisher: 'Goldmann', lang: 'deu',
       tags: ['Fantasy', 'Humor'], formats: ['EPUB', 'PDF'], pages: 288, read: true, cover: fakeJpeg(1), uuid: 'u-1',
     },
-    { title: 'Good Omens', authors: ['Terry Pratchett', 'Neil Gaiman'], uuid: 'u-2', seriesIndex: 1 },
+    { id: 2, title: 'Good Omens', authors: ['Terry Pratchett', 'Neil Gaiman'], uuid: 'u-2', seriesIndex: 1 },
   ]);
 
   const [a, b] = await readLibrary(lib, work);
@@ -152,4 +152,24 @@ test("Calibre's read mark: new books come in as read, and a book you only wanted
   // Reading, dropped or read already: Calibre doesn't change it, and an unread mark never takes "read" away
   for (const status of ['reading', 'dropped', 'read']) assert.equal(planSync([calibreBook({ read: true })], [mine(status)]).unchanged, 1);
   assert.equal(planSync([calibreBook({ read: false })], [mine('read')]).unchanged, 1);
+});
+
+test('the test library: folder names as Calibre makes them, ids that stay when a book is left out', async (t) => {
+  const lib = mkdtempSync(join(tmpdir(), 'regal-calibre-'));
+  const work = mkdtempSync(join(tmpdir(), 'regal-work-'));
+  t.after(() => {
+    rmSync(lib, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  });
+  const odd = { title: 'Was ist was? Band 1: Sterne <und> Planeten', authors: ['Rainer Köthe'], cover: fakeJpeg(3), uuid: 'u-odd' };
+  const other = { title: 'Good Omens', authors: ['Terry Pratchett'], uuid: 'u-omens' };
+  makeCalibreLibrary(lib, [other, odd]);
+  const before = await readLibrary(lib, work);
+  const book = before.find((b) => b.calibre_uuid === 'u-odd');
+  assert.equal(book.title, odd.title);
+  assert.ok(readdirSync(join(book.cover, '..')).includes('cover.jpg'));
+
+  makeCalibreLibrary(lib, [odd]);
+  const [after] = await readLibrary(lib, work);
+  assert.equal(after.calibre_id, book.calibre_id);
 });

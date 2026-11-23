@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { bookChange, byAuthor, byTitle, compareText, countBy, errorText, formatNumber, lastName, STATUS_ICONS, STATUSES, useShortcut } from '../util.js';
+import { bookChange, byAuthor, byDailyRandom, byTitle, compareText, countBy, errorText, formatNumber, lastName, rememberedRef, STATUS_ICONS, STATUSES, useShortcut } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import SplitView from '../kit/components/SplitView.vue';
@@ -14,11 +14,13 @@ const router = useRouter();
 const books = ref(null);
 const error = ref('');
 
-// Filters live in the address, so "back" from a book returns to the same view
+// Filters live in the address, so "back" from a book returns to the same view.
+// The sort order is also remembered on this device.
 const status = ref(String(route.query.status || 'all'));
 const author = ref(String(route.query.author || ''));
 const calibre = ref(String(route.query.calibre || ''));
-const sort = ref(String(route.query.sort || 'recent'));
+const SORT_KEYS = ['recent', 'title', 'author', 'rating', 'finished', 'added', 'random'];
+const sort = rememberedRef('regal.sort', 'recent', { allowed: SORT_KEYS, initial: route.query.sort && String(route.query.sort) });
 const q = ref(String(route.query.q || ''));
 
 watch([status, author, calibre, sort, q], () => {
@@ -83,6 +85,8 @@ const SORTS = {
   rating: (a, b) => (b.rating || 0) - (a.rating || 0) || byTitle(a, b),
   finished: (a, b) => (b.finished_on || '').localeCompare(a.finished_on || '') || byTitle(a, b),
   added: (a, b) => b.created_at.localeCompare(a.created_at),
+  // Shuffled once a day, at 04:00
+  random: byDailyRandom((b) => b.id),
 };
 
 const shown = computed(() => {

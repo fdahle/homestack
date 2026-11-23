@@ -73,6 +73,20 @@ test('HTML descriptions become text', () => {
   assert.equal(htmlToText('Zeile<br>Zeile &#8211; &#x263A;'), 'Zeile\nZeile – ☺');
   assert.equal(htmlToText('<p></p>'), null);
   assert.equal(htmlToText(null), null);
+  assert.equal(htmlToText('<ul><li class="x">Eins</li><li>Zwei</li></ul>'), '• Eins\n\n• Zwei');
+  // A lone '<' is text, not the start of a tag that swallows what follows
+  assert.equal(htmlToText('a < b <i>kursiv</i>'), 'a < b kursiv');
+  // An entity that names no character stays as written instead of throwing
+  assert.equal(htmlToText('&#99999999; &#x110000;'), '&#99999999; &#x110000;');
+});
+
+test('HTML descriptions: hostile input stays fast and bounded', () => {
+  const started = Date.now();
+  htmlToText('<'.repeat(100_000));
+  htmlToText('<li'.repeat(50_000));
+  htmlToText(`<${' '.repeat(100_000)}`);
+  assert.ok(Date.now() - started < 1000, `took ${Date.now() - started} ms`);
+  assert.equal(htmlToText('x'.repeat(300_000)).length, 200_000);
 });
 
 test('language codes', () => {

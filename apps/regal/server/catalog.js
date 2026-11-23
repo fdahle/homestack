@@ -54,8 +54,10 @@ async function searchOpenLibrary(q, lang) {
 
 async function openLibraryBook(workId, editionId) {
   const edition = editionId ? await getJson(`${OL}/books/${editionId}.json`, 'Open Library edition') : null;
+  // workId is checked in bookDetails; the edition's work key comes from Open Library's answer
+  // and is glued to the host, so it must look like one too ('@other.host/…' would change the host)
   const workKey = workId ? `/works/${workId}` : edition?.works?.[0]?.key;
-  const work = workKey ? await getJson(`${OL}${workKey}.json`, 'Open Library work') : null;
+  const work = /^\/works\/OL\d+W$/.test(workKey || '') ? await getJson(`${OL}${workKey}.json`, 'Open Library work') : null;
   if (!edition && !work) throw new CatalogError('not_found');
   // The edition's authors if it names them, else the work's; their names need one request each
   const keys = (edition?.authors?.length ? edition.authors.map((a) => a.key) : (work?.authors || []).map((a) => a.author?.key))
@@ -155,17 +157,53 @@ export async function bookDetails(ref) {
 // --- pictures ---
 
 const IMAGE_HOSTS = /^https:\/\/(covers\.openlibrary\.org|books\.google\.com)\//;
+// Where those may send a cover on: Open Library keeps its covers at the Internet Archive
+// (archive.org, then one of its ia….us.archive.org servers), Google on googleusercontent.com.
+const REDIRECT_HOSTS = /^(covers\.openlibrary\.org|books\.google\.com|(.+\.)?archive\.org|.+\.googleusercontent\.com)$/;
+const MAX_REDIRECTS = 3;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+const allowedHop = (url) => url.protocol === 'https:' && !url.port && !url.username && REDIRECT_HOSTS.test(url.hostname);
+
+// The body, but no more than MAX_IMAGE_BYTES of it
+async function readImage(res) {
+  if (Number(res.headers.get('content-length')) > MAX_IMAGE_BYTES) {
+    await res.body?.cancel();
+    throw new CatalogError('catalog_failed', 'Cover too large');
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body ?? []) {
+    size += chunk.length;
+    // Leaving the loop cancels the download
+    if (size > MAX_IMAGE_BYTES) throw new CatalogError('catalog_failed', 'Cover too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
 
 // A cover as a JPEG buffer. Google answers a PNG "no picture" image for books without
 // a cover, which counts as no cover here.
 export async function fetchImage(url) {
   if (!IMAGE_HOSTS.test(url)) throw new CatalogError('not_found');
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(20_000) });
+  // Redirects are followed by hand, so every hop's host is checked, not only the first
+  const signal = AbortSignal.timeout(20_000);
+  let current = new URL(url);
+  let res;
+  for (let hop = 0; ; hop++) {
+    res = await fetch(current, { headers: { 'User-Agent': USER_AGENT }, redirect: 'manual', signal });
+    const location = res.headers.get('location');
+    if (res.status < 300 || res.status >= 400 || !location) break;
+    await res.body?.cancel();
+    if (hop >= MAX_REDIRECTS) throw new CatalogError('catalog_failed', 'Cover: too many redirects');
+    current = new URL(location, current);
+    if (!allowedHop(current)) throw new CatalogError('catalog_failed', `Cover redirected to ${current.hostname}`);
+  }
   if (!res.ok) {
     await res.body?.cancel();
     throw new CatalogError(res.status === 404 ? 'not_found' : 'catalog_failed', `Cover answered ${res.status}`);
   }
-  const buffer = Buffer.from(await res.arrayBuffer());
+  const buffer = await readImage(res);
   // Open Library's "no cover" is a 1×1 GIF, Google's a PNG
   if (buffer.length < 1000 || buffer[0] !== 0xff || buffer[1] !== 0xd8) throw new CatalogError('not_found', 'No cover picture');
   return buffer;

@@ -5,8 +5,17 @@
 //                              publisher, lang, tags, formats, pages, read, google, cover: Buffer }])
 
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+// A folder name as Calibre makes it: characters no file system takes become _, at most 40
+// characters, no dot or space at the end (Windows drops those)
+const folderName = (s) => s.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 40).replace(/[. ]+$/, '') || '_';
+
+// A book's id when the test doesn't give one: from its title, so it stays the same when other
+// books are left out of the next library (like Calibre, which never renumbers)
+const idFor = (title) => (parseInt(createHash('sha1').update(String(title)).digest('hex').slice(0, 7), 16) % 9_000_000) + 1_000_000;
 
 // As calibre creates them (resources/metadata_sqlite.sql), without the triggers, views and
 // the tables Regal doesn't read
@@ -57,10 +66,15 @@ export function makeCalibreLibrary(dir, books) {
     return db.prepare(`SELECT id FROM ${table} WHERE ${column} = ?`).get(name).id;
   };
 
-  books.forEach((b, i) => {
-    const id = b.id ?? i + 1;
+  // One transaction: hundreds of books (the sample data) in a moment instead of seconds
+  db.exec('BEGIN');
+  const used = new Set();
+  for (const b of books) {
+    const id = b.id ?? idFor(b.title);
+    if (used.has(id)) throw new Error(`Two books with the id ${id} (give one an id): ${b.title}`);
+    used.add(id);
     const authors = b.authors || ['Unknown'];
-    const path = `${authors[0]}/${b.title} (${id})`;
+    const path = `${folderName(authors[0])}/${folderName(b.title)} (${id})`;
     db.prepare('INSERT INTO books (id, title, sort, pubdate, series_index, author_sort, path, uuid, has_cover) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, b.title, b.title, b.pubdate ?? '0101-01-01 00:00:00+00:00', b.seriesIndex ?? 1, authors[0], path, b.uuid ?? `uuid-${id}`, b.cover ? 1 : 0);
     for (const a of authors) db.prepare('INSERT INTO books_authors_link (book, author) VALUES (?, ?)').run(id, idOf('authors', 'name', a));
@@ -78,6 +92,7 @@ export function makeCalibreLibrary(dir, books) {
       mkdirSync(join(dir, path), { recursive: true });
       writeFileSync(join(dir, path, 'cover.jpg'), b.cover);
     }
-  });
+  }
+  db.exec('COMMIT');
   db.close();
 }
