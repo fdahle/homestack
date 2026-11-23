@@ -13,8 +13,8 @@ const showNav = computed(() => session.user && !route.meta.public);
 const tabs = computed(() => [
   { to: '/', name: 'home', icon: 'home', label: t('nav.home') },
   { to: '/collection', name: 'collection', icon: 'stack', label: t('nav.collection'), also: ['series', 'issue'] },
-  { to: '/scan', name: 'scan', icon: 'scan', label: t('nav.scan') },
-  { to: '/add', name: 'add', icon: 'plus', label: t('nav.add') },
+  // Scanning is a way of adding: the scanner opens from here (and from the phone's top bars)
+  { to: '/add', name: 'add', icon: 'plus', label: t('nav.add'), also: ['scan'] },
   { to: '/wishlist', name: 'wishlist', icon: 'heart', label: t('nav.wishlist') },
 ]);
 const extras = computed(() => [{ to: '/settings', name: 'settings', icon: 'gear', label: t('nav.settings') }]);

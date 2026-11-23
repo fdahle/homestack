@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, showToast } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
+import Icon from '../kit/components/Icon.vue';
 import SeriesSearch from '../components/SeriesSearch.vue';
 
 const router = useRouter();
@@ -38,6 +39,11 @@ async function createCustom() {
 <template>
   <TopBar :title="t('add.title')" />
   <main>
+    <RouterLink to="/scan" class="scan-cta">
+      <Icon name="scan" />
+      <span class="grow"><strong>{{ t('add.scan') }}</strong><small>{{ t('add.scanHint') }}</small></span>
+      <Icon name="forward" />
+    </RouterLink>
     <div class="segmented wide">
       <button :class="{ active: tab === 'search' }" @click="tab = 'search'">{{ t('add.tabSearch') }}</button>
       <button :class="{ active: tab === 'custom' }" @click="tab = 'custom'">{{ t('add.tabCustom') }}</button>

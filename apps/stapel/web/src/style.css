@@ -34,6 +34,14 @@
 .row-buttons.end { justify-content: flex-end; }
 .row-buttons.spaced { margin-top: 24px; }
 .segmented button { justify-content: center; }
+
+/* The scanner, at the top of the add page */
+.scan-cta { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 16px; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent); }
+.scan-cta .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.scan-cta strong { font-size: 1.02rem; }
+.scan-cta small { color: var(--text); opacity: 0.75; }
+.scan-cta > .icon:first-child { width: 28px; height: 28px; }
+.scan-cta:hover { background: color-mix(in srgb, var(--accent-soft) 80%, var(--accent)); }
 .segmented button.m-owned.active { color: var(--owned); }
 .segmented button.m-read.active { color: var(--read); }
 .segmented button.m-wanted.active { color: var(--wanted); }

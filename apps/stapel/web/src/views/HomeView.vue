@@ -15,6 +15,7 @@ onMounted(async () => {
 
 <template>
   <TopBar :title="t('home.greeting', { name: session.user?.display_name })">
+    <RouterLink class="icon-btn phone-only" to="/scan" :aria-label="t('home.scan')"><Icon name="scan" /></RouterLink>
     <RouterLink class="icon-btn phone-only" to="/settings" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
   </TopBar>
   <main v-if="data">

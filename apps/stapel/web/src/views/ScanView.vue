@@ -224,7 +224,7 @@ async function createFromBook() {
 </script>
 
 <template>
-  <TopBar :title="t('scan.title')">
+  <TopBar :title="t('scan.title')" back="/add">
     <label class="check-label small"><input v-model="continuous" type="checkbox" /> {{ t('scan.continuous') }}</label>
   </TopBar>
   <main class="scan-page">

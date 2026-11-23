@@ -4,9 +4,10 @@ A self-hosted tracker for a comic collection: which comics you own, which you've
 
 - **Add a series, see the gaps.** Search the [Grand Comics Database](https://www.comics.org) (GCD), add a series, and get its full issue list. Tap through the grid to mark what you own or have read, and the app shows what's missing ("Es fehlen 12: 3, 7–9, 21–28").
 - **Bulk entry for big collections.** Select by number range ("1-150, 152") and mark everything at once. A list view has one-tap toggles per issue.
-- **Barcode scanner.** Scan with the phone camera. Known issues are found directly. For an unknown ISBN, the German National Library (DNB) or Open Library supplies title, volume and cover; you pick the matching GCD series once, and the code is remembered. Continuous mode marks known issues as owned and moves straight on to the next scan.
+- **Barcode scanner.** Scan with the phone camera: from the top of *Hinzufügen*, or on the phone from the scan icon at the top of *Start* and *Sammlung*. Known issues are found directly. For an unknown ISBN, the German National Library (DNB) or Open Library supplies title, volume and cover; you pick the matching GCD series once, and the code is remembered. Continuous mode marks known issues as owned and moves straight on to the next scan.
 - **Several people, one catalog.** Everyone shares the catalog but has their own owned/read/wanted marks. An issue page shows when the other person owns it too.
 - **Variants and reprints** count towards their number. Owning any printing of #5 counts as owning #5. You can show them separately with the "Varianten" switch.
+- **The collection** with chips for gaps, complete and unread series (with counts), and publisher, language and format behind the filter button.
 - Continue reading (the next unread issue you own, per series), wishlist, gaps across all series, ratings, notes, cover photos, CSV/JSON export.
 - German and English interface, chosen per user.
 
@@ -39,7 +40,7 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 
 ## Using it
 
-**Entering an existing collection.** For each series: search it under "Suchen", add it, switch "Antippen" to *Besitz*, and tap what you own. For long runs, use the select button (☑) with a range like `1-200`. Scanning is the faster way to enter albums and books that have an ISBN.
+**Entering an existing collection.** For each series: search it under *Hinzufügen*, add it, switch "Antippen" to *Besitz*, and tap what you own. For long runs, use the select button (☑) with a range like `1-200`. Scanning is the faster way to enter albums and books that have an ISBN.
 
 **When GCD doesn't have a series:** "Selbst anlegen" creates a series by hand with numbers like `1-50`. Any series can get extra issues from its ⋯ menu.
 
