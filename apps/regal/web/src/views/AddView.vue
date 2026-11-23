@@ -23,7 +23,7 @@ const scanning = ref(route.query.scan === '1');
 const searchInput = ref(null);
 
 // Quick choices when adding; the rest can be set on the book's page
-const QUICK = ['want', 'reading', 'read'];
+const QUICK = ['want', 'unread', 'reading', 'read'];
 
 let timer = null;
 let seq = 0;

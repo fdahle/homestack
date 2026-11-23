@@ -4,8 +4,8 @@ import { useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import {
-  bookChange, COVER_SIZE, coverPhoto, errorText, formatIsbn, formatNumber, languageName, progressOf,
-  seriesText, showToast, STATUS_ICONS, STATUSES,
+  bookChange, COVER_SIZE, coverPhoto, errorText, formatIsbn, formatNumber, hasText, languageName, progressOf,
+  NOT_STARTED, seriesText, showToast, STATUS_ICONS, STATUSES,
 } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
@@ -17,6 +17,7 @@ const props = defineProps({ id: String });
 const router = useRouter();
 const book = ref(null);
 const calibreWebUrl = ref(null);
+const series = ref([]); // the books of its series in Regal, in order
 const error = ref('');
 const saveState = ref(''); // '', 'saving', 'saved'
 const busy = ref(false);
@@ -40,6 +41,7 @@ onMounted(async () => {
     const data = await api(`/books/${props.id}`);
     setBook(data.book, { changed: false });
     calibreWebUrl.value = data.calibreWebUrl;
+    series.value = data.series || [];
   } catch (err) {
     error.value = errorText(err);
   }
@@ -97,7 +99,7 @@ function saveNotes() {
 }
 onBeforeUnmount(saveNotes);
 
-const showStarted = computed(() => form.value.status !== 'want' || form.value.startedOn);
+const showStarted = computed(() => !NOT_STARTED.includes(form.value.status) || form.value.startedOn);
 const showFinished = computed(() => ['read', 'dropped'].includes(form.value.status) || form.value.finishedOn);
 
 const facts = computed(() => {
@@ -230,7 +232,7 @@ async function remove() {
           <p v-if="book.authors.length" class="authors">
             <template v-for="(a, i) in book.authors" :key="a"><RouterLink :to="{ path: '/', query: { author: a } }">{{ a }}</RouterLink>{{ i < book.authors.length - 1 ? ', ' : '' }}</template>
           </p>
-          <p v-if="book.series" class="series-line"><RouterLink :to="{ path: '/', query: { q: book.series, sort: 'author' } }">{{ seriesText(book) }}</RouterLink></p>
+          <p v-if="book.series" class="series-line"><RouterLink :to="{ path: '/', query: { series: book.series } }">{{ seriesText(book) }}</RouterLink></p>
           <p class="meta">
             <span v-if="book.year">{{ book.year }}</span>
             <span v-if="book.pages">{{ t('book.pagesN', { n: formatNumber(book.pages) }) }}</span>
@@ -280,7 +282,7 @@ async function remove() {
         <div class="status-picker" role="radiogroup" :aria-label="t('library.status')">
           <button
             v-for="s in STATUSES" :key="s" type="button" role="radio" :aria-checked="form.status === s"
-            :class="[`st-${s}`, { active: form.status === s }]" @click="setStatus(s)"
+            :class="[`st-${s}`, { active: form.status === s }]" :title="hasText(`statusHint.${s}`) ? t(`statusHint.${s}`) : undefined" @click="setStatus(s)"
           >
             <Icon :name="STATUS_ICONS[s]" /><span>{{ t(`status.${s}`) }}</span>
           </button>
@@ -300,6 +302,7 @@ async function remove() {
             <span class="percent">{{ progress }} %</span>
           </div>
           <p v-else class="muted small">{{ t('book.pagesUnknown') }}</p>
+          <button type="button" class="btn small st-read finish-btn" @click="setStatus('read')"><Icon name="check" />{{ t('book.finish') }}</button>
         </div>
 
         <div class="rating-row">
@@ -320,6 +323,21 @@ async function remove() {
           <span>{{ t('book.notes') }}</span>
           <textarea v-model="form.notes" rows="4" :placeholder="t('book.notesHint')" @input="notesInput" @blur="saveNotes"></textarea>
         </label>
+      </section>
+
+      <section v-if="series.length > 1" class="card">
+        <h2 class="card-title">{{ book.series }} <small class="muted">{{ t('book.seriesBooks', { n: series.length }) }}</small></h2>
+        <ol class="card-list series-list">
+          <li v-for="s in series" :key="s.id" :class="[`st-${s.status}`, { current: s.id === book.id }]">
+            <RouterLink :to="`/book/${s.id}`" :aria-current="s.id === book.id ? 'page' : undefined">
+              <span class="series-no">{{ s.series_index != null ? formatNumber(s.series_index, 2) : '–' }}</span>
+              <span class="series-title">{{ s.title }}</span>
+              <Icon v-if="s.in_calibre" name="tablet" class="series-ebook" :title="t('book.ebook')" />
+              <span class="series-status" :title="t(`status.${s.status}`)"><Icon :name="STATUS_ICONS[s.status]" /></span>
+            </RouterLink>
+          </li>
+        </ol>
+        <RouterLink :to="{ path: '/', query: { series: book.series } }" class="link-btn small">{{ t('book.seriesAll') }}</RouterLink>
       </section>
 
       <section v-if="facts.length || book.description || links.length" class="card">

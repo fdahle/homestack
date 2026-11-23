@@ -6,8 +6,10 @@ export * from './kit/util.js';
 
 // --- statuses ---
 
-export const STATUSES = ['want', 'reading', 'read', 'dropped'];
-export const STATUS_ICONS = { want: 'bookmark', reading: 'book-open', read: 'check', dropped: 'stop' };
+// want: you don't have it yet; unread: you have it (on the shelf or in Calibre) and haven't read it
+export const STATUSES = ['want', 'unread', 'reading', 'read', 'dropped'];
+export const STATUS_ICONS = { want: 'bookmark', unread: 'book', reading: 'book-open', read: 'check', dropped: 'stop' };
+export const NOT_STARTED = ['want', 'unread'];
 
 // --- covers ---
 

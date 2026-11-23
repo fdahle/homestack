@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { calibreChanges, calibreYear, planSync, readLibrary } from './calibre.js';
+import { calibreAuthor, calibreChanges, calibreYear, planSync, readLibrary } from './calibre.js';
 import { fakeJpeg, makeCalibreLibrary } from './calibre-fixture.js';
 
 test('Calibre dates', () => {
@@ -75,6 +75,21 @@ const calibreBook = (over = {}) => ({
   calibre_id: 1, calibre_uuid: 'u-1', title: 'Die Farben der Magie', authors: ['Terry Pratchett'], series: 'Scheibenwelt', series_index: 1,
   year: 1992, publisher: 'Goldmann', pages: null, isbns: ['9783442415410'], language: 'de', description: 'Rincewind.', tags: [], formats: ['EPUB'],
   google_id: null, cover: null, ...over,
+});
+
+test("author names: Calibre's '|' for a comma, last name first turned round", () => {
+  assert.equal(calibreAuthor('Camilleri| Andrea'), 'Andrea Camilleri');
+  assert.equal(calibreAuthor('Tolkien| J. R. R.'), 'J. R. R. Tolkien');
+  assert.equal(calibreAuthor('Terry Pratchett'), 'Terry Pratchett');
+  assert.equal(calibreAuthor('Martin Luther King| Jr.'), 'Martin Luther King, Jr.');
+  assert.equal(calibreAuthor('Henry VIII| III'), 'Henry VIII, III');
+  // More than one comma: no way to tell what is what, so it stays
+  assert.equal(calibreAuthor('King| Jr.| Martin Luther'), 'King, Jr., Martin Luther');
+  assert.equal(calibreAuthor('  Camilleri |  Andrea '), 'Andrea Camilleri');
+});
+
+test("without a setting, new Calibre books are ones you have and haven't read", () => {
+  assert.equal(planSync([calibreBook()], []).add[0].status, 'unread');
 });
 
 test('new Calibre books are added with the default status', () => {
@@ -149,6 +164,7 @@ test("Calibre's read mark: new books come in as read, and a book you only wanted
 
   const mine = (status) => ({ ...calibreBook(), id: 7, in_calibre: 1, status });
   assert.deepEqual(planSync([calibreBook({ read: true })], [mine('want')]).update[0].fields, { status: 'read' });
+  assert.deepEqual(planSync([calibreBook({ read: true })], [mine('unread')]).update[0].fields, { status: 'read' });
   // Reading, dropped or read already: Calibre doesn't change it, and an unread mark never takes "read" away
   for (const status of ['reading', 'dropped', 'read']) assert.equal(planSync([calibreBook({ read: true })], [mine(status)]).unchanged, 1);
   assert.equal(planSync([calibreBook({ read: false })], [mine('read')]).unchanged, 1);

@@ -20,7 +20,7 @@ db.exec(`
   -- cover_source: 'catalog' (downloaded), 'calibre' (copied from the library) or 'photo' (your own, never replaced).
   -- calibre_*: the Calibre book it is linked to; in_calibre = 0 once it is gone from the library.
   -- calibre_cover: size and time of the cover.jpg last copied, to notice a new one.
-  -- status: want, reading, read, dropped. rating: 1–10, shown as half stars.
+  -- status: want (don't have it yet), unread (have it), reading, read, dropped. rating: 1–10, shown as half stars.
   -- started_on / finished_on: 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD', as precise as you remember it.
   -- current_page: where you are while reading.
   -- updated_at: your last change (a Calibre sync doesn't count; that is synced_at).
@@ -73,6 +73,27 @@ export function localDate(d = new Date()) {
 // Accounts and settings (users, settings tables)
 export const users = createUserStore(db);
 
+// Once per database, counted in user_version:
+// 1: "unread" came next to "want". A book from Calibre is one you have, so those still on
+//    "want" become "unread", and so does the status new Calibre books get, if it was "want".
+const MIGRATIONS = [
+  () => {
+    db.exec("UPDATE books SET status = 'unread' WHERE status = 'want' AND calibre_id IS NOT NULL");
+    if (users.getSetting('calibre_default_status') === 'want') users.setSetting('calibre_default_status', 'unread');
+  },
+];
+for (let v = db.prepare('PRAGMA user_version').get().user_version; v < MIGRATIONS.length; v++) {
+  db.exec('BEGIN');
+  try {
+    MIGRATIONS[v]();
+    db.exec(`PRAGMA user_version = ${v + 1}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 // --- books ---
 
 // Columns that may be written through insertBook/updateBook
@@ -105,6 +126,11 @@ const LIST_COLUMNS = `id, source, title, subtitle, authors, series, series_index
   cover_file, in_calibre, calibre_id, formats, status, rating, started_on, finished_on, current_page, created_at, updated_at`;
 
 export const listBooks = () => db.prepare(`SELECT ${LIST_COLUMNS} FROM books ORDER BY title COLLATE NOCASE`).all().map(fromRow);
+// The books of a series in their order (for the book page)
+export const seriesBooks = (series) => (series
+  ? db.prepare(`SELECT id, title, series_index, status, cover_file, in_calibre FROM books WHERE series = ? COLLATE NOCASE
+      ORDER BY series_index IS NULL, series_index, title COLLATE NOCASE`).all(series)
+  : []);
 export const getBook = (id) => fromRow(db.prepare('SELECT * FROM books WHERE id = ?').get(id));
 export const allBooks = () => db.prepare('SELECT * FROM books').all().map(fromRow);
 

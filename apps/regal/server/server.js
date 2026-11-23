@@ -124,7 +124,7 @@ app.get('/api/books', (req, res) => res.json({ books: store.listBooks(), ...extr
 app.get('/api/books/:id', (req, res) => {
   const book = store.getBook(id(req.params.id));
   if (!book) return res.status(404).json({ error: 'not_found' });
-  res.json({ book, ...extras() });
+  res.json({ book, series: store.seriesBooks(book.series), ...extras() });
 });
 
 // From a catalog: { source: 'openlibrary', work, edition, status } or { source: 'google', volume, status }.

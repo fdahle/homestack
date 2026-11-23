@@ -1,11 +1,11 @@
 # Regal
 
-A self-hosted list of your books, with covers: what you're reading, what you've read, what you want to read and what you gave up on. It reads your Calibre library on its own, so the e-books are there without typing them in. For one person; nobody else sees it.
+A self-hosted list of your books, with covers: what you're reading, what you've read, what's on your shelf unread, what you want to get and read, and what you gave up on. It reads your Calibre library on its own, so the e-books are there without typing them in. For one person; nobody else sees it.
 
-- **Look a book up, add it in two taps.** Search [Open Library](https://openlibrary.org) and [Google Books](https://books.google.com) by title, author or ISBN, or scan the barcode on the back with the phone's camera. Tap a result and pick *Will ich lesen*, *Lese ich* or *Gelesen*. Title, authors, series, year, publisher, pages, ISBN, language, description and the cover come along. Books neither catalog knows can be entered by hand.
+- **Look a book up, add it in two taps.** Search [Open Library](https://openlibrary.org) and [Google Books](https://books.google.com) by title, author or ISBN, or scan the barcode on the back with the phone's camera. Tap a result and pick *Will ich lesen*, *Ungelesen*, *Lese ich* or *Gelesen*. Title, authors, series, year, publisher, pages, ISBN, language, description and the cover come along. Books neither catalog knows can be entered by hand.
 - **Your Calibre library, kept in step.** Regal reads the library every few hours and shows which books are *E-Book in Calibre*, with a link to Calibre-Web. It never writes to the library (details below).
-- **Your entries per book.** Status, a rating in half stars, when you started and finished (a year or month is enough for old books), the page you're on while reading, notes and your own cover photo. Everything saves as you change it. Starting a book fills in today as the start date, finishing one you were reading fills in the end date.
-- **Library** as a cover grid, with what you're reading now (and how far) at the top, filters for status, author and Calibre, search (`/` jumps to it) and several sort orders. On a computer a book opens beside the list.
+- **Your entries per book.** Status (*Will ich lesen*: you don't have it yet; *Ungelesen*: you have it and haven't read it; *Lese ich*, *Gelesen*, *Abgebrochen*), a rating in half stars, when you started and finished (a year or month is enough for old books), the page you're on while reading, notes and your own cover photo. Everything saves as you change it. Starting a book fills in today as the start date, finishing one you were reading (*Fertig gelesen* under where you are) fills in the end date.
+- **Library** as a cover grid, with what you're reading now (and how far) at the top, status chips, search (`/` jumps to it) and several sort orders; author, series and Calibre are behind the filter button. A series shows in its order with the numbers on the covers, and a book's page lists the other books of its series. On a computer a book opens beside the list.
 - **Stats:** books and pages read, per year, your most-read authors, your rating distribution, top-rated books and, if you set one, how your yearly reading goal is going.
 - German and English interface, JSON export, installable on the phone's home screen.
 
@@ -14,9 +14,10 @@ A self-hosted list of your books, with covers: what you're reading, what you've 
 Regal and Calibre-Web run on the same server and use the same library folder (the one with `metadata.db` in it). The sync goes one way, Calibre → Regal:
 
 - Calibre-Web also writes to `metadata.db`, so Regal never opens it: it copies `metadata.db` into its data folder, reads the copy and deletes it again. The library is mounted read-only into the container.
-- Books are matched by Calibre's uuid. A Calibre book that isn't in Regal yet is first matched against books you added yourself, by ISBN (or by title and first author when neither has an ISBN), and linked to that one instead of added twice. Otherwise it's added with the status set in the settings (*Will ich lesen* unless you change it).
+- Books are matched by Calibre's uuid. A Calibre book that isn't in Regal yet is first matched against books you added yourself, by ISBN (or by title and first author when neither has an ISBN), and linked to that one instead of added twice. Otherwise it's added with the status set in the settings (*Ungelesen* unless you change it: a book in Calibre is one you have).
+- Author names come as Calibre-Web shows them: Calibre keeps a comma in a name as `|`, and a name written last name first (`Camilleri, Andrea`) becomes `Andrea Camilleri`, so it matches your other books by the same author.
 - Later syncs update what Calibre knows (title, authors, series and number, year, publisher, ISBNs, language, description, tags, formats, the cover). A field Calibre leaves empty keeps what Regal has. Your own entries (status, rating, dates, page, notes, your cover photo) are never touched. A page count comes from a custom column labelled `pages` (the *Count Pages* plugin's) if there is one.
-- **Read in Calibre:** a yes/no column labelled `read` (or `gelesen`), the one Calibre-Web keeps its read status in, counts too. A book Calibre has as read comes in as *Gelesen*, and a book still on *Will ich lesen* becomes *Gelesen* when it's marked read in Calibre. It never goes the other way, and a book you're reading or dropped keeps its status.
+- **Read in Calibre:** a yes/no column labelled `read` (or `gelesen`), the one Calibre-Web keeps its read status in, counts too. A book Calibre has as read comes in as *Gelesen*, and a book still on *Ungelesen* or *Will ich lesen* becomes *Gelesen* when it's marked read in Calibre. It never goes the other way, and a book you're reading or dropped keeps its status.
 - Books that disappear from Calibre stay in Regal, marked *Nicht mehr in Calibre*. If they come back, the mark goes away.
 - A Calibre book you delete in Regal stays out of later syncs; *Wieder aufnehmen* in the settings undoes that.
 
@@ -53,7 +54,7 @@ docker compose up -d --build
 
 The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`); installing it as an app and the camera both need HTTPS. The first start creates the account `ADMIN_USER`.
 
-**Update:** `docker compose up -d --build`. The data lives in the `regal-data` volume (`regal.db` plus `covers/`).
+**Update:** `docker compose up -d --build`. The data lives in the `regal-data` volume (`regal.db` plus `covers/`). Changes to the data happen once, at the first start of a new version: with *Ungelesen*, books from Calibre still on *Will ich lesen* moved there.
 
 **Backup:** back up `regal.db` with `sqlite3 regal.db ".backup …"`, along with the `covers/` folder from the volume. Covers copied from Calibre come back with the next sync anyway.
 

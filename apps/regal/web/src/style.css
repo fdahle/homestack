@@ -14,6 +14,8 @@
   /* Statuses: icon color and a soft background */
   --s-want: light-dark(#2f6aa8, #8ab8ea);
   --s-want-soft: light-dark(#e0eaf6, #1f2e42);
+  --s-unread: light-dark(#6a4f9e, #bba3e8);
+  --s-unread-soft: light-dark(#ebe4f5, #2e2540);
   --s-reading: light-dark(#a8620a, #f0b860);
   --s-reading-soft: light-dark(#f8e9d2, #42331a);
   --s-read: light-dark(#2f7a3a, #7cc98a);
@@ -24,9 +26,21 @@
 
 
 .st-want { --st: var(--s-want); --st-soft: var(--s-want-soft); }
+.st-unread { --st: var(--s-unread); --st-soft: var(--s-unread-soft); }
 .st-reading { --st: var(--s-reading); --st-soft: var(--s-reading-soft); }
 .st-read { --st: var(--s-read); --st-soft: var(--s-read-soft); }
 .st-dropped { --st: var(--s-dropped); --st-soft: var(--s-dropped-soft); }
+
+/* --- library: the filters behind the filter button --- */
+
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: center; gap: 8px; margin-bottom: 10px; }
+.filters .link-btn { justify-self: start; display: inline-flex; align-items: center; gap: 4px; }
+.filters .link-btn .icon { width: 16px; height: 16px; }
+.filter-btn { position: relative; }
+.filter-btn.active, .filter-toggle.active { color: var(--accent); }
+.filter-toggle { flex: none; }
+.filter-toggle.active { border-color: var(--accent); background: var(--accent-soft); }
+.filter-dot { position: absolute; top: 9px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
 
 /* --- tiles --- */
 
@@ -45,12 +59,44 @@
   color: #fff;
 }
 .ebook-pin .icon { width: 14px; height: 14px; }
+/* Its number in the series, when the list shows a series in order */
+.number-pin {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .tile-progress { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tile-progress .progress { flex: 1; }
 
 /* --- book page --- */
 
-.status-picker { --n: 4; }
+/* Five statuses: in one row where they fit, else three and two (each button spans 2 or 3 of 6) */
+.status-picker { --n: 5; }
+@media (max-width: 559px) {
+  .status-picker { --n: 6; }
+  .status-picker button { grid-column: span 2; }
+  .status-picker button:nth-child(n + 4) { grid-column: span 3; }
+}
+.finish-btn { align-self: flex-start; color: var(--st); border-color: var(--st); background: var(--surface); }
+
+.series-list li a { display: flex; align-items: center; gap: 10px; padding: 7px 8px; margin: 0 -8px; border-radius: 8px; color: var(--text); }
+.series-list li a:hover { background: color-mix(in srgb, var(--line) 55%, transparent); }
+.series-list li.current a { background: var(--accent-soft); font-weight: 650; }
+.series-no { flex: none; min-width: 2.2em; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.series-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.series-ebook { width: 16px; height: 16px; color: var(--muted); }
+.series-status { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--st-soft); color: var(--st); }
+.series-status .icon { width: 15px; height: 15px; }
+.series-list + .link-btn { display: inline-block; margin-top: 8px; }
 .authors { margin: 0; font-size: 1rem; }
 .authors a { color: var(--text); font-weight: 550; }
 .authors a:hover { color: var(--accent); }

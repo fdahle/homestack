@@ -13,10 +13,10 @@ export const CALIBRE_LIBRARY = process.env.CALIBRE_LIBRARY || '';
 export const CALIBRE_SYNC_HOURS = Math.max(0, Number(process.env.CALIBRE_SYNC_HOURS ?? 6) || 0);
 export const CALIBRE_WEB_URL = (process.env.CALIBRE_WEB_URL || '').replace(/\/+$/, '');
 
-// The status books new from Calibre get (a setting, 'want' unless you change it)
+// The status books new from Calibre get (a setting, 'unread' unless you change it)
 export const defaultStatus = () => {
   const s = store.users.getSetting('calibre_default_status');
-  return STATUSES.includes(s) ? s : 'want';
+  return STATUSES.includes(s) ? s : 'unread';
 };
 
 export const lastSync = () => store.getJsonSetting('calibre_last_sync');

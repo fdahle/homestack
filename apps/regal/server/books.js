@@ -6,8 +6,11 @@ import { isbnList } from './isbn.js';
 
 export { BadRequest };
 
-// want: "Will ich lesen", reading: "Lese ich", read: "Gelesen", dropped: "Abgebrochen"
-export const STATUSES = ['want', 'reading', 'read', 'dropped'];
+// want: "Will ich lesen" (a book you don't have yet), unread: "Ungelesen" (you have it, on the shelf
+// or in Calibre, and haven't read it), reading: "Lese ich", read: "Gelesen", dropped: "Abgebrochen"
+export const STATUSES = ['want', 'unread', 'reading', 'read', 'dropped'];
+// Not started yet: Calibre's read mark may still move these to "read"
+export const NOT_STARTED = ['want', 'unread'];
 // Statuses that mean you are done with the book, so it gets a finish date
 export const DONE_STATUSES = ['read', 'dropped'];
 

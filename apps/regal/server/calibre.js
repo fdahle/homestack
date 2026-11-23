@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { copyFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { htmlToText, normLanguage, titleKey } from './books.js';
+import { htmlToText, normLanguage, NOT_STARTED, titleKey } from './books.js';
 import { isbnList } from './isbn.js';
 
 export class CalibreError extends Error {
@@ -24,6 +24,17 @@ export function calibreYear(pubdate) {
   if (Number.isNaN(d.getTime())) return null;
   const year = new Date(d.getTime() + 12 * 3600_000).getUTCFullYear();
   return year > 1000 ? year : null;
+}
+
+// Calibre keeps a comma in an author's name as '|' (it separates authors with '&' and sorts by
+// commas). A name entered last name first ('Camilleri, Andrea') becomes 'Andrea Camilleri', the
+// way Calibre's other books and the catalogs write it; 'Martin Luther King, Jr.' stays as it is.
+const SUFFIX = /^(jr|sr|jun|sen|[ivx]+)\.?$/i;
+export function calibreAuthor(name) {
+  const s = String(name || '').replace(/\|/g, ',').replace(/\s+/g, ' ').trim();
+  const parts = s.split(',').map((p) => p.trim());
+  if (parts.length !== 2 || !parts[0] || !parts[1] || SUFFIX.test(parts[1])) return s;
+  return `${parts[1]} ${parts[0]}`;
 }
 
 const hasTable = (db, name) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
@@ -88,7 +99,7 @@ export function readBooks(db, libraryDir) {
       calibre_id: b.id,
       calibre_uuid: b.uuid || `calibre-${b.id}`,
       title: String(b.title || '').trim() || '?',
-      authors: authors.get(b.id) || [],
+      authors: [...new Set((authors.get(b.id) || []).map(calibreAuthor).filter(Boolean))],
       series: inSeries,
       series_index: inSeries ? b.series_index : null,
       year: calibreYear(b.pubdate),
@@ -168,9 +179,9 @@ export function calibreChanges(book, c) {
 // added: as read when Calibre has it as read, else with defaultStatus. Books that disappear
 // from Calibre stay, marked as gone.
 //
-// Calibre's read mark only ever moves a book from "want" to "read": a book you're reading,
-// dropped or already marked yourself keeps its status.
-export function planSync(calibreBooks, regalBooks, { defaultStatus = 'want' } = {}) {
+// Calibre's read mark only ever moves a book you haven't started ("want" or "unread") to
+// "read": a book you're reading, dropped or already marked yourself keeps its status.
+export function planSync(calibreBooks, regalBooks, { defaultStatus = 'unread' } = {}) {
   const present = new Set(calibreBooks.map((c) => c.calibre_uuid));
   const byUuid = new Map(regalBooks.filter((b) => b.calibre_uuid).map((b) => [b.calibre_uuid, b]));
   const linkable = regalBooks.filter((b) => !b.calibre_uuid || !present.has(b.calibre_uuid));
@@ -200,7 +211,7 @@ export function planSync(calibreBooks, regalBooks, { defaultStatus = 'want' } = 
     }
     used.add(book.id);
     const changes = calibreChanges(book, fields);
-    if (read && book.status === 'want') changes.status = 'read';
+    if (read && NOT_STARTED.includes(book.status)) changes.status = 'read';
     if (Object.keys(changes).length) plan.update.push({ id: book.id, fields: changes, linked });
     else plan.unchanged++;
   }
