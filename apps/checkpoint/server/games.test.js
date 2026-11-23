@@ -17,9 +17,13 @@ test('dates in order, as far as both go', () => {
 });
 
 test('cleanGameInput keeps what changed and checks it', () => {
-  assert.deepEqual(cleanGameInput({ status: 'finished', rating: 8, playedOn: ' Switch ', notes: '' }), {
-    status: 'finished', rating: 8, played_on: 'Switch', notes: null,
+  assert.deepEqual(cleanGameInput({ status: 'finished', rating: 8, playedOn: ['Switch', ' PC ', 'Switch', ''], notes: '' }), {
+    status: 'finished', rating: 8, played_on: ['Switch', 'PC'], notes: null,
   });
+  // One name (older apps, the form for a game entered by hand) is a list of one; empty is none
+  assert.deepEqual(cleanGameInput({ playedOn: ' Switch ' }), { played_on: ['Switch'] });
+  assert.deepEqual(cleanGameInput({ playedOn: '' }), { played_on: [] });
+  assert.throws(() => cleanGameInput({ playedOn: 5 }), BadRequest);
   assert.deepEqual(cleanGameInput({ rating: null, finishedOn: '' }), { rating: null, finished_on: null });
   assert.throws(() => cleanGameInput({ status: 'beaten' }), BadRequest);
   assert.throws(() => cleanGameInput({ rating: 11 }), BadRequest);

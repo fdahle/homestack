@@ -25,7 +25,7 @@ export const COVER_SIZE = { width: 600, height: 800 };
 export const byName = (a, b) => compareText(a.name, b.name);
 
 // A game's platforms to filter by: the one you played it on, else the ones it came out on
-export const gamePlatforms = (g) => (g.played_on ? [g.played_on] : g.platforms);
+export const gamePlatforms = (g) => (g.played_on?.length ? g.played_on : g.platforms);
 
 // The last change made on a game's page: { id, game } or { id, deleted: true }.
 // The library beside it watches this instead of loading everything again.

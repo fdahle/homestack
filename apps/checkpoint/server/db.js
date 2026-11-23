@@ -18,7 +18,7 @@ db.exec(`
   -- hours_main / hours_complete: IGDB's "time to beat" (main story, 100 %).
   -- cover_source: 'igdb' (downloaded) or 'photo' (your own, never replaced).
   -- status: wishlist, backlog, playing, finished, completed (100 %), dropped.
-  -- rating: 1–10, shown as half stars. played_on: the platform you played it on.
+  -- rating: 1–10, shown as half stars. played_on: JSON array of the platforms you played it on.
   -- started_on / finished_on: 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD', as precise as you remember it.
   CREATE TABLE IF NOT EXISTS games (
     id INTEGER PRIMARY KEY,
@@ -59,6 +59,24 @@ export function localDate(d = new Date()) {
 // Accounts and settings (users, settings tables)
 export const users = createUserStore(db);
 
+// Once per database, counted in user_version:
+// 1: played_on was one platform as text; now it's a list, so a game can be played on several
+const MIGRATIONS = [
+  () => db.exec(`UPDATE games SET played_on = CASE WHEN played_on IS NULL OR trim(played_on) = '' THEN '[]'
+    ELSE json_array(trim(played_on)) END`),
+];
+for (let v = db.prepare('PRAGMA user_version').get().user_version; v < MIGRATIONS.length; v++) {
+  db.exec('BEGIN');
+  try {
+    MIGRATIONS[v]();
+    db.exec(`PRAGMA user_version = ${v + 1}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 // --- games ---
 
 // Columns that may be written through insertGame/updateGame
@@ -67,7 +85,7 @@ const GAME_COLUMNS = [
   'hours_main', 'hours_complete', 'igdb_cover_id', 'cover_file', 'cover_source',
   'status', 'rating', 'played_on', 'started_on', 'finished_on', 'notes',
 ];
-const JSON_COLUMNS = ['platforms', 'genres'];
+const JSON_COLUMNS = ['platforms', 'genres', 'played_on'];
 
 function toRow(fields) {
   const row = {};
@@ -119,8 +137,8 @@ export function updateGame(id, fields) {
 export const deleteGame = (id) => db.prepare('DELETE FROM games WHERE id = ?').run(id).changes > 0;
 
 // Platforms you have played on, most used first (suggestions for "played on")
-export const usedPlatforms = () =>
-  db.prepare("SELECT played_on AS name, COUNT(*) AS n FROM games WHERE played_on IS NOT NULL AND played_on != '' GROUP BY played_on COLLATE NOCASE ORDER BY n DESC, name").all().map((r) => r.name);
+export const usedPlatforms = () => db.prepare(`SELECT p.value AS name, COUNT(*) AS n FROM games, json_each(games.played_on) p
+  WHERE json_valid(games.played_on) GROUP BY p.value COLLATE NOCASE ORDER BY n DESC, name`).all().map((r) => r.name);
 
 export const exportAll = () => ({
   games: db.prepare('SELECT * FROM games ORDER BY name COLLATE NOCASE').all().map(fromRow)

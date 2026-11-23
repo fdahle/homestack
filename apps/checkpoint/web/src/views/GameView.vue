@@ -22,7 +22,7 @@ const showSummary = ref(false);
 // Your entries, as the form shows them
 const form = ref({});
 const fromGame = (g) => ({
-  status: g.status, rating: g.rating, playedOn: g.played_on || '', startedOn: g.started_on || '', finishedOn: g.finished_on || '', notes: g.notes || '',
+  status: g.status, rating: g.rating, playedOn: [...(g.played_on || [])], startedOn: g.started_on || '', finishedOn: g.finished_on || '', notes: g.notes || '',
 });
 
 function setGame(g, { changed = true } = {}) {
@@ -63,7 +63,20 @@ async function save(patch) {
 const setStatus = (status) => status !== form.value.status && save({ status });
 const setRating = (rating) => save({ rating });
 const setDate = (key, value) => save({ [key]: value || null });
-const savePlayedOn = () => form.value.playedOn !== (game.value.played_on || '') && save({ playedOn: form.value.playedOn });
+// Played on: tap the platforms IGDB lists for the game; one it doesn't list goes in "Andere …"
+function setPlayedOn(list) {
+  form.value.playedOn = list;
+  save({ playedOn: list });
+}
+const togglePlayedOn = (p) => setPlayedOn(form.value.playedOn.includes(p) ? form.value.playedOn.filter((x) => x !== p) : [...form.value.playedOn, p]);
+const otherPlatform = ref('');
+function addOtherPlatform() {
+  const p = otherPlatform.value.trim();
+  otherPlatform.value = '';
+  if (!p) return;
+  const known = [...platformChoices.value, ...usedPlatforms.value].find((x) => x.toLowerCase() === p.toLowerCase()) || p;
+  if (!form.value.playedOn.includes(known)) setPlayedOn([...form.value.playedOn, known]);
+}
 
 // Notes save a moment after you stop typing, and when you leave the field
 let notesTimer = null;
@@ -79,7 +92,10 @@ onBeforeUnmount(saveNotes);
 
 // The server keeps only https links to IGDB; games stored before it did are checked here too
 const igdbUrl = computed(() => (/^https:\/\/([a-z0-9-]+\.)*igdb\.com\//i.test(game.value?.igdb_url || '') ? game.value.igdb_url : null));
-const platformChoices = computed(() => [...new Set([...(game.value?.platforms || []), ...usedPlatforms.value])]);
+// The chips: where the game came out (IGDB), and whatever you picked besides
+const platformChoices = computed(() => [...new Set([...(game.value?.platforms || []), ...(form.value.playedOn || [])])]);
+// Suggestions for "Andere …": platforms you used for other games
+const otherChoices = computed(() => usedPlatforms.value.filter((p) => !platformChoices.value.includes(p)));
 const showStarted = computed(() => PLAYED.includes(form.value.status) || form.value.startedOn);
 const showFinished = computed(() => ['finished', 'completed', 'dropped'].includes(form.value.status) || form.value.finishedOn);
 const facts = computed(() => {
@@ -233,11 +249,23 @@ async function remove() {
           <StarRating v-model="form.rating" @update:model-value="setRating" />
         </div>
 
-        <label>
-          <span>{{ t('game.playedOn') }}</span>
-          <input v-model="form.playedOn" list="platform-choices" maxlength="60" :placeholder="t('game.playedOnHint')" @change="savePlayedOn" />
-          <datalist id="platform-choices"><option v-for="p in platformChoices" :key="p" :value="p" /></datalist>
-        </label>
+        <div class="played-on">
+          <span class="field-label">{{ t('game.playedOn') }}</span>
+          <div class="chips" role="group" :aria-label="t('game.playedOn')">
+            <button
+              v-for="p in platformChoices" :key="p" type="button" class="chip" :class="{ active: form.playedOn.includes(p) }"
+              :aria-pressed="form.playedOn.includes(p)" @click="togglePlayedOn(p)"
+            >
+              <Icon v-if="form.playedOn.includes(p)" name="check" />{{ p }}
+            </button>
+            <input
+              v-model="otherPlatform" class="other-platform" list="platform-choices" maxlength="60" enterkeyhint="done"
+              :placeholder="platformChoices.length ? t('game.playedOnOther') : t('game.playedOnHint')" :aria-label="t('game.playedOnOther')"
+              @keydown.enter.prevent="addOtherPlatform" @change="addOtherPlatform"
+            />
+          </div>
+          <datalist id="platform-choices"><option v-for="p in otherChoices" :key="p" :value="p" /></datalist>
+        </div>
 
         <div v-if="showStarted" class="date-field">
           <span class="field-label">{{ t('game.started') }}</span>

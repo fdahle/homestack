@@ -3,11 +3,11 @@
 A self-hosted log of the games you play: what you're playing now, what you finished, what you dropped, and what's waiting in the backlog. For one person; nobody else sees it.
 
 - **Look a game up, add it in two taps.** Search [IGDB](https://www.igdb.com) by name, tap a result, and pick *Spiele ich*, *Durchgespielt*, *Backlog* or *Wunschliste*. Cover, release date, platforms, genres, developer, series and IGDB's time to beat come along. Games IGDB doesn't know can be entered by hand.
-- **Your progress per game.** Status (wishlist, backlog, playing, finished, 100 %, dropped), a rating in half stars, the platform you played it on, when you started and finished (a year or month is enough for old games) and notes. Everything saves as you change it. Marking a backlog game as *playing* fills in today as the start date, and finishing a game you were playing fills in the end date.
-- **Library** as a cover grid, with what you're playing now at the top, filters for status, platform and genre, search and several sort orders.
+- **Your progress per game.** Status (wishlist, backlog, playing, finished, 100 %, dropped), a rating in half stars, the platforms you played it on (tick the ones IGDB lists for the game, or add another such as *Steam Deck*), when you started and finished (a year or month is enough for old games) and notes. Everything saves as you change it. Marking a backlog game as *playing* fills in today as the start date, and finishing a game you were playing fills in the end date.
+- **Library** as a cover grid, with what you're playing now at the top, status chips, platform and genre behind the filter button, search and several sort orders.
 - **What to play next:** a random pick from your backlog, filtered by platform, length (from IGDB's time for the main story) and genre. *Ein anderes* goes through all matching games before repeating one; *Spiel ich jetzt* moves it to *playing*.
 - **Stats:** games played and finished, how many you see through, your average rating, games finished per year, by status, platform and genre, your rating distribution, top-rated games and roughly how many hours of story sit in your backlog.
-- **On a computer** the tabs become a sidebar and a game opens beside the library, so you can go through your games without losing your place. `/` jumps to the search, `Esc` closes the game.
+- **On a computer** the tabs move into a bar across the top and a game opens beside the library, so you can go through your games without losing your place. `/` jumps to the search, `Esc` closes the game.
 - Your own cover photos, German and English interface, JSON export, installable on the phone's home screen.
 
 ## IGDB
@@ -28,7 +28,7 @@ docker compose up -d --build
 
 The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `deploy/`); installing it as an app needs HTTPS. The first start creates the account `ADMIN_USER`.
 
-**Update:** `docker compose up -d --build`. The data lives in the `checkpoint-data` volume (`checkpoint.db` plus `covers/`).
+**Update:** `docker compose up -d --build`. The data lives in the `checkpoint-data` volume (`checkpoint.db` plus `covers/`). Changes to the data happen once, at the first start of a new version: with several platforms per game, each game's one *Gespielt auf* became a list of one.
 
 **Backup:** back up `checkpoint.db` with `sqlite3 checkpoint.db ".backup …"`, along with the `covers/` folder from the volume.
 

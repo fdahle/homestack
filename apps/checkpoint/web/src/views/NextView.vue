@@ -103,7 +103,7 @@ async function startPlaying() {
         <span>{{ t('next.alreadyPlaying') }} <template v-for="(g, i) in playing" :key="g.id"><RouterLink :to="`/game/${g.id}`">{{ g.name }}</RouterLink>{{ i < playing.length - 1 ? ', ' : '' }}</template></span>
       </p>
 
-      <div class="filters">
+      <div class="next-filters">
         <div v-if="platforms.length > 1" class="chips" role="group" :aria-label="t('library.platform')">
           <button class="chip" :class="{ active: !platform }" @click="platform = ''">{{ t('library.allPlatforms') }}</button>
           <button v-for="p in platforms" :key="p" class="chip" :class="{ active: platform === p }" @click="platform = p">{{ p }}</button>

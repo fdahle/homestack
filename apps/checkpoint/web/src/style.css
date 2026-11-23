@@ -48,7 +48,12 @@
 
 /* --- up next --- */
 
-.filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+/* Played on: the game's platforms as chips to tick, wrapping, with a field for another one */
+.played-on { display: flex; flex-direction: column; gap: 6px; }
+.played-on .chips { flex-wrap: wrap; overflow: visible; margin: 0; }
+.played-on .other-platform { width: 9em; flex: none; min-height: 0; padding: 5px 12px; border-radius: 999px; font-size: 0.88rem; }
+
+.next-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .playing-note { margin-bottom: 14px; }
 .playing-note a { font-weight: 600; }
 .pick { display: flex; gap: 18px; align-items: flex-start; padding: 18px; transition: opacity 0.25s, transform 0.25s; }

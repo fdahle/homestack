@@ -52,7 +52,7 @@ const statusRows = computed(() => STATUSES.map((s) => [t(`status.${s}`), count(s
 const statusLink = (label) => `/?status=${statusRows.value.find(([l]) => l === label)?.[2]}`;
 
 const platformRows = computed(() => countBy(played.value, (g) => g.played_on).slice(0, 10));
-const withoutPlatform = computed(() => played.value.filter((g) => !g.played_on).length);
+const withoutPlatform = computed(() => played.value.filter((g) => !g.played_on?.length).length);
 const genreRows = computed(() => countBy(played.value, (g) => g.genres).slice(0, 10));
 const ratingRows = computed(() => {
   // From your best to your worst rating, the steps in between included

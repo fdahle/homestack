@@ -49,7 +49,11 @@ export function cleanGameInput(body, { manual = false } = {}) {
     if (r !== null && !(Number.isInteger(r) && r >= 1 && r <= 10)) throw new BadRequest('bad_rating');
     out.rating = r;
   }
-  out.played_on = text(body.playedOn, 60);
+  // Where you played it: a list of platforms (a single name still works, as a list of one)
+  if (body.playedOn !== undefined) {
+    const list = body.playedOn === null || body.playedOn === '' ? [] : typeof body.playedOn === 'string' ? [body.playedOn] : body.playedOn;
+    out.played_on = nameList(list, 'bad_played_on').map((s) => s.slice(0, 60)).slice(0, 10);
+  }
   out.started_on = partialDate(body.startedOn, 'bad_date');
   out.finished_on = partialDate(body.finishedOn, 'bad_date');
   out.notes = text(body.notes, 20_000);

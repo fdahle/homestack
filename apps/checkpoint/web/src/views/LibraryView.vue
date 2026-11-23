@@ -21,6 +21,10 @@ const genre = ref(String(route.query.genre || ''));
 const sort = ref(String(route.query.sort || 'recent'));
 const q = ref(String(route.query.q || ''));
 
+// Platform and genre sit behind the filter button; open when one of them is set
+const filterCount = computed(() => [platform.value, genre.value].filter(Boolean).length);
+const showFilters = ref(filterCount.value > 0);
+
 watch([status, platform, genre, sort, q], () => {
   if (route.name !== 'library') return;
   const query = {};
@@ -30,6 +34,15 @@ watch([status, platform, genre, sort, q], () => {
   if (sort.value !== 'recent') query.sort = sort.value;
   if (q.value.trim()) query.q = q.value.trim();
   router.replace({ query });
+});
+
+// Links like /?platform=… from the stats, while the list is already open
+watch(() => route.query, (query) => {
+  if (route.name !== 'library') return;
+  if (query.platform !== undefined) platform.value = String(query.platform);
+  if (query.genre !== undefined) genre.value = String(query.genre);
+  if (query.status !== undefined) status.value = String(query.status);
+  if (query.platform || query.genre) showFilters.value = true;
 });
 
 async function load() {
@@ -51,7 +64,7 @@ watch(gameChange, (change) => {
   else games.value.push(change.game);
 });
 
-// "/" jumps to the search
+// "/" jumps to the search; Enter puts the phone's keyboard away
 const searchInput = ref(null);
 useShortcut('/', () => searchInput.value?.focus());
 
@@ -60,6 +73,7 @@ const counts = computed(() => Object.fromEntries(countBy(games.value || [], (g) 
 const statusChips = computed(() => ['all', ...STATUSES.filter((s) => counts.value[s])]);
 const platforms = computed(() => countBy(games.value || [], gamePlatforms).map(([p]) => p));
 const genres = computed(() => countBy(games.value || [], (g) => g.genres).map(([g]) => g).sort());
+const canFilter = computed(() => platforms.value.length > 1 || genres.value.length > 1);
 
 const SORTS = {
   recent: (a, b) => b.updated_at.localeCompare(a.updated_at),
@@ -80,20 +94,31 @@ const shown = computed(() => {
     .sort(SORTS[sort.value] || SORTS.recent);
 });
 
-const filtered = computed(() => status.value !== 'all' || platform.value || genre.value || q.value.trim());
+const filtered = computed(() => status.value !== 'all' || filterCount.value > 0 || q.value.trim());
+
+function clearFilters() {
+  platform.value = '';
+  genre.value = '';
+}
 
 function resetFilters() {
   status.value = 'all';
-  platform.value = '';
-  genre.value = '';
   q.value = '';
+  clearFilters();
 }
 </script>
 
 <template>
   <SplitView>
-    <TopBar :title="t('library.title')">
-      <RouterLink to="/settings" class="icon-btn phone-only" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
+    <!-- On a computer the bar across the top already says "Checkpoint" -->
+    <TopBar :title="t('library.title')" class="phone-only">
+      <button
+        v-if="canFilter" class="icon-btn filter-btn" :class="{ active: showFilters }" :aria-label="t('library.filters')"
+        :aria-expanded="showFilters" @click="showFilters = !showFilters"
+      >
+        <Icon name="filter" /><span v-if="filterCount" class="filter-dot"></span>
+      </button>
+      <RouterLink to="/settings" class="icon-btn" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
     </TopBar>
     <main class="wide">
       <p v-if="error" class="error">{{ error }}</p>
@@ -115,19 +140,21 @@ function resetFilters() {
 
         <h2 v-if="playing.length && !filtered" class="section">{{ t('library.all') }}</h2>
         <div class="toolbar">
-          <input ref="searchInput" v-model="q" type="search" :placeholder="t('library.search')" :aria-label="t('library.search')" />
+          <input
+            ref="searchInput" v-model="q" type="search" enterkeyhint="search" :placeholder="t('library.search')" :aria-label="t('library.search')"
+            @keydown.enter="$event.target.blur()"
+          />
           <select v-model="sort" :aria-label="t('library.sort')">
             <option v-for="(fn, key) in SORTS" :key="key" :value="key">{{ t(`library.sorts.${key}`) }}</option>
           </select>
-        </div>
-        <div class="chips" role="group" :aria-label="t('library.status')">
-          <button v-for="s in statusChips" :key="s" class="chip" :class="{ active: status === s }" @click="status = s">
-            <Icon v-if="s !== 'all'" :name="STATUS_ICONS[s]" />
-            {{ s === 'all' ? t('library.allStatuses') : t(`status.${s}`) }}
-            <span class="chip-count">{{ s === 'all' ? games.length : counts[s] }}</span>
+          <button
+            v-if="canFilter" class="btn filter-toggle desktop-only" :class="{ active: showFilters }"
+            :aria-expanded="showFilters" @click="showFilters = !showFilters"
+          >
+            <Icon name="filter" />{{ t('library.filters') }}<span v-if="filterCount" class="chip-count">{{ filterCount }}</span>
           </button>
         </div>
-        <div v-if="platforms.length > 1 || genres.length > 1" class="toolbar">
+        <div v-if="showFilters && canFilter" class="filters">
           <select v-if="platforms.length > 1" v-model="platform" :aria-label="t('library.platform')">
             <option value="">{{ t('library.allPlatforms') }}</option>
             <option v-for="p in platforms" :key="p" :value="p">{{ p }}</option>
@@ -136,6 +163,14 @@ function resetFilters() {
             <option value="">{{ t('library.allGenres') }}</option>
             <option v-for="g in genres" :key="g" :value="g">{{ g }}</option>
           </select>
+          <button v-if="filterCount" class="link-btn small" @click="clearFilters"><Icon name="close" />{{ t('library.reset') }}</button>
+        </div>
+        <div class="chips" role="group" :aria-label="t('library.status')">
+          <button v-for="s in statusChips" :key="s" class="chip" :class="{ active: status === s }" @click="status = s">
+            <Icon v-if="s !== 'all'" :name="STATUS_ICONS[s]" />
+            {{ s === 'all' ? t('library.allStatuses') : t(`status.${s}`) }}
+            <span class="chip-count">{{ s === 'all' ? games.length : counts[s] }}</span>
+          </button>
         </div>
 
         <div v-if="shown.length" class="grid">
