@@ -21,8 +21,8 @@
 //   off.queue('file', null, patch)   a change for something that isn't kept locally
 
 import { reactive, watch } from 'vue';
-import { api, ApiError, session } from './api.js';
-import { openLocal, plain } from './localdb.js';
+import { api, ApiError, onLogout, session } from './api.js';
+import { deleteLocal, openLocal, plain } from './localdb.js';
 
 export { plain };
 
@@ -285,6 +285,18 @@ export function createOffline({ name, kinds, extraStores = [], onOpen, onClose, 
 
   // Each account's data opens when it logs in (last, so everything above is defined)
   watch(() => session.user?.id, (id) => (id ? open(session.user) : close()), { immediate: true });
+
+  // Logging out: one last try to send the outbox, then this account's copy leaves the device
+  onLogout({
+    async pending() {
+      if (state.pending) await sync().catch(() => {});
+      return state.pending;
+    },
+    async after(user) {
+      close();
+      if (user) await deleteLocal(`${name}-${user.id}`);
+    },
+  });
 
   return { state, whenReady, queue, putLocal, removeLocal, isQueued, sync, syncSoon, loadSettings, setExtraPending, local: () => local };
 }

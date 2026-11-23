@@ -56,5 +56,18 @@ function memoryLocal(stores) {
   };
 }
 
+// Deletes a device's copy for good (on logout). Waits until it's gone, or gives up quietly
+// if another tab still holds it open (it goes once that tab closes).
+export function deleteLocal(name) {
+  return new Promise((resolve) => {
+    try {
+      const request = indexedDB.deleteDatabase(name);
+      request.onsuccess = request.onerror = request.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
 // A copy without Vue's proxies, fit for IndexedDB
 export const plain = (value) => JSON.parse(JSON.stringify(value));

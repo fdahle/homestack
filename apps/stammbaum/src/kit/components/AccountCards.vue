@@ -2,7 +2,7 @@
 <script setup>
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, session } from '../api.js';
+import { api, logout as logoutHere, session } from '../api.js';
 import { t } from '../i18n.js';
 import { errorText, showToast } from '../util.js';
 import { applyTheme, theme, THEMES } from '../theme.js';
@@ -34,9 +34,7 @@ async function changePassword() {
 }
 
 async function logout() {
-  await api('/logout', { method: 'POST' }).catch(() => {});
-  session.user = null;
-  router.replace('/login');
+  if (await logoutHere((n) => window.confirm(t('account.logoutPending', { n })))) router.replace('/login');
 }
 </script>
 

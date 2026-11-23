@@ -52,6 +52,27 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   return data;
 }
 
+// What an app does on this device when you log out (Notizbuch, To-do: send what's waiting,
+// then forget the offline copy, so the next person on the device doesn't find it).
+//   onLogout({ pending: async () => n,   changes not on the server yet (after a last try)
+//              before: async () => {},   still logged in (To-do: unsubscribe push)
+//              after: async (user) => {} })   logged out (delete the local data)
+const logoutSteps = [];
+export const onLogout = (step) => logoutSteps.push(step);
+
+// confirm(n): asked when n changes couldn't be sent; false keeps you logged in
+export async function logout(confirm = () => true) {
+  const user = session.user;
+  let pending = 0;
+  for (const step of logoutSteps) pending += (await step.pending?.().catch(() => 0)) || 0;
+  if (pending && !(await confirm(pending))) return false;
+  for (const step of logoutSteps) await step.before?.().catch(() => {});
+  await api('/logout', { method: 'POST' }).catch(() => {});
+  session.user = null;
+  for (const step of logoutSteps) await step.after?.(user).catch((err) => console.warn('Logout step failed:', err));
+  return true;
+}
+
 export async function loadSession() {
   try {
     session.user = await api('/me');

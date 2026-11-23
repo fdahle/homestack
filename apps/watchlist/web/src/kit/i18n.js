@@ -32,6 +32,7 @@ const DICTS = {
       passwordChanged: 'Passwort geändert. Andere Geräte sind abgemeldet.',
       viaProxy: 'Du bist über die Anmeldung des Servers angemeldet.',
       logout: 'Abmelden',
+      logoutPending: '{n} Änderungen sind noch nicht auf dem Server und gehen beim Abmelden verloren. Trotzdem abmelden?',
     },
     shortcuts: { search: 'Suchen', close: 'Schließen' },
     errors: {
@@ -72,6 +73,7 @@ const DICTS = {
       passwordChanged: 'Password changed. Other devices are logged out.',
       viaProxy: "You're logged in through the server's login.",
       logout: 'Log out',
+      logoutPending: "{n} changes aren't on the server yet and will be lost when you log out. Log out anyway?",
     },
     shortcuts: { search: 'Search', close: 'Close' },
     errors: {

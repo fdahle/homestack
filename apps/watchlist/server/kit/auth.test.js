@@ -7,13 +7,14 @@ import { createAuth, hashPassword } from './auth.js';
 import { createApp, mountAccount } from './http.js';
 import { createUserStore } from './users.js';
 
-async function start({ proxySecret = '' } = {}) {
+async function start({ proxySecret = '', proxyUsers = '' } = {}) {
   const users = createUserStore(new DatabaseSync(':memory:'));
   users.createUser({ username: 'felix', displayName: 'Felix', passwordHash: await hashPassword('correct horse') });
-  const auth = createAuth({ users, cookie: 'test_session', proxySecret });
+  const auth = createAuth({ users, cookie: 'test_session', proxySecret, proxyUsers });
   const app = createApp();
   mountAccount(app, { auth, users });
   app.get('/api/thing', (req, res) => res.json({ user: req.user.username }));
+  app.post('/api/thing', (req, res) => res.json({ ok: true }));
   const server = await new Promise((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
@@ -83,6 +84,39 @@ test('behind a proxy: only with the secret, new users get an account', async () 
     const me = await (await s.call('/api/me', { headers: { 'remote-user': 'felix', 'x-auth-proxy-secret': 's3cret' } })).json();
     assert.equal(me.via_proxy, true);
     assert.equal((await s.call('/api/login', { method: 'POST', body: { username: 'felix', password: 'correct horse' } })).status, 400);
+  } finally {
+    s.close();
+  }
+});
+
+test('behind a proxy with AUTH_PROXY_USERS: only the names listed', async () => {
+  const s = await start({ proxySecret: 's3cret', proxyUsers: 'Felix, anna' });
+  try {
+    const as = (name) => s.call('/api/thing', { headers: { 'remote-user': name, 'x-auth-proxy-secret': 's3cret' } });
+    assert.equal((await as('felix')).status, 200);
+    assert.equal((await as('ANNA')).status, 200);
+    assert.equal((await as('oma')).status, 403);
+    assert.equal(s.users.getUserByName('oma'), undefined);
+  } finally {
+    s.close();
+  }
+});
+
+test('changes only from the app itself, not from another site or subdomain', async () => {
+  const s = await start();
+  try {
+    const cookie = cookieOf(await s.call('/api/login', { method: 'POST', body: { username: 'felix', password: 'correct horse' } }));
+    const post = (headers) => s.call('/api/thing', { method: 'POST', cookie, headers });
+    assert.equal((await post({ 'sec-fetch-site': 'same-site' })).status, 403);
+    assert.equal((await post({ 'sec-fetch-site': 'cross-site' })).status, 403);
+    assert.equal((await post({ origin: 'https://evil.example.com' })).status, 403);
+    assert.equal((await post({ origin: 'null' })).status, 403);
+    assert.equal((await post({ 'sec-fetch-site': 'same-origin' })).status, 200);
+    const host = new URL((await s.call('/healthz')).url).host;
+    assert.equal((await post({ origin: `http://${host}` })).status, 200);
+    assert.equal((await post({})).status, 200); // no browser: curl, another server
+    // Reading stays open to links from elsewhere
+    assert.equal((await s.call('/api/thing', { cookie, headers: { 'sec-fetch-site': 'cross-site' } })).status, 200);
   } finally {
     s.close();
   }

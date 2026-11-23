@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { hasText, lang, t } from './i18n.js';
 
 export { hasText };
@@ -55,6 +55,50 @@ export function countBy(items, key) {
 }
 
 export const compareText = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), lang.value, { sensitivity: 'base', numeric: true });
+
+// A random order that stays the same all day, so things can be found again, and changes at
+// 04:00 (not midnight: then you're asleep). Each entry's place depends only on the day and its
+// own key, so adding or removing one doesn't shuffle the rest.
+//   list.sort(byDailyRandom((x) => x.id))
+export function byDailyRandom(key = (x) => x.id, now = new Date()) {
+  const day = isoDate(new Date(now.getTime() - 4 * 3_600_000));
+  const rank = (x) => hash(`${day}:${key(x)}`);
+  return (a, b) => rank(a) - rank(b);
+}
+
+// FNV-1a with a final mix: a quick, well-spread 32-bit number for a string
+function hash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  return h >>> 0;
+}
+
+// --- remembered choices (on this device) ---
+
+// A ref that starts from what was chosen last time and remembers every change, e.g. a list's
+// sort order. allowed: the values that exist (a remembered one that no longer does is dropped);
+// initial: starts with this one this time (say from the address) without remembering it.
+export function rememberedRef(key, fallback, { allowed = null, initial = null } = {}) {
+  const ok = (v) => v != null && v !== '' && (!allowed || allowed.includes(v));
+  let saved = null;
+  try {
+    saved = localStorage.getItem(key);
+  } catch {
+    // private window or blocked storage: just don't remember
+  }
+  const value = ref(ok(initial) ? initial : ok(saved) ? saved : fallback);
+  watch(value, (v) => {
+    try {
+      localStorage.setItem(key, v);
+    } catch {
+      // only a convenience
+    }
+  });
+  return value;
+}
 
 // --- pictures ---
 

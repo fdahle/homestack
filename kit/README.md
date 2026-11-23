@@ -13,7 +13,7 @@ node kit/sync.mjs --check   # does every app match the kit?
 | `server/` | `apps/<app>/server/kit/` | `users.js` (accounts table), `auth.js` (login: own accounts or a login proxy), `http.js` (Express setup, `/healthz`, account routes, frontend, errors), `errors.js`, `auth.test.js` |
 | `scripts/` | `apps/<app>/scripts/kit/` | `icons.js`: draws the app icon (white symbol on a rounded square in the app's colour) |
 
-Apps using it: Backlog, Checkpoint, Watchlist, Regal, Leute, Stapel, Notizbuch, To-do; Fernweh for its colours, icon and login, and Stammbaum for its colours, icon and light/dark switch (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node kit/sync.mjs leute` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
+Apps using it: Backlog, Checkpoint, Watchlist, Regal, Stammtisch, Stapel, Notizbuch, To-do; Fernweh for its colours, icon and login, and Stammbaum for its colours, icon, light/dark switch and the look of its tabs and sidebar (the list is at the top of `sync.mjs`; Fernweh's copies go to `client/src/kit` and `api/kit`). `node kit/sync.mjs stammtisch` syncs only the apps named. Don't edit files in an app's `kit/` folder: the next sync overwrites them. Change the kit here, sync, commit both.
 
 ## Phone and computer
 
@@ -84,7 +84,11 @@ location / {
 }
 ```
 
-The app then trusts `Remote-User` only together with that secret, creates an account the first time it sees a user, and hides the password and logout settings. Without the secret every request gets a 403, so nothing else that reaches the port can claim to be someone.
+The app then trusts `Remote-User` only together with that secret, creates an account the first time it sees a user, and hides the password and logout settings. Without the secret every request gets a 403, so nothing else that reaches the port can claim to be someone. `AUTH_PROXY_USERS` (names separated by commas) narrows it to those people; set it for apps whose data everyone with an account shares.
+
+Every server from `createApp()` refuses changes under `/api` (anything but GET/HEAD) that a browser says come from another site or another subdomain (`Sec-Fetch-Site`, else `Origin`), with a 403 `cross_site`. SameSite cookies alone don't keep sibling subdomains out. Requests that don't say where they come from (curl, another server) pass.
+
+Logging out on a device runs the steps apps register with `onLogout()` (`web/api.js`): the offline apps send what's waiting, then delete the device's copy; To-do also ends the device's reminders.
 
 ## Icons
 
@@ -93,7 +97,7 @@ The app then trusts `Remote-User` only together with that secret, creates an acc
 | App | Symbol | Accent |
 |---|---|---|
 | Backlog | a bookmark with a tick | slate blue `#4b5d78` |
-| Leute | three friends | terracotta `#b2482a` |
+| Stammtisch | three friends | terracotta `#b2482a` |
 | Checkpoint | checkered flag | indigo `#5448c8` |
 | Stapel | pile of comics | blue `#2f5fa8` |
 | Watchlist | film frame with a play button | teal `#14787a` |

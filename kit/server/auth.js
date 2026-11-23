@@ -48,7 +48,10 @@ export class LoginLimitError extends Error {
 }
 
 // users: from createUserStore(). cookie: the session cookie's name, e.g. 'checkpoint_session'.
-export function createAuth({ users, cookie, proxySecret = process.env.AUTH_PROXY_SECRET || '' }) {
+// proxyUsers: who may come in through the proxy (AUTH_PROXY_USERS, names separated by commas).
+// Empty: whoever the proxy lets through. Set it for apps whose data everyone with an account shares.
+export function createAuth({ users, cookie, proxySecret = process.env.AUTH_PROXY_SECRET || '', proxyUsers = process.env.AUTH_PROXY_USERS || '' }) {
+  const allowed = new Set(String(proxyUsers).split(',').map((n) => n.trim().toLowerCase()).filter(Boolean));
   // The token includes the session version (bumped on logout) and the password hash,
   // so logging out or changing the password ends that user's sessions on all devices.
   const sign = (user) =>
@@ -128,6 +131,7 @@ export function createAuth({ users, cookie, proxySecret = process.env.AUTH_PROXY
     const secret = req.get('x-auth-proxy-secret');
     const name = String(req.get('remote-user') || '').trim().slice(0, 100);
     if (!secret || !sameString(secret, proxySecret) || !name) return null;
+    if (allowed.size && !allowed.has(name.toLowerCase())) return null;
     let user = users.getUserByName(name);
     if (!user) {
       const displayName = String(req.get('remote-name') || '').trim().slice(0, 80) || name;
