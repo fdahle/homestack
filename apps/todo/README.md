@@ -14,7 +14,7 @@ Self-hosted tasks that are as quick to write down as a note, and work offline. O
 - **Repeats**: daily, weekdays, weekly, every 2 weeks, monthly, yearly, or your own (every n days/weeks/months/years, chosen weekdays), counted from the due date or from the day you did it. Ticking one off moves it to its next date and keeps a done copy. "Monthly on the 31st" stays on the 31st after a short month.
 - **Today** (overdue on top, with one tap to move them all to today), **Upcoming** day by day or as a month, **Lists** with colours and the inbox, a search across everything. Ticking off and deleting can be undone.
 - **Reminders** as push notifications at a task's time, and a morning overview of the day (or not, in the settings).
-- **Calendar feed**: a secret address your phone's calendar subscribes to, so open tasks with a date show up next to Leute's plans.
+- **Calendar feed**: a secret address your phone's calendar subscribes to, so open tasks with a date show up next to Stammtisch's plans.
 - **Offline first**, like Notizbuch: all tasks are on the device, changes wait and sync when it's online. On a computer a task opens beside the list, and your lists sit in the sidebar. German and English.
 
 ## How the sync works
@@ -32,7 +32,7 @@ The app listens on `127.0.0.1:$PORT`. Put nginx in front of it with HTTPS (see `
 
 **Update:** `docker compose up -d --build`. Everything lives in the `todo-data` volume (`todo.db`). **Backup:** `sqlite3 todo.db ".backup …"`.
 
-**Behind Authelia:** set `AUTH_PROXY_SECRET` (see [deploy/](../../deploy/README.md#one-login-for-all-apps)), and let `/ics/` through without a login (calendar apps can't log in; the address itself is the secret), like Leute's rule in [authelia.yml](../../deploy/authelia.yml).
+**Behind Authelia:** set `AUTH_PROXY_SECRET` (see [deploy/](../../deploy/README.md#one-login-for-all-apps)), and let `/ics/` through without a login (calendar apps can't log in; the address itself is the secret), like Stammtisch's rule in [authelia.yml](../../deploy/authelia.yml).
 
 ## Configuration
 

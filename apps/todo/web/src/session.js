@@ -1,5 +1,5 @@
 import { watch } from 'vue';
-import { api, ApiError, session } from './api.js';
+import { api, ApiError, onLogout, session } from './api.js';
 
 // The kit asks the server who is logged in (GET /api/me) before the first page. Offline that
 // fails, and To-do would show the login page instead of your tasks. So the device remembers
@@ -24,6 +24,17 @@ function remember(user) {
     // no storage: the app just won't open offline
   }
 }
+
+// Logging out ends this device's reminders too: they'd show the tasks to whoever uses it next
+onLogout({
+  async before() {
+    const reg = 'serviceWorker' in navigator && 'PushManager' in window ? await navigator.serviceWorker.getRegistration() : null;
+    const sub = await reg?.pushManager.getSubscription();
+    if (!sub) return;
+    await api('/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {});
+    await sub.unsubscribe();
+  },
+});
 
 export function restoreSession(router) {
   const user = remembered();

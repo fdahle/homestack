@@ -53,9 +53,20 @@ export function createTaskStore(db) {
     CREATE INDEX IF NOT EXISTS tasks_open ON tasks (user_id, done_at, due_date);
   `);
 
+  // A task may name a list the server hasn't seen yet: it can come in the same sync, or later
+  // (made offline). Only another account's list is refused.
+  function applyTask({ userId, patch, write }) {
+    if (patch.list_id) {
+      const list = db.prepare('SELECT user_id FROM lists WHERE id = ?').get(patch.list_id);
+      if (list && list.user_id !== userId) throw new BadRequest('bad_list_id');
+    }
+    write(patch);
+    return {};
+  }
+
   const engine = createSync(db, {
     kinds: {
-      task: { table: 'tasks', clean: cleanTaskPatch, json: ['repeat', 'subtasks'], bool: ['remind'], out: taskOut },
+      task: { table: 'tasks', clean: cleanTaskPatch, json: ['repeat', 'subtasks'], bool: ['remind'], out: taskOut, apply: applyTask },
       list: { table: 'lists', clean: cleanListPatch, out: listOut },
     },
   });

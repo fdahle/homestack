@@ -63,8 +63,9 @@ app.post('/api/settings/ics-token', (req, res) => {
 app.post('/api/push/subscribe', (req, res) => {
   const { endpoint, keys } = req.body;
   if (typeof endpoint !== 'string' || typeof keys?.p256dh !== 'string' || typeof keys?.auth !== 'string') throw new BadRequest('bad_push');
-  if (!isValidPushEndpoint(endpoint)) throw new BadRequest('bad_push_endpoint');
-  store.push.save(req.user.id, { endpoint, p256dh: keys.p256dh.slice(0, 200), auth: keys.auth.slice(0, 100) });
+  // Real endpoints are a few hundred characters
+  if (endpoint.length > 1000 || !isValidPushEndpoint(endpoint)) throw new BadRequest('bad_push_endpoint');
+  if (!store.push.save(req.user.id, { endpoint, p256dh: keys.p256dh.slice(0, 200), auth: keys.auth.slice(0, 100) })) throw new BadRequest('push_taken');
   res.json(settings(req.user.id));
 });
 

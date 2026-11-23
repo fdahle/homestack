@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { localDate, openDatabase } from './db.js';
+import { localDate, MAX_DEVICES, openDatabase } from './db.js';
 import { buildCalendar } from './ics.js';
 import { createReminders, isValidPushEndpoint } from './reminders.js';
 import { cleanRepeat, cleanTaskPatch } from './tasks.js';
@@ -143,4 +143,80 @@ test('calendar feed: each account has its own secret address', () => {
   assert.notEqual(store.icsToken(other), mine);
   store.resetIcsToken(me);
   assert.equal(store.userByIcsToken(mine), null);
+});
+
+test("a task can't be put in another account's list; a list not synced yet is fine", () => {
+  const { store, me, other } = setup();
+  const theirs = randomUUID();
+  store.tasks.sync(other, { changes: [{ kind: 'list', id: theirs, patch: { name: 'Fremd' } }] });
+  const id = randomUUID();
+  const later = randomUUID();
+  const r = store.tasks.sync(me, { changes: [task(id, { list_id: theirs }), task(randomUUID(), { list_id: later })] });
+  assert.deepEqual(r.rejected.map((x) => [x.id, x.error]), [[id, 'bad_list_id']]);
+  assert.equal(r.items.task[0].list_id, later);
+  // The list arrives afterwards (it was made offline): still mine
+  const after = store.tasks.sync(me, { changes: [{ kind: 'list', id: later, patch: { name: 'Neu' } }] });
+  assert.deepEqual(after.rejected, []);
+});
+
+test("push: an endpoint moves to another account only with the browser's own keys", () => {
+  const { store, me, other } = setup();
+  const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', p256dh: 'key', auth: 'secret' };
+  assert.equal(store.push.save(me, sub), true);
+  assert.equal(store.push.save(other, { ...sub, p256dh: 'mine now', auth: 'guess' }), false);
+  assert.equal(store.push.count(me), 1);
+  assert.equal(store.push.count(other), 0);
+  // The same browser after someone else logged in on it
+  assert.equal(store.push.save(other, sub), true);
+  assert.equal(store.push.count(me), 0);
+  assert.equal(store.push.count(other), 1);
+});
+
+test('push: an account keeps its latest devices only', () => {
+  const { store, me } = setup();
+  for (let i = 0; i < MAX_DEVICES + 5; i++) store.push.save(me, { endpoint: `https://fcm.googleapis.com/fcm/send/${i}`, p256dh: 'k', auth: 'a' });
+  const endpoints = store.push.list(me).map((s) => s.endpoint);
+  assert.equal(endpoints.length, MAX_DEVICES);
+  assert.ok(!endpoints.includes('https://fcm.googleapis.com/fcm/send/0'));
+  assert.ok(endpoints.includes(`https://fcm.googleapis.com/fcm/send/${MAX_DEVICES + 4}`));
+});
+
+test('push: sent to all devices at once; a slow or broken one leaves the others, expired ones go', { timeout: 5000 }, async () => {
+  const { store, me } = setup();
+  for (const name of ['slow', 'gone', 'ok']) store.push.save(me, { endpoint: `https://fcm.googleapis.com/fcm/send/${name}`, p256dh: 'k', auth: 'a' });
+  const started = [];
+  const options = [];
+  let startedAll;
+  const allStarted = new Promise((resolve) => (startedAll = resolve));
+  const reminders = createReminders(store, {
+    sendPush: async ({ endpoint }, payload, opts) => {
+      started.push(endpoint.split('/').at(-1));
+      options.push(opts);
+      if (started.length === 3) startedAll();
+      if (endpoint.endsWith('gone')) throw Object.assign(new Error('Gone'), { statusCode: 410 });
+      // Only gives up once the others have started: one after another, this would never end
+      if (endpoint.endsWith('slow')) {
+        await allStarted;
+        throw new Error('Socket timeout');
+      }
+    },
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(await reminders.send(me, { title: 'x' }), true);
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(started.sort(), ['gone', 'ok', 'slow']);
+  assert.ok(options.every((o) => o.timeout > 0), 'each request has a timeout');
+  assert.deepEqual(store.push.list(me).map((s) => s.endpoint.split('/').at(-1)).sort(), ['ok', 'slow']);
+});
+
+test('calendar feed: no bare line breaks or control characters', () => {
+  const ics = buildCalendar({ tasks: [{ id: 'a', title: 'eins\rzwei\u0007drei', due_date: '2026-11-23', due_time: null, priority: 0, subtasks: [], note: 'a\r\nb\nc', list_id: null }] });
+  assert.match(ics, /SUMMARY:eins\\nzweidrei\r\n/);
+  assert.match(ics, /DESCRIPTION:a\\nb\\nc\r\n/);
+  assert.ok(!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(ics));
+  assert.ok(ics.split('\r\n').every((l) => !l.includes('\r') && !l.includes('\n')));
 });

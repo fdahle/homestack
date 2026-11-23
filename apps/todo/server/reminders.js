@@ -9,6 +9,8 @@ const CHECK_EVERY_MS = 60_000;
 // After a restart, reminders this late still go out; older ones are skipped
 const CATCH_UP_MS = 6 * 3600_000;
 export const DEFAULT_DIGEST_HOUR = 8;
+// How long one push service may take to answer
+const SEND_TIMEOUT_MS = 15_000;
 
 // A push endpoint is a URL the server will later POST to, so only accept the
 // real browser push services (SSRF protection). Exact hosts or `.suffix` matches.
@@ -48,7 +50,8 @@ const TEXT = {
   },
 };
 
-export function createReminders(store) {
+// sendPush: for the tests, instead of the real push services
+export function createReminders(store, { sendPush = (...args) => webpush.sendNotification(...args) } = {}) {
   let publicKey = null;
   const text = (userId) => TEXT[store.users.getUser(userId)?.lang] || TEXT.de;
 
@@ -68,19 +71,20 @@ export function createReminders(store) {
     publicKey = keys.publicKey;
   }
 
-  // To every device of the account; true when at least one got it. Expired subscriptions go.
+  // To every device of the account at once; true when at least one got it. Expired
+  // subscriptions go. A push service that doesn't answer is given up on after a while,
+  // so it can't hold up the others or the next round.
   async function send(userId, message) {
-    let delivered = false;
-    for (const sub of store.push.list(userId)) {
+    const results = await Promise.allSettled(store.push.list(userId).map(async (sub) => {
       try {
-        await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(message), { TTL: 6 * 3600 });
-        delivered = true;
+        await sendPush({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(message), { TTL: 6 * 3600, timeout: SEND_TIMEOUT_MS });
       } catch (err) {
         if (err.statusCode === 404 || err.statusCode === 410) store.push.remove(sub.endpoint);
         else console.warn(`Push failed: ${err.message}`);
+        throw err;
       }
-    }
-    return delivered;
+    }));
+    return results.some((r) => r.status === 'fulfilled');
   }
 
   const digestHour = (userId) => {
@@ -121,11 +125,10 @@ export function createReminders(store) {
   }
 
   async function check() {
-    for (const { userId, key, message } of due()) {
-      // Marked first: a slow push service must not get the same reminder twice from the next round
-      store.push.markSent(key);
-      await send(userId, message);
-    }
+    const reminders = due();
+    // Marked first: a slow push service must not get the same reminder twice from the next round
+    for (const { key } of reminders) store.push.markSent(key);
+    await Promise.allSettled(reminders.map(({ userId, message }) => send(userId, message)));
     store.push.pruneSent(new Date(Date.now() - 400 * 86_400_000).toISOString());
   }
 

@@ -6,6 +6,8 @@ import { createUserStore } from './kit/users.js';
 import { createTaskStore } from './tasks.js';
 
 export const DATA_DIR = process.env.DATA_DIR || './data';
+// Devices per account that get reminders; plenty for phones, laptops and old browsers
+export const MAX_DEVICES = 20;
 
 // The database with everything in it: accounts (kit), tasks and lists, push subscriptions.
 // `path` ':memory:' gives an empty one for the tests.
@@ -38,9 +40,20 @@ export function openDatabase(path = join(DATA_DIR, 'todo.db')) {
     list: (userId) => db.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?').all(userId),
     count: (userId) => db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').get(userId).n,
     usersWithDevices: () => db.prepare('SELECT DISTINCT user_id FROM push_subscriptions').all().map((r) => r.user_id),
-    save: (userId, { endpoint, p256dh, auth }) =>
+    // False when the endpoint belongs to another account. It only moves over when the keys match:
+    // that's the same browser signing up again after someone else logged in on it. Knowing an
+    // endpoint alone doesn't let one account take another's reminders.
+    // Each account keeps its MAX_DEVICES most recently signed-up devices; older ones go.
+    save: (userId, { endpoint, p256dh, auth }) => {
+      const row = db.prepare('SELECT user_id, p256dh, auth FROM push_subscriptions WHERE endpoint = ?').get(endpoint);
+      if (row && row.user_id !== userId && (row.p256dh !== p256dh || row.auth !== auth)) return false;
       db.prepare(`INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`).run(endpoint, userId, p256dh, auth, now()),
+        ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, created_at = excluded.created_at`)
+        .run(endpoint, userId, p256dh, auth, now());
+      db.prepare(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint NOT IN
+        (SELECT endpoint FROM push_subscriptions WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?)`).run(userId, userId, MAX_DEVICES);
+      return true;
+    },
     remove: (endpoint, userId) =>
       userId === undefined
         ? db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint)

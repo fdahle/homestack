@@ -126,7 +126,7 @@ const de = {
     digestOff: 'Aus',
     digestAt: 'um {h} Uhr',
     calendar: 'Kalender',
-    calendarHow: 'Abonniere diese Adresse in deinem Kalender (Google, Apple, Outlook): offene Aufgaben mit Datum erscheinen dort, neben Leutes Terminen. Die Adresse ist geheim.',
+    calendarHow: 'Abonniere diese Adresse in deinem Kalender (Google, Apple, Outlook): offene Aufgaben mit Datum erscheinen dort, neben den Terminen aus Stammtisch. Die Adresse ist geheim.',
     copy: 'Kopieren',
     copied: 'Adresse kopiert',
     newAddress: 'Neue Adresse',
@@ -143,6 +143,7 @@ const de = {
   shortcuts: { add: 'Neue Aufgabe' },
   errors: {
     bad_push_endpoint: 'Dieser Push-Dienst wird nicht unterstützt.',
+    push_taken: 'Erinnerungen auf diesem Gerät gehören zu einem anderen Konto. Dort erst ausschalten.',
     bad_sync: 'Der Abgleich wurde abgelehnt.',
   },
 };
@@ -270,7 +271,7 @@ const en = {
     digestOff: 'Off',
     digestAt: 'at {h}:00',
     calendar: 'Calendar',
-    calendarHow: "Subscribe to this address in your calendar (Google, Apple, Outlook): open tasks with a date show up there, next to Leute's plans. The address is secret.",
+    calendarHow: "Subscribe to this address in your calendar (Google, Apple, Outlook): open tasks with a date show up there, next to Stammtisch's plans. The address is secret.",
     copy: 'Copy',
     copied: 'Address copied',
     newAddress: 'New address',
@@ -287,6 +288,7 @@ const en = {
   shortcuts: { add: 'New task' },
   errors: {
     bad_push_endpoint: "This push service isn't supported.",
+    push_taken: 'Reminders on this device belong to another account. Turn them off there first.',
     bad_sync: 'The sync was refused.',
   },
 };

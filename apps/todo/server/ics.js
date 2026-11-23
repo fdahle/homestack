@@ -1,9 +1,17 @@
 // The calendar feed: your open tasks with a due date as an iCalendar file that a phone
-// calendar subscribes to, next to Leute's plans and birthdays. A task with a time is a
+// calendar subscribes to, next to Stammtisch's plans and birthdays. A task with a time is a
 // 30-minute appointment, one without a whole-day entry. Repeating tasks show their next
 // date. Times are "floating", so they show as written in any time zone.
 
-const escape = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+// Every kind of line break becomes \n (a bare one would end the line early), other control
+// characters go: they have no place in a calendar entry and some calendar apps choke on them
+const escape = (s) =>
+  String(s ?? '')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n/g, '\\n');
 
 // Lines may be at most 75 bytes; longer ones continue on the next line after a space
 function fold(line) {
