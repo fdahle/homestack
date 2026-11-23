@@ -6,7 +6,6 @@
   "scope": "/",
   "display": "standalone",
   "background_color": "#f6f3f4",
-  "theme_color": "#f6f3f4",
   "shortcuts": [
     { "name": "Heute", "url": "/" },
     { "name": "Demnächst", "url": "/upcoming" }

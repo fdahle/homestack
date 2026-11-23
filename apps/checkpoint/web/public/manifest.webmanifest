@@ -6,7 +6,6 @@
   "scope": "/",
   "display": "standalone",
   "background_color": "#f3f2f8",
-  "theme_color": "#f3f2f8",
   "shortcuts": [
     { "name": "Spiel hinzufügen", "short_name": "Hinzufügen", "url": "/add" },
     { "name": "Was spiele ich als Nächstes?", "short_name": "Als Nächstes", "url": "/next" }

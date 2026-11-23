@@ -491,6 +491,28 @@ a.bar-label:hover { color: var(--accent); }
 
   .toast { bottom: 24px; left: calc(50% + var(--side-w) / 2); }
 
+  /* nav="top" (AppShell): the navigation as a bar across the top instead of a sidebar */
+  .nav-top { --head-h: 58px; }
+  .nav-top.has-nav { padding-left: 0; padding-top: var(--head-h); }
+  .nav-top .app-nav {
+    inset: 0 0 auto 0;
+    width: auto;
+    height: var(--head-h);
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 0 20px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-top .app-nav a { padding: 7px 12px; gap: 8px; }
+  .nav-top .app-nav .brand { padding: 0 18px 0 4px; }
+  .nav-top .app-nav .nav-slot { padding: 0 8px 0 0; }
+  .nav-top .top { top: var(--head-h); }
+  .nav-top .split-detail { top: var(--head-h); height: calc(100vh - var(--head-h)); }
+  .nav-top .split-detail .top { top: 0; }
+  .nav-top .toast { left: 50%; }
+
   .grid { --tile-min: 138px; gap: 22px 16px; }
   .shelf { --shelf-w: 150px; }
   .hero-cover { flex-basis: 170px; }

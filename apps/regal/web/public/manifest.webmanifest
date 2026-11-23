@@ -6,7 +6,6 @@
   "scope": "/",
   "display": "standalone",
   "background_color": "#f2f3ee",
-  "theme_color": "#f2f3ee",
   "shortcuts": [
     { "name": "Buch hinzufügen", "short_name": "Hinzufügen", "url": "/add" },
     { "name": "ISBN scannen", "short_name": "Scannen", "url": "/add?scan=1" }

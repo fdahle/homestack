@@ -1,6 +1,6 @@
 <!-- Copied from kit/web/components/AppShell.vue by kit/sync.mjs. Change it there, not here. -->
 <script setup>
-import { computed, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { session } from '../api.js';
 import { lang, t } from '../i18n.js';
@@ -13,10 +13,12 @@ import Icon from './Icon.vue';
 // tabs: [{ to, name, icon, label, also: [other route names that light this tab up] }]
 // extras: like tabs, only in the sidebar (on the phone they live in a page's top bar).
 // Slot "sidebar": shown under the app's name in the sidebar (a mode switch, for example).
+// nav: 'side' (a sidebar on a computer) or 'top' (a bar across the top, for apps with few pages).
 const props = defineProps({
   name: { type: String, required: true },
   tabs: { type: Array, required: true },
   extras: { type: Array, default: () => [] },
+  nav: { type: String, default: 'side' },
 });
 
 const route = useRoute();
@@ -34,6 +36,14 @@ const isActive = (tab) => route.name === tab.name || tab.also?.includes(route.na
 // A page stays the same component while only its entry beside it changes (SplitView)
 const viewKey = computed(() => (route.matched.length > 1 ? route.matched[0].path : route.path));
 
+// A search field that still has the focus when the app goes to the background would bring the
+// phone's keyboard back up the next time the app is opened
+function blurSearch() {
+  if (document.visibilityState === 'hidden' && document.activeElement?.matches?.('input[type="search"]')) document.activeElement.blur();
+}
+onMounted(() => document.addEventListener('visibilitychange', blurSearch));
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', blurSearch));
+
 function runToastAction() {
   toast.action?.run();
   toast.text = '';
@@ -42,7 +52,7 @@ function runToastAction() {
 </script>
 
 <template>
-  <div :class="{ 'has-nav': showNav }">
+  <div :class="{ 'has-nav': showNav, 'nav-top': props.nav === 'top' }">
     <RouterView v-slot="{ Component }">
       <component :is="Component" :key="viewKey" />
     </RouterView>

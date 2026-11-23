@@ -19,12 +19,14 @@ Apps using it: Backlog, Checkpoint, Watchlist, Regal, Stammtisch, Stapel, Notizb
 
 Phone first. From **1024px** wide:
 
-- the bottom tabs become a **sidebar** (app icon and name at the top, settings at the bottom, room for a switch like Watchlist's films/series under the name);
+- the bottom tabs become a **sidebar** (app icon and name at the top, settings at the bottom, room for a switch like Watchlist's films/series under the name), or with `<AppShell nav="top">` a **bar across the top** (name, tabs, settings on the right) for apps with only a few pages (Regal);
 - `<main class="wide">` uses up to 1180px (lists, grids, stats); plain `<main>` stays a 760px column (forms, settings);
 - cover grids get bigger tiles, stat cards sit side by side (`.stat-cards`);
 - a list with its entries as child routes (**SplitView**) shows the open entry **beside** the list. On the phone the entry replaces the list. `Esc` closes it, `/` focuses the search where a page sets that up (`useShortcut`).
 
 `.phone-only` and `.desktop-only` hide things on the other one.
+
+A search field (`type="search"`) that has the focus when the app goes to the background loses it, so the phone's keyboard doesn't pop up the next time the app is opened (`AppShell`).
 
 ## How an app uses it
 
@@ -32,7 +34,7 @@ Phone first. From **1024px** wide:
 
 An app with two modes (Watchlist: films and series) gives the second mode its own shade of the accent: it sets `data-mode` on `<html>` and overrides `--accent`, `--accent-soft` and `--bar` under `:root[data-mode="series"]`, as light-dark pairs too.
 
-**Light and dark**: the system decides, unless *Darstellung* in the settings (in `AccountCards`) pins one for this device. `theme.js` sets `data-theme` on `<html>`, which pins `color-scheme` and so every `light-dark()` pair, and gives the phone's status bar (`<meta name="theme-color">`) the chosen theme's colour. The app's `index.html` has a light and a dark `theme-color` meta (with `media`) and, before the title, the one-line script from the top of `theme.js` that sets `data-theme` before the first paint.
+**Light and dark**: the system decides, unless *Darstellung* in the settings (in `AccountCards`) pins one for this device. `theme.js` sets `data-theme` on `<html>`, which pins `color-scheme` and so every `light-dark()` pair, and gives the phone's status bar (`<meta name="theme-color">`) the chosen theme's colour. The app's `index.html` has a light and a dark `theme-color` meta (with `media`) and, before the title, the one-line script from the top of `theme.js` that sets `data-theme` before the first paint. The app's `manifest.webmanifest` has **no** `theme_color`: an app installed from Chrome on Android paints the system navigation bar (back, home) in that one fixed colour, light even in dark mode. Without it the bar follows the phone's own light or dark.
 
 **Texts**: the app's `i18n.js` calls `addMessages({ de, en })` from `kit/i18n.js` and re-exports `lang` and `t`. The kit brings back/close/save/cancel/delete, login, dates, rating, account settings and the common errors; the app's texts win where both have a key.
 
