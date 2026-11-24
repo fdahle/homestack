@@ -5,10 +5,15 @@ import { computed, ref } from 'vue';
 import { t } from '../i18n.js';
 import { showToast } from '../util.js';
 import { createOffline } from '../kit/offline.js';
+import { createAreas } from '../kit/areas.js';
 import { isoDate } from '../lib/dates.js';
 import { anchored, nextDue } from '../lib/repeat.js';
 
-const off = createOffline({ name: 'todo', kinds: { task: 'tasks', list: 'lists' } });
+const off = createOffline({ name: 'todo', kinds: { task: 'tasks', list: 'lists', area: 'areas' } });
+
+// Areas ("Zuhause", "Arbeit"): groups of lists. This device shows one of them, or all.
+// A task is in an area when its list is (the inbox is in none: it shows under "all").
+export const areas = createAreas(off, 'todo');
 
 // What the pages read (reactive through off.state)
 export const store = {
@@ -142,6 +147,17 @@ export const openTasks = computed(() => liveTasks.value.filter((x) => !x.done_at
 
 export const lists = computed(() =>
   [...store.lists.values()].filter((l) => !l.deleted_at).sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name)));
+
+// The lists of the area shown (all of them without one)
+const areaListIds = computed(() => (areas.current.value ? new Set(areas.current.value.members) : null));
+export const areaLists = computed(() => (areaListIds.value ? lists.value.filter((l) => areaListIds.value.has(l.id)) : lists.value));
+export const inArea = (task) => !areaListIds.value || areaListIds.value.has(task.list_id);
+// Today, Upcoming and the search show the area's tasks
+export const areaTasks = computed(() => liveTasks.value.filter(inArea));
+export const areaOpenTasks = computed(() => openTasks.value.filter(inArea));
+// Where a new task goes in the area shown, unless the page says otherwise: the first list
+// picked for it that's still there
+export const areaListId = computed(() => areas.current.value?.members.find((id) => store.lists.get(id) && !store.lists.get(id).deleted_at) ?? null);
 
 export const openCount = computed(() => {
   const counts = new Map();

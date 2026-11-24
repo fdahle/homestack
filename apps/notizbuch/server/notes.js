@@ -1,5 +1,6 @@
 // Notes and their files. Devices keep them all and sync through the kit (kit/sync.js):
-// POST /api/sync with changes of the kinds `note` and `file`.
+// POST /api/sync with changes of the kinds `note`, `file` and `area` (a group of labels,
+// kit/areas.js).
 //
 // Notes merge like this: when two devices change the text of the same note before either has
 // synced, the second one doesn't overwrite the first. Its text becomes a copy of the note, and
@@ -9,6 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequest } from './kit/errors.js';
 import { createSync, isIso, isoOrNull, UUID } from './kit/sync.js';
+import { areaKind } from './kit/areas.js';
 
 export { UUID };
 const MAX_BODY = 500_000;
@@ -146,6 +148,7 @@ export function createNoteStore(db) {
     kinds: {
       note: { table: 'notes', clean: cleanPatch, out: noteOut, apply: applyNote },
       file: { table: 'files', clean: cleanFilePatch, out: fileOut, apply: applyFile },
+      area: areaKind(db, { member: cleanLabel }),
     },
   });
 
@@ -210,13 +213,18 @@ export function createNoteStore(db) {
 
 // --- checking what devices send ---
 
+// One label: spaces tidied, at most 60 characters ('' when nothing is left)
+export function cleanLabel(raw) {
+  if (typeof raw !== 'string') throw new BadRequest('bad_labels');
+  return raw.trim().replace(/\s+/g, ' ').slice(0, 60);
+}
+
 export function cleanLabels(labels) {
   if (!Array.isArray(labels)) throw new BadRequest('bad_labels');
   const seen = new Set();
   const out = [];
   for (const raw of labels) {
-    if (typeof raw !== 'string') throw new BadRequest('bad_labels');
-    const label = raw.trim().replace(/\s+/g, ' ').slice(0, 60);
+    const label = cleanLabel(raw);
     if (!label || seen.has(label.toLowerCase())) continue;
     seen.add(label.toLowerCase());
     out.push(label);

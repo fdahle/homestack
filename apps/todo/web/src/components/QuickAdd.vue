@@ -5,13 +5,14 @@ import { showToast, useShortcut } from '../util.js';
 import { addDays, nextWeekday } from '../lib/dates.js';
 import { dayLabel, repeatLabel, timeLabel } from '../lib/labels.js';
 import { parseQuick } from '../lib/quick.js';
-import { addTask, lists, today } from '../store/tasks.js';
+import { addTask, areaListId, lists, today } from '../store/tasks.js';
 import Icon from '../kit/components/Icon.vue';
 import DropMenu from './DropMenu.vue';
 
 // The one field to add a task: type, Enter, done, and the field is ready for the next one.
 // Dates, times, priority, list and repeats can be typed into the text ("morgen 9 Uhr !! #Haushalt")
-// or set with the three buttons. `defaults` come from the page (Today: today; a list: that list).
+// or set with the three buttons. `defaults` come from the page (Today: today; a list: that list);
+// with an area shown, a task goes to the area's first list unless the page names one.
 // `visible(task)`: whether the page shows the new task; if not, a toast says where it went.
 const props = defineProps({
   defaults: { type: Object, default: () => ({}) },
@@ -26,7 +27,7 @@ const input = ref(null);
 const dateInput = ref(null);
 
 const parsed = computed(() => parseQuick(text.value, { today: today.value, lists: lists.value, skip: skip.value }));
-const fields = computed(() => ({ ...props.defaults, ...parsed.value.fields, ...manual.value }));
+const fields = computed(() => ({ ...(areaListId.value && { list_id: areaListId.value }), ...props.defaults, ...parsed.value.fields, ...manual.value }));
 
 watch(text, (value) => {
   if (!value.trim()) skip.value = [];

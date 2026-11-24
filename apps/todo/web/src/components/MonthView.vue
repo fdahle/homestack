@@ -2,11 +2,11 @@
 import { computed } from 'vue';
 import { lang, t, weekdayNames } from '../i18n.js';
 import { addDays, addMonths, toDate, weekStart } from '../lib/dates.js';
-import { openTasks, today } from '../store/tasks.js';
+import { areaOpenTasks, today } from '../store/tasks.js';
 import Icon from '../kit/components/Icon.vue';
 
 // A month to see which days have tasks. Each day shows up to three dots (in the colour of
-// the most important tasks) and a number when there are more. A tap picks the day.
+// the most important tasks) and a number when there are more. A tap picks the day. The area shown.
 const props = defineProps({ month: { type: String, required: true }, selected: String }); // month: 'YYYY-MM-01'
 const emit = defineEmits(['update:month', 'select']);
 
@@ -14,7 +14,7 @@ const title = computed(() => new Intl.DateTimeFormat(lang.value, { month: 'long'
 
 const byDay = computed(() => {
   const map = new Map();
-  for (const task of openTasks.value) {
+  for (const task of areaOpenTasks.value) {
     if (!task.due_date) continue;
     // Overdue tasks count on today
     const day = task.due_date < today.value ? today.value : task.due_date;

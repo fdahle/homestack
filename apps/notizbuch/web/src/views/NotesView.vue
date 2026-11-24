@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { t } from '../i18n.js';
 import { useShortcut, wide } from '../util.js';
 import { plainText } from '../lib/markdown.js';
-import { countLabels, createNote, filesOf, IN_LIST, purgeNote, store } from '../store/notes.js';
+import { areaLabel, areas, countLabels, createNote, filesOf, IN_LIST, inArea, purgeNote, store } from '../store/notes.js';
+import AreaSwitch from '../kit/components/AreaSwitch.vue';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import NoteCard from '../components/NoteCard.vue';
@@ -47,7 +48,10 @@ useShortcut('n', () => {
   write();
 });
 
-const all = computed(() => [...store.notes.values()].filter(IN_LIST[mode]));
+// The list's notes in the area shown
+const all = computed(() => [...store.notes.values()].filter((n) => IN_LIST[mode](n) && inArea(n)));
+// Another area: a label of the last one would show nothing
+watch(areas.currentId, () => (label.value = ''));
 // As chips above the notes on the phone; a computer has them in the sidebar (LabelNav)
 const labels = computed(() => countLabels(all.value));
 
@@ -79,9 +83,11 @@ const menu = computed(() => [
   { to: '/settings', icon: 'gear', label: t('nav.settings') },
 ]);
 
-// A new note opens right on top of the list (with the label that's filtered by)
+// A new note opens right on top of the list, with the label that's filtered by (or the
+// first label of the area shown, so it stays in it)
 function write() {
-  const note = createNote(label.value ? { labels: [label.value] } : {});
+  const start = label.value || areaLabel();
+  const note = createNote(start ? { labels: [start] } : {});
   router.push({ name: 'notes-note', params: { id: note.id }, query: { new: '' } });
 }
 
@@ -128,6 +134,8 @@ function emptyTrash() {
         <p v-if="!store.ready" class="muted center">{{ t('note.loading') }}</p>
 
         <template v-else>
+          <AreaSwitch v-if="!wide" class="page-areas" :areas="areas" />
+
           <div v-if="mode !== 'notes' && !wide && all.length" class="search-box">
             <Icon name="search" />
             <input ref="searchInput" v-model="q" type="search" :placeholder="searchLabel" :aria-label="searchLabel" />

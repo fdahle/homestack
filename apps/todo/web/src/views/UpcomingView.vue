@@ -4,8 +4,10 @@ import { useRoute } from 'vue-router';
 import { t } from '../i18n.js';
 import { addDays } from '../lib/dates.js';
 import { dayHeading } from '../lib/labels.js';
-import { byUrgency, openTasks, store, today } from '../store/tasks.js';
+import { areaOpenTasks, areas, byUrgency, inArea, store, today } from '../store/tasks.js';
+import { wide } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
+import AreaSwitch from '../kit/components/AreaSwitch.vue';
 import SplitView from '../kit/components/SplitView.vue';
 import QuickAdd from '../components/QuickAdd.vue';
 import TaskRow from '../components/TaskRow.vue';
@@ -13,7 +15,7 @@ import MonthView from '../components/MonthView.vue';
 import SyncState from '../components/SyncState.vue';
 
 // What's coming: day by day, or a month to look ahead. In the month, the day you pick is
-// where a new task goes.
+// where a new task goes. In the area shown.
 const route = useRoute();
 
 const stored = (() => {
@@ -34,7 +36,7 @@ watch(mode, (value) => {
 
 const days = computed(() => {
   const map = new Map();
-  for (const task of openTasks.value) {
+  for (const task of areaOpenTasks.value) {
     if (!task.due_date || task.due_date <= today.value) continue;
     if (!map.has(task.due_date)) map.set(task.due_date, []);
     map.get(task.due_date).push(task);
@@ -45,12 +47,12 @@ const days = computed(() => {
 const month = ref(`${today.value.slice(0, 7)}-01`);
 const selected = ref(today.value);
 const dayTasks = computed(() =>
-  openTasks.value
+  areaOpenTasks.value
     .filter((x) => x.due_date === selected.value || (selected.value === today.value && x.due_date && x.due_date < today.value))
     .sort(byUrgency));
 
 const defaults = computed(() => ({ due_date: mode.value === 'month' ? selected.value : addDays(today.value, 1) }));
-const visible = (task) => (mode.value === 'month' ? task.due_date === selected.value : task.due_date > today.value);
+const visible = (task) => inArea(task) && (mode.value === 'month' ? task.due_date === selected.value : task.due_date > today.value);
 const link = (task) => ({ name: 'upcoming-task', params: { id: task.id } });
 </script>
 
@@ -60,6 +62,7 @@ const link = (task) => ({ name: 'upcoming-task', params: { id: task.id } });
       <SyncState />
     </TopBar>
     <main>
+      <AreaSwitch v-if="!wide" class="page-areas" :areas="areas" />
       <div class="segmented wide view-switch" role="tablist">
         <button role="tab" :class="{ active: mode === 'list' }" :aria-selected="mode === 'list'" @click="mode = 'list'">{{ t('upcoming.asList') }}</button>
         <button role="tab" :class="{ active: mode === 'month' }" :aria-selected="mode === 'month'" @click="mode = 'month'">{{ t('upcoming.asMonth') }}</button>

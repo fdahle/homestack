@@ -12,6 +12,7 @@ import Icon from './Icon.vue';
 // tabs: [{ to, name, icon, label, also: [other route names that light this tab up] }]
 // extras: like tabs, only on a computer, at the right end of the bar (on the phone they live in a page's top bar).
 // Slot "sidebar": shown next to the app's name on a computer (a mode switch, for example).
+// Slot "after": after the tabs on a computer (Notizbuch's labels, To-do's lists in the sidebar).
 // nav: 'top' (a bar across the top on a computer) or 'side' (a sidebar instead).
 const props = defineProps({
   name: { type: String, required: true },
@@ -63,6 +64,7 @@ function runToastAction() {
         <Icon :name="tab.icon" />
         <span>{{ tab.label }}</span>
       </RouterLink>
+      <div class="nav-after"><slot name="after" /></div>
       <span class="nav-spacer"></span>
       <RouterLink v-for="tab in extras" :key="tab.name" :to="tab.to" class="nav-extra" :class="{ active: isActive(tab) }">
         <Icon :name="tab.icon" />

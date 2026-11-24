@@ -2,15 +2,17 @@
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { t } from '../i18n.js';
-import { useShortcut } from '../util.js';
-import { addList, byUrgency, liveTasks, lists, openCount, store } from '../store/tasks.js';
+import { useShortcut, wide } from '../util.js';
+import { addList, areaLists as lists, areas, areaTasks, byUrgency, openCount, store } from '../store/tasks.js';
 import TopBar from '../kit/components/TopBar.vue';
+import AreaSwitch from '../kit/components/AreaSwitch.vue';
 import Icon from '../kit/components/Icon.vue';
 import SplitView from '../kit/components/SplitView.vue';
 import TaskRow from '../components/TaskRow.vue';
 import SyncState from '../components/SyncState.vue';
 
-// The inbox and your lists, a field for a new list, and a search across every task
+// The inbox and your lists, a field for a new list, and a search across every task.
+// With an area shown: its lists and tasks (a new list joins it).
 const route = useRoute();
 const router = useRouter();
 const q = ref('');
@@ -21,7 +23,7 @@ useShortcut('/', () => search.value?.focus());
 const results = computed(() => {
   const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
-  return liveTasks.value
+  return areaTasks.value
     .filter((x) => {
       const text = [x.title, x.note, ...x.subtasks.map((s) => s.title)].join('\n').toLowerCase();
       return words.every((w) => text.includes(w));
@@ -34,6 +36,8 @@ function create() {
   const name = newName.value.trim();
   if (!name) return;
   const list = addList(name);
+  const area = areas.current.value;
+  if (area) areas.update(area.id, { members: [...area.members, list.id] });
   newName.value = '';
   router.push(`/list/${list.id}`);
 }
@@ -48,6 +52,7 @@ const link = (task) => ({ name: 'lists-task', params: { id: task.id } });
       <RouterLink to="/settings" class="icon-btn phone-only" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
     </TopBar>
     <main>
+      <AreaSwitch v-if="!wide" class="page-areas" :areas="areas" />
       <div class="search-box">
         <Icon name="search" />
         <input ref="search" v-model="q" type="search" :placeholder="t('lists.search')" :aria-label="t('lists.search')" />

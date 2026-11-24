@@ -2,8 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { lang, t } from '../i18n.js';
 import { relativeDay } from '../util.js';
-import { importKeep, labelCounts, renameLabel, store, sync } from '../store/notes.js';
+import { areas, importKeep, labelCounts, renameLabel, store, sync } from '../store/notes.js';
 import TopBar from '../kit/components/TopBar.vue';
+import AreaEditor from '../kit/components/AreaEditor.vue';
 import Icon from '../kit/components/Icon.vue';
 import AccountCards from '../kit/components/AccountCards.vue';
 import SyncState from '../components/SyncState.vue';
@@ -39,6 +40,13 @@ function saveRename() {
 function remove(label, n) {
   if (confirm(t('settings.removeLabelConfirm', { label, n }))) renameLabel(label, '');
 }
+
+// What an area can group: the labels on notes, and those an area has that no note has any more
+const areaChoices = computed(() => {
+  const names = labelCounts.value.map(([l]) => l);
+  for (const area of areas.list.value) for (const l of area.members) if (!names.some((x) => x.toLowerCase() === l.toLowerCase())) names.push(l);
+  return names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })).map((l) => ({ value: l, name: l }));
+});
 
 // --- import from Google Keep (works offline too: it all happens on the device) ---
 
@@ -115,6 +123,8 @@ const importLines = computed(() => {
           </li>
         </ul>
       </section>
+
+      <AreaEditor :areas="areas" :choices="areaChoices" :how="t('settings.areasHow')" :first="(label) => t('settings.areasFirst', { label })" />
 
       <section class="card form">
         <h2><Icon name="upload" />{{ t('settings.import') }}</h2>

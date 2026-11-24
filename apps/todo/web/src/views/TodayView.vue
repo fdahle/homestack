@@ -3,25 +3,28 @@ import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { lang, t } from '../i18n.js';
 import { isoDate, toDate } from '../lib/dates.js';
-import { byDone, byUrgency, liveTasks, openTasks, store, today, updateTask } from '../store/tasks.js';
+import { areaOpenTasks, areas, areaTasks, byDone, byUrgency, inArea, store, today, updateTask } from '../store/tasks.js';
+import { wide } from '../util.js';
 import TopBar from '../kit/components/TopBar.vue';
+import AreaSwitch from '../kit/components/AreaSwitch.vue';
 import Icon from '../kit/components/Icon.vue';
 import SplitView from '../kit/components/SplitView.vue';
 import QuickAdd from '../components/QuickAdd.vue';
 import TaskRow from '../components/TaskRow.vue';
 import SyncState from '../components/SyncState.vue';
 
-// Today: what's overdue, what's due today (most important first), and what you did today
+// Today: what's overdue, what's due today (most important first), and what you did today.
+// In the area shown.
 const route = useRoute();
 
-const overdue = computed(() => openTasks.value.filter((x) => x.due_date && x.due_date < today.value).sort(byUrgency));
-const todays = computed(() => openTasks.value.filter((x) => x.due_date === today.value).sort(byUrgency));
-const doneToday = computed(() => liveTasks.value.filter((x) => x.done_at && isoDate(new Date(x.done_at)) === today.value).sort(byDone));
+const overdue = computed(() => areaOpenTasks.value.filter((x) => x.due_date && x.due_date < today.value).sort(byUrgency));
+const todays = computed(() => areaOpenTasks.value.filter((x) => x.due_date === today.value).sort(byUrgency));
+const doneToday = computed(() => areaTasks.value.filter((x) => x.done_at && isoDate(new Date(x.done_at)) === today.value).sort(byDone));
 const showDone = ref(false);
 
 const dateLine = computed(() => new Intl.DateTimeFormat(lang.value, { weekday: 'long', day: 'numeric', month: 'long' }).format(toDate(today.value)));
 const link = (task) => ({ name: 'today-task', params: { id: task.id } });
-const visible = (task) => task.due_date && task.due_date <= today.value;
+const visible = (task) => task.due_date && task.due_date <= today.value && inArea(task);
 
 function allToToday() {
   for (const task of overdue.value) updateTask(task.id, { due_date: today.value });
@@ -35,6 +38,7 @@ function allToToday() {
       <RouterLink to="/settings" class="icon-btn phone-only" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
     </TopBar>
     <main>
+      <AreaSwitch v-if="!wide" class="page-areas" :areas="areas" />
       <p class="date-line muted">{{ dateLine }}</p>
       <QuickAdd :defaults="{ due_date: today }" :visible="visible" />
 

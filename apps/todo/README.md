@@ -13,9 +13,10 @@ Self-hosted tasks that are as quick to write down as a note, and work offline. O
 - **Priorities**: none, low, medium, high, shown as the colour of the tick circle; the most important come first.
 - **Repeats**: daily, weekdays, weekly, every 2 weeks, monthly, yearly, or your own (every n days/weeks/months/years, chosen weekdays), counted from the due date or from the day you did it. Ticking one off moves it to its next date and keeps a done copy. "Monthly on the 31st" stays on the 31st after a short month.
 - **Today** (overdue on top, with one tap to move them all to today), **Upcoming** day by day or as a month, **Lists** with colours and the inbox, a search across everything. Ticking off and deleting can be undone.
+- **Areas** like "Zuhause" and "Arbeit" group lists (in the settings). Each device picks the area it shows, or all of them: Today, Upcoming and Lists then show only its tasks, and a new task goes to the area's first list. The inbox is in no area.
 - **Reminders** as push notifications at a task's time, and a morning overview of the day (or not, in the settings).
 - **Calendar feed**: a secret address your phone's calendar subscribes to, so open tasks with a date show up next to Stammtisch's plans.
-- **Offline first**, like Notizbuch: all tasks are on the device, changes wait and sync when it's online. On a computer a task opens beside the list, and a list's page has all your lists as chips at the top, one click apart. German and English.
+- **Offline first**, like Notizbuch: all tasks are on the device, changes wait and sync when it's online. On a computer a sidebar with the area switch, the three pages and your lists, and a task opens beside the list. German and English.
 
 ## How the sync works
 

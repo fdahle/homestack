@@ -3,8 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api } from '../api.js';
 import { lang, t } from '../i18n.js';
 import { errorText, relativeDay, showToast } from '../util.js';
-import { loadSettings, openTasks, store, sync } from '../store/tasks.js';
+import { areas, lists, loadSettings, openTasks, store, sync } from '../store/tasks.js';
 import TopBar from '../kit/components/TopBar.vue';
+import AreaEditor from '../kit/components/AreaEditor.vue';
 import Icon from '../kit/components/Icon.vue';
 import AccountCards from '../kit/components/AccountCards.vue';
 import SyncState from '../components/SyncState.vue';
@@ -122,6 +123,11 @@ const lastSync = computed(() => {
   <TopBar :title="t('nav.settings')" sidebar-page back="/" />
   <main>
     <AccountCards>
+      <AreaEditor
+        :areas="areas" :choices="lists.map((l) => ({ value: l.id, name: l.name, cls: l.color ? `c-${l.color}` : 'c-none' }))"
+        :how="t('settings.areasHow')" :first="(list) => t('settings.areasFirst', { list })"
+      />
+
       <section class="card form">
         <h2><Icon name="bell" />{{ t('settings.reminders') }}</h2>
         <p class="muted small">{{ t('settings.remindersHow') }}</p>

@@ -1,8 +1,16 @@
 // Tasks and lists. Devices keep them all and sync through the kit (kit/sync.js): POST
-// /api/sync with changes of the kinds `task` and `list`, the latest change to a field wins.
+// /api/sync with changes of the kinds `task`, `list` and `area` (a group of lists,
+// kit/areas.js), the latest change to a field wins.
 
 import { BadRequest } from './kit/errors.js';
 import { cleanStamps, createSync, isoOrNull, text, UUID } from './kit/sync.js';
+import { areaKind } from './kit/areas.js';
+
+// An area's member: a list's id
+const listId = (value) => {
+  if (!UUID.test(String(value))) throw new BadRequest('bad_members');
+  return String(value);
+};
 
 export { UUID };
 export const COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', 'gray'];
@@ -68,6 +76,7 @@ export function createTaskStore(db) {
     kinds: {
       task: { table: 'tasks', clean: cleanTaskPatch, json: ['repeat', 'subtasks'], bool: ['remind'], out: taskOut, apply: applyTask },
       list: { table: 'lists', clean: cleanListPatch, out: listOut },
+      area: areaKind(db, { member: listId }),
     },
   });
 

@@ -118,6 +118,12 @@ for (let i = 1; i <= 200; i++) {
   task(`Aufgabe ${i}`, fields);
 }
 
+// --- areas: home and work (the long one and "Leer" in neither) ---
+
+const area = (name, position, members) => changes.push({ kind: 'area', id: randomUUID(), base_seq: 0, patch: { name, position, members } });
+area('Zuhause', 1, [home, shopping]);
+area('Arbeit', 2, [work, many]);
+
 // --- in ---
 
 let rejected = 0;
@@ -126,5 +132,5 @@ for (let i = 0; i < changes.length; i += 400) {
   for (const r of answer.rejected) console.warn(`  not taken: ${r.kind} ${r.id} (${r.error})`);
   rejected += answer.rejected.length;
 }
-console.log(`Sample data: ${changes.length - rejected} lists and tasks for ${user.username}`);
+console.log(`Sample data: ${changes.length - rejected} lists, areas and tasks for ${user.username}`);
 store.db.close();

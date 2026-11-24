@@ -8,6 +8,7 @@ import { api, ApiError, session } from '../api.js';
 import { t } from '../i18n.js';
 import { showToast } from '../util.js';
 import { createOffline } from '../kit/offline.js';
+import { createAreas } from '../kit/areas.js';
 import { prepareFile } from '../lib/files.js';
 import { readTakeout } from '../lib/keep.js';
 
@@ -20,10 +21,10 @@ const blobUrls = new Map();
 
 const off = createOffline({
   name: 'notizbuch',
-  kinds: { note: 'notes', file: 'files' },
+  kinds: { note: 'notes', file: 'files', area: 'areas' },
   // A server that lost notes (a backup put back) gets them back from the device; files only
   // come in by upload, so for those the server's list stands
-  sendBack: ['note'],
+  sendBack: ['note', 'area'],
   extraStores: ['uploads'],
   async onOpen(local) {
     for (const up of await local.all('uploads')) {
@@ -55,6 +56,19 @@ export const store = {
 };
 
 export const { sync, whenReady } = off;
+
+// Areas ("Zuhause", "Arbeit"): groups of labels. This device shows one of them, or all.
+// A note is in an area when it has one of its labels.
+export const areas = createAreas(off, 'notizbuch');
+
+export function inArea(note, area = areas.current.value) {
+  if (!area) return true;
+  const members = new Set(area.members.map((l) => l.toLowerCase()));
+  return note.labels.some((l) => members.has(l.toLowerCase()));
+}
+
+// What a new note starts with in the area shown: its first label, so the note stays in sight
+export const areaLabel = () => areas.current.value?.members[0] || '';
 
 const now = () => new Date().toISOString();
 const CONTENT = ['title', 'body', 'labels'];
@@ -103,6 +117,12 @@ export function renameLabel(from, to) {
     if (!note.labels.some((l) => l.toLowerCase() === key)) continue;
     const labels = note.labels.flatMap((l) => (l.toLowerCase() === key ? (to ? [to] : []) : [l]));
     updateNote(note.id, { labels: labels.filter((l, i) => labels.findIndex((x) => x.toLowerCase() === l.toLowerCase()) === i) });
+  }
+  // The areas keep the label under its new name
+  for (const area of areas.list.value) {
+    if (!area.members.some((l) => l.toLowerCase() === key)) continue;
+    const members = area.members.flatMap((l) => (l.toLowerCase() === key ? (to ? [to] : []) : [l]));
+    areas.update(area.id, { members: members.filter((l, i) => members.findIndex((x) => x.toLowerCase() === l.toLowerCase()) === i) });
   }
 }
 
@@ -269,10 +289,15 @@ export const IN_LIST = {
   trash: (n) => n.deleted_at,
 };
 
-// The labels on some notes, in alphabetical order: [[label, count]]
-export function countLabels(notes) {
+// The labels on some notes, in alphabetical order: [[label, count]]. With an area shown, only
+// the area's own labels (its notes may have others too).
+export function countLabels(notes, area = areas.current.value) {
   const counts = new Map();
   for (const n of notes) for (const l of n.labels) counts.set(l, (counts.get(l) || 0) + 1);
+  if (area) {
+    const members = new Set(area.members.map((l) => l.toLowerCase()));
+    for (const l of counts.keys()) if (!members.has(l.toLowerCase())) counts.delete(l);
+  }
   return [...counts].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base', numeric: true }));
 }
 

@@ -281,6 +281,11 @@ for (let i = 1; i <= 200; i++) {
   });
 }
 
+// Two areas: home and work (Sammlung, Wichtig, Später stay in neither)
+const area = (name, position, members) => changes.push({ kind: 'area', id: randomUUID(), base_seq: 0, patch: { name, position, members, created_at: daysAgo(30), updated_at: daysAgo(30) } });
+area('Zuhause', 1, ['Privat', 'Einkauf', 'Rezepte', 'Reisen']);
+area('Arbeit', 2, ['Arbeit', 'Ideen']);
+
 // --- in ---
 
 let rejected = 0;
@@ -299,5 +304,5 @@ for (const f of files) {
   store.notes.addFile(user.id, { id, note_id: f.noteId, name: f.name, type: f.type, size: f.buffer.length, width: f.width, height: f.height });
 }
 
-console.log(`Sample data: ${changes.length - rejected} notes (one of them deleted for good) and ${files.length} files for ${user.username}`);
+console.log(`Sample data: ${changes.length - rejected - 2} notes (one of them deleted for good), 2 areas and ${files.length} files for ${user.username}`);
 store.db.close();

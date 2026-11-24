@@ -87,7 +87,7 @@ main {
   max-width: 120px;
 }
 .app-nav a.active { color: var(--accent); }
-.app-nav .brand, .app-nav .nav-extra, .app-nav .nav-spacer, .app-nav .nav-slot { display: none; }
+.app-nav .brand, .app-nav .nav-extra, .app-nav .nav-spacer, .app-nav .nav-slot, .app-nav .nav-after { display: none; }
 
 /* --- buttons & forms --- */
 
@@ -206,6 +206,37 @@ label > span { display: block; margin-bottom: 4px; font-size: 0.85rem; color: va
 .segmented .active { background: var(--surface); box-shadow: var(--shadow); color: var(--accent); }
 .segmented.wide { display: flex; }
 .segmented.wide > * { flex: 1; }
+
+/* Which area the app shows (AreaSwitch): like .segmented, but it wraps instead of scrolling */
+.area-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px; border-radius: 14px; background: var(--line); }
+.area-switch button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 11px;
+  background: none;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.area-switch button:hover { background: color-mix(in srgb, var(--surface) 50%, transparent); }
+.area-switch button.active { background: var(--surface); box-shadow: var(--shadow); color: var(--accent); }
+/* On the phone it sits at the top of the page (class="page-areas") */
+.page-areas { margin: 0 0 12px; }
+
+/* The areas in the settings (AreaEditor) */
+.area-item { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.area-head { display: flex; align-items: center; gap: 6px; }
+.area-head input { flex: 1; min-width: 0; font-weight: 600; }
+.area-members { display: flex; flex-wrap: wrap; gap: 6px; }
+.area-item > p { margin: 0; }
+.area-new { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.area-new input { flex: 1; min-width: 0; }
 
 /* A choice between a few states, each in its own colour (--st, --st-soft).
    --n: buttons per row (the app sets it, e.g. 3 on the phone for six states) */
@@ -498,6 +529,16 @@ a.bar-label:hover { color: var(--accent); }
   .app-nav .brand:hover { background: none; }
   .app-nav .brand img { border-radius: 8px; }
   .app-nav .nav-slot { display: block; padding: 0 4px 12px; }
+  /* After the tabs: its own part of the sidebar, scrolling when it's long */
+  .app-nav .nav-after { display: block; flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; margin: 14px -12px 0; padding: 14px 12px 0; border-top: 1px solid var(--line); }
+  .app-nav .nav-slot:empty, .app-nav .nav-after:empty { display: none; }
+  /* A list of links there: a small heading, the name, a count at the end (labels, lists) */
+  .side-list { display: flex; flex-direction: column; gap: 1px; }
+  .app-nav .side-list a { padding: 7px 12px; font-weight: 500; }
+  .side-list-title { margin: 0 0 6px; padding: 0 12px; font-size: 0.75rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .side-list .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-list-count { color: var(--muted); font-size: 0.8rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .side-list a.active .side-list-count { color: var(--accent); }
   .app-nav .nav-spacer { display: block; flex: 1; }
   .app-nav .nav-extra { display: flex; }
 
@@ -520,6 +561,7 @@ a.bar-label:hover { color: var(--accent); }
   .nav-top .app-nav a { padding: 7px 12px; gap: 8px; }
   .nav-top .app-nav .brand { padding: 0 18px 0 4px; }
   .nav-top .app-nav .nav-slot { padding: 0 8px 0 0; }
+  .nav-top .app-nav .nav-after { margin: 0; padding: 0; border: 0; overflow: visible; }
   .nav-top .top { top: var(--head-h); }
   /* The bar already says which page this is: a title row with nothing else in it would only repeat it */
   .nav-top .top.nav-page:not(:has(.actions > :not(.phone-only))) { display: none; }
