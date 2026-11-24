@@ -2,19 +2,23 @@
 import { computed } from 'vue';
 import { t } from './i18n.js';
 import AppShell from './kit/components/AppShell.vue';
+import LabelNav from './components/LabelNav.vue';
 
+// On a computer a sidebar, like Keep's: the three lists, the labels under them, settings at
+// the bottom. The phone has no tabs: the + on the notes for a new note, the other lists behind
+// the ⋮, the labels as chips above the notes.
 const tabs = computed(() => [
   { to: '/', name: 'notes', icon: 'note', label: t('nav.notes') },
-]);
-// At the right end of the bar on a computer; on the phone (which has no tabs, only the + on the notes)
-// behind the ⋮ on the notes page. A new note: the box above the notes, or the +.
-const extras = computed(() => [
   { to: '/archive', name: 'archive', icon: 'archive', label: t('nav.archive') },
   { to: '/trash', name: 'trash', icon: 'trash', label: t('nav.trash') },
+]);
+const extras = computed(() => [
   { to: '/settings', name: 'settings', icon: 'gear', label: t('nav.settings') },
 ]);
 </script>
 
 <template>
-  <AppShell name="Notizbuch" :tabs="tabs" :extras="extras" />
+  <AppShell name="Notizbuch" nav="side" :tabs="tabs" :extras="extras">
+    <template #sidebar><LabelNav /></template>
+  </AppShell>
 </template>

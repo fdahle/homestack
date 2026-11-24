@@ -262,6 +262,20 @@ export async function importKeep(files, onProgress) {
 
 // --- reading ---
 
+// Which notes each list shows
+export const IN_LIST = {
+  notes: (n) => !n.deleted_at && !n.archived_at,
+  archive: (n) => !n.deleted_at && n.archived_at,
+  trash: (n) => n.deleted_at,
+};
+
+// The labels on some notes, in alphabetical order: [[label, count]]
+export function countLabels(notes) {
+  const counts = new Map();
+  for (const n of notes) for (const l of n.labels) counts.set(l, (counts.get(l) || 0) + 1);
+  return [...counts].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base', numeric: true }));
+}
+
 // Labels on the notes that aren't in the trash, in alphabetical order: [[label, count]]
 export const labelCounts = computed(() => {
   const counts = new Map();

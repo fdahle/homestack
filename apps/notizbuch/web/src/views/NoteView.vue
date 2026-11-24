@@ -199,7 +199,10 @@ const showCreated = ref(false);
 </script>
 
 <template>
-  <TopBar :title="''" :back="listPath">
+  <!-- On the phone a bar with the way back and the note's tools. On a computer the sheet has no
+       header (Escape, a click beside it or "Close" close it): the pin beside the title, the
+       tools in the footer, like Keep. -->
+  <TopBar v-if="!wide" :title="''" :back="listPath">
     <template v-if="note && !trashed">
       <button class="icon-btn" :class="{ active: tools === 'on' }" :aria-label="t('note.format')" :aria-pressed="tools === 'on'" :title="t('note.format')" @click="toggleTools"><Icon name="format" /></button>
       <button class="icon-btn" :class="{ on: note.pinned }" :aria-label="note.pinned ? t('note.unpin') : t('note.pin')" :aria-pressed="note.pinned" :title="note.pinned ? t('note.unpin') : t('note.pin')" @click="togglePin"><Icon name="pin" /></button>
@@ -229,18 +232,21 @@ const showCreated = ref(false);
       <p v-if="trashed" class="info warn-box"><Icon name="trash" />{{ t('note.inTrash') }}</p>
       <p v-else-if="note.archived_at" class="tag archived-tag"><Icon name="archive" />{{ t('note.inArchive') }}</p>
 
-      <input
-        ref="titleInput"
-        class="note-title"
-        :value="draft.title"
-        :placeholder="t('note.title')"
-        :aria-label="t('note.title')"
-        :readonly="trashed"
-        maxlength="300"
-        enterkeyhint="next"
-        @input="setTitle"
-        @keydown.enter.prevent="$refs.editor?.focus('start')"
-      />
+      <div class="title-row">
+        <input
+          ref="titleInput"
+          class="note-title"
+          :value="draft.title"
+          :placeholder="t('note.title')"
+          :aria-label="t('note.title')"
+          :readonly="trashed"
+          maxlength="300"
+          enterkeyhint="next"
+          @input="setTitle"
+          @keydown.enter.prevent="$refs.editor?.focus('start')"
+        />
+        <button v-if="wide && !trashed" class="icon-btn" :class="{ on: note.pinned }" :aria-label="note.pinned ? t('note.unpin') : t('note.pin')" :aria-pressed="note.pinned" :title="note.pinned ? t('note.unpin') : t('note.pin')" @click="togglePin"><Icon name="pin" /></button>
+      </div>
 
       <Attachments :files="files" :readonly="trashed" />
 
@@ -249,7 +255,24 @@ const showCreated = ref(false);
       <!-- Under the text, at the bottom of the screen however short the note is -->
       <LabelEditor :model-value="note.labels" :disabled="trashed" @update:model-value="setLabels" />
 
-      <footer class="note-foot">
+      <footer v-if="wide" class="note-foot note-tools">
+        <div class="tool-group">
+          <template v-if="!trashed">
+            <button class="icon-btn" :aria-label="t('note.attach')" :title="t('note.attach')" @click="fileInput.click()"><Icon name="paperclip" /></button>
+            <button class="icon-btn" :class="{ active: tools === 'on' }" :aria-label="t('note.format')" :aria-pressed="tools === 'on'" :title="t('note.format')" @click="toggleTools"><Icon name="format" /></button>
+            <ColorPicker :model-value="color" @update:model-value="setColor" />
+            <button class="icon-btn" :aria-label="note.archived_at ? t('note.unarchive') : t('note.archive')" :title="note.archived_at ? t('note.unarchive') : t('note.archive')" @click="toggleArchive"><Icon :name="note.archived_at ? 'unarchive' : 'archive'" /></button>
+            <button class="icon-btn" :aria-label="t('note.trash')" :title="t('note.trash')" @click="toTrash"><Icon name="trash" /></button>
+          </template>
+          <template v-else>
+            <button class="btn small" @click="restore"><Icon name="restore" />{{ t('note.restore') }}</button>
+            <button class="icon-btn danger" :aria-label="t('note.purge')" :title="t('note.purge')" @click="purge"><Icon name="trash" /></button>
+          </template>
+        </div>
+        <button type="button" class="note-dates" :title="showCreated ? edited : created" @click="showCreated = !showCreated">{{ showCreated ? created : edited }}</button>
+        <button type="button" class="btn small close-note" :title="`${t('close')} (Esc)`" @click="back">{{ t('close') }}</button>
+      </footer>
+      <footer v-else class="note-foot">
         <button v-if="!trashed" class="icon-btn" :aria-label="t('note.attach')" :title="t('note.attach')" @click="fileInput.click()"><Icon name="paperclip" /></button>
         <span v-else></span>
         <button type="button" class="note-dates" :title="showCreated ? edited : created" @click="showCreated = !showCreated">{{ showCreated ? created : edited }}</button>

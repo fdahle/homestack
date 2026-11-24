@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { t } from '../i18n.js';
 import { useShortcut, wide } from '../util.js';
 import { plainText } from '../lib/markdown.js';
-import { createNote, filesOf, purgeNote, store } from '../store/notes.js';
+import { countLabels, createNote, filesOf, IN_LIST, purgeNote, store } from '../store/notes.js';
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import NoteCard from '../components/NoteCard.vue';
@@ -47,18 +47,9 @@ useShortcut('n', () => {
   write();
 });
 
-const IN_MODE = {
-  notes: (n) => !n.deleted_at && !n.archived_at,
-  archive: (n) => !n.deleted_at && n.archived_at,
-  trash: (n) => n.deleted_at,
-};
-const all = computed(() => [...store.notes.values()].filter(IN_MODE[mode]));
-
-const labels = computed(() => {
-  const counts = new Map();
-  for (const n of all.value) for (const l of n.labels) counts.set(l, (counts.get(l) || 0) + 1);
-  return [...counts].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base', numeric: true }));
-});
+const all = computed(() => [...store.notes.values()].filter(IN_LIST[mode]));
+// As chips above the notes on the phone; a computer has them in the sidebar (LabelNav)
+const labels = computed(() => countLabels(all.value));
 
 // Every word has to be somewhere: title, text, labels or a file name
 const haystack = (n) => [n.title, plainText(n.body), ...n.labels, ...filesOf(n.id).map((f) => f.name)].join('\n').toLowerCase();
@@ -78,6 +69,7 @@ const pinned = computed(() => (mode === 'notes' ? shown.value.filter((n) => n.pi
 const others = computed(() => (mode === 'notes' ? shown.value.filter((n) => !n.pinned) : shown.value));
 
 const title = computed(() => t(`nav.${mode}`));
+const searchLabel = computed(() => t(`notes.search.${mode}`));
 // Two columns on the phone, as many as fit on a computer
 const columns = computed(() => (wide.value ? { minWidth: 230, gap: 14 } : { minWidth: 150, gap: 8 }));
 const cardLink = (n) => ({ name: `${mode}-note`, params: { id: n.id } });
@@ -115,16 +107,17 @@ function emptyTrash() {
 <template>
   <div class="notes" :class="{ 'has-note': hasNote }">
     <div class="notes-list">
-      <!-- The notes: the search is the header, like a notepad you look things up in -->
-      <header v-if="mode === 'notes'" class="top notes-top">
+      <!-- The search is the header, like a notepad you look things up in. On the phone the
+           archive and the trash have a title and a way back instead (there is no sidebar). -->
+      <header v-if="mode === 'notes' || wide" class="top notes-top">
         <div class="search-box top-search">
           <Icon name="search" />
-          <input ref="searchInput" v-model="q" type="search" :placeholder="t('notes.search')" :aria-label="t('notes.search')" />
+          <input ref="searchInput" v-model="q" type="search" :placeholder="searchLabel" :aria-label="searchLabel" />
           <kbd v-if="!q" class="desktop-only">/</kbd>
         </div>
         <div class="actions">
           <SyncState />
-          <MoreMenu class="phone-only" :items="menu" />
+          <MoreMenu v-if="mode === 'notes'" class="phone-only" :items="menu" />
         </div>
       </header>
       <TopBar v-else :title="title" back="/" sidebar-page>
@@ -135,17 +128,16 @@ function emptyTrash() {
         <p v-if="!store.ready" class="muted center">{{ t('note.loading') }}</p>
 
         <template v-else>
-          <div v-if="mode !== 'notes' && all.length" class="search-box">
+          <div v-if="mode !== 'notes' && !wide && all.length" class="search-box">
             <Icon name="search" />
-            <input ref="searchInput" v-model="q" type="search" :placeholder="t('notes.search')" :aria-label="t('notes.search')" />
-            <kbd v-if="!q" class="desktop-only">/</kbd>
+            <input ref="searchInput" v-model="q" type="search" :placeholder="searchLabel" :aria-label="searchLabel" />
           </div>
 
           <button v-if="mode === 'notes' && all.length" type="button" class="write-box desktop-only" @click="write">
             <span class="grow">{{ t('notes.write') }}</span><kbd>N</kbd><Icon name="edit" />
           </button>
 
-          <div v-if="labels.length" class="chips" role="group" :aria-label="t('notes.labels')">
+          <div v-if="labels.length" class="chips phone-only" role="group" :aria-label="t('notes.labels')">
             <button class="chip" :class="{ active: !label }" @click="label = ''">{{ t('notes.allLabels') }}</button>
             <button v-for="[l, n] in labels" :key="l" class="chip" :class="{ active: label === l }" @click="label = label === l ? '' : l">
               {{ l }}<span class="chip-count">{{ n }}</span>

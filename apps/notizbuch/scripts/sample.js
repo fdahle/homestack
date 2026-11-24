@@ -119,7 +119,8 @@ note('Einkaufsliste', '- [ ] Milch\n- [ ] Brot (Vollkorn)\n- [x] Äpfel\n- [ ] K
   labels: ['Einkauf'],
   pinned: true,
 });
-note('WLAN für Gäste', 'Netz: **Zuhause-Gast**\nPasswort: `Sonnenblume-2026!`', { pinned: true, labels: ['Privat'] });
+// A line break inside a paragraph is a \ at the end of the line, as the editor writes it
+note('WLAN für Gäste', 'Netz: **Zuhause-Gast**\\\nPasswort: `Sonnenblume-2026!`', { pinned: true, labels: ['Privat'] });
 const plan = note(
   'Projekt Nordlicht – Besprechung',
   [

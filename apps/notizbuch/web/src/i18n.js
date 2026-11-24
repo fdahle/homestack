@@ -7,7 +7,7 @@ const de = {
   nav: { notes: 'Notizen', new: 'Neu', archive: 'Archiv', trash: 'Papierkorb', settings: 'Einstellungen' },
   notes: {
     title: 'Notizbuch',
-    search: 'Notizen durchsuchen',
+    search: { notes: 'Notizen durchsuchen', archive: 'Archiv durchsuchen', trash: 'Papierkorb durchsuchen' },
     pinned: 'Angeheftet',
     others: 'Weitere',
     empty: 'Noch keine Notizen. Schreib deine erste.',
@@ -144,7 +144,7 @@ const en = {
   nav: { notes: 'Notes', new: 'New', archive: 'Archive', trash: 'Trash', settings: 'Settings' },
   notes: {
     title: 'Notizbuch',
-    search: 'Search notes',
+    search: { notes: 'Search notes', archive: 'Search the archive', trash: 'Search the trash' },
     pinned: 'Pinned',
     others: 'Others',
     empty: 'No notes yet. Write your first one.',
