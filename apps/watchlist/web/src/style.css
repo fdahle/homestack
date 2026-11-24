@@ -137,7 +137,8 @@
 /* --- up next --- */
 
 .next-list { display: grid; gap: 10px; }
-.next-card { display: flex; align-items: center; gap: 14px; margin: 0; padding: 12px; }
+/* min-width: a long title shortens instead of widening the card past the screen (the page would pan sideways) */
+.next-card { display: flex; align-items: center; gap: 14px; min-width: 0; margin: 0; padding: 12px; }
 .next-card.selected { outline: 2px solid var(--accent); outline-offset: -1px; }
 .next-poster { flex: 0 0 64px; }
 .next-poster .cover { border-radius: 8px; }

@@ -7,7 +7,6 @@ import { episodeCode, episodeName, errorText, formatDay, itemChange, itemPath, P
 import TopBar from '../kit/components/TopBar.vue';
 import Icon from '../kit/components/Icon.vue';
 import SplitView from '../kit/components/SplitView.vue';
-import ModeSwitch from '../components/ModeSwitch.vue';
 import Poster from '../components/Poster.vue';
 
 // What to watch next in each show you are watching, and what is coming soon
@@ -80,7 +79,6 @@ const dayLabel = (day) => (daysAway(day) <= 1 ? relativeDay(day, data.value.toda
       <RouterLink to="/einstellungen" class="icon-btn phone-only" :aria-label="t('nav.settings')"><Icon name="gear" /></RouterLink>
     </TopBar>
     <main class="wide">
-      <ModeSwitch class="phone-only page-mode" />
       <p v-if="error" class="error">{{ error }}</p>
       <p v-else-if="!data" class="muted center">…</p>
 

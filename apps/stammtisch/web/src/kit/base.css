@@ -522,6 +522,8 @@ a.bar-label:hover { color: var(--accent); }
   .nav-top .app-nav .brand { padding: 0 18px 0 4px; }
   .nav-top .app-nav .nav-slot { padding: 0 8px 0 0; }
   .nav-top .top { top: var(--head-h); }
+  /* The bar already says which page this is: a title row with nothing else in it would only repeat it */
+  .nav-top .top.nav-page:not(:has(.actions > :not(.phone-only))) { display: none; }
   .nav-top .split-detail { top: var(--head-h); height: calc(100vh - var(--head-h)); }
   .nav-top .split-detail .top { top: 0; }
   .nav-top .toast { left: 50%; }

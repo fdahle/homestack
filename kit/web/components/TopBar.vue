@@ -9,9 +9,12 @@ import Icon from './Icon.vue';
 // Beside a list (SplitView on a wide screen) the back button closes the entry instead.
 // sidebarPage: a page the navigation links to (settings): on a computer the bar at the top is the
 // way back, so the back button only shows on the phone.
+// A page the navigation leads to (a tab, settings) is already named by the bar at the top on a
+// computer: there its own title row hides, unless it holds buttons that show on a computer.
 const props = defineProps({ title: String, back: [String, Boolean], sidebarPage: Boolean });
 const router = useRouter();
 const inPane = inject('splitPane', false);
+const navPage = !props.back || props.sidebarPage;
 
 function goBack() {
   if (window.history.state?.back) router.back();
@@ -20,7 +23,7 @@ function goBack() {
 </script>
 
 <template>
-  <header class="top">
+  <header class="top" :class="{ 'nav-page': navPage }">
     <button v-if="back && !(inPane && wide) && !(sidebarPage && wide)" class="icon-btn" :aria-label="t('back')" @click="goBack"><Icon name="back" /></button>
     <h1>{{ title }}</h1>
     <div class="actions">
